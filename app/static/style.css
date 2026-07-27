@@ -1,0 +1,265 @@
+:root {
+  color-scheme: light;
+  --bg: #f8f2e9;
+  --card: #fffefa;
+  --text: #171411;
+  --muted: #645d54;
+  --soft: #8a8175;
+  --line: #ded6ca;
+  --accent: #9f3232;
+  --accent-hover: #882a2a;
+  --accent-soft: #fff4f2;
+  --shadow: rgba(52, 38, 24, 0.055);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Arial, Helvetica, sans-serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.page {
+  width: min(1350px, calc(100vw - 48px));
+  margin: 0 auto;
+  padding: 50px 0 64px;
+}
+
+.hero {
+  margin-bottom: 30px;
+}
+
+.hero h1 {
+  margin: 0 0 10px;
+  font-size: clamp(40px, 5vw, 56px);
+  font-weight: 760;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+
+.hero p,
+.notice,
+.meta,
+.source {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.searchBox,
+.result {
+  background: rgba(255, 254, 250, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 24px;
+  box-shadow: 0 16px 45px var(--shadow);
+}
+
+.queryInput {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  border: 1px solid #d7cfc4;
+  border-radius: 7px;
+  padding: 18px;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.5;
+  background: white;
+  color: var(--text);
+  outline: none;
+}
+
+.queryInput:focus {
+  border-color: rgba(159, 50, 50, 0.55);
+  box-shadow: 0 0 0 3px rgba(159, 50, 50, 0.08);
+}
+
+.stepBlock {
+  margin-top: 22px;
+}
+
+.questionText {
+  margin: 0 0 12px;
+  font-size: 21px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.choiceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.choiceGrid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.choiceButton {
+  display: grid;
+  gap: 8px;
+  min-height: 92px;
+  padding: 17px 18px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.choiceButton:hover {
+  border-color: #cfc3b4;
+  transform: translateY(-1px);
+}
+
+.choiceButton:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(159, 50, 50, 0.65);
+  background: var(--accent-soft);
+}
+
+.choiceButton input {
+  display: none;
+}
+
+.choiceButton span {
+  font-size: 21px;
+  font-weight: 690;
+  letter-spacing: -0.025em;
+}
+
+.choiceButton small {
+  color: var(--muted);
+  font-size: 15.5px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.button {
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  padding: 12px 22px;
+  font-size: 18px;
+  font-weight: 650;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition:
+    background 0.16s ease,
+    transform 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.button.secondary {
+  background: #fbf6ee;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.button.secondary:hover:not(:disabled) {
+  background: #f5ede3;
+}
+
+.button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.results {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.resultTitle {
+  font-weight: 690;
+  font-size: 18px;
+  margin: 14px 0 8px;
+  letter-spacing: -0.018em;
+}
+
+.source {
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.meta {
+  font-size: 14px;
+  margin-top: 5px;
+  color: var(--soft);
+}
+
+.pali {
+  white-space: pre-wrap;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 19px;
+  line-height: 1.65;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #211b15;
+}
+
+.translation {
+  white-space: pre-wrap;
+  background: #fff8ed;
+  border-left: 3px solid #d9a245;
+  border-radius: 7px;
+  padding: 14px 16px;
+  line-height: 1.6;
+  font-size: 17.5px;
+  font-weight: 400;
+}
+
+.error {
+  margin-top: 14px;
+  border: 1px solid #e3a5a5;
+  background: #fff0f0;
+  color: #8a1f1f;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 400;
+}
+
+.loading {
+  margin-top: 22px;
+  padding: 18px;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .choiceGrid,
+  .choiceGrid.three {
+    grid-template-columns: 1fr;
+  }
+
+  .controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

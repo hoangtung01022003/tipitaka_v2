@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tipitaka AI Search</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <h1>Tipitaka AI Search</h1>
+        <p>Tìm kiếm ngữ nghĩa trong kinh điển Pali, hiển thị Pali gốc và dịch từng đoạn bằng Gemini khi cần.</p>
+      </header>
+
+      <section class="searchBox">
+        <form id="searchForm">
+          <textarea id="query" name="query" class="queryInput" placeholder="Nhập câu hỏi tiếng Việt...">{{ default_query }}</textarea>
+
+          <div class="stepBlock">
+            <p class="questionText">Bạn muốn tìm kiếm bài kinh ở trong phần nào?</p>
+            <div class="choiceGrid">
+              {% for item in corpus_options %}
+                <label class="choiceButton">
+                  <input type="radio" name="corpus_type" value="{{ item.value }}" required />
+                  <span>{{ item.label }}</span>
+                  <small>{{ item.description }}</small>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="stepBlock" id="pitakaBlock">
+            <p class="questionText">Bạn muốn tìm kiếm ở trong Tạng nào?</p>
+            <div class="choiceGrid three">
+              {% for item in pitaka_options %}
+                <label class="choiceButton">
+                  <input type="radio" name="pitaka_type" value="{{ item.value }}" />
+                  <span>{{ item.label }}</span>
+                  <small>{{ item.description }}</small>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="controls">
+            <span class="notice" id="selectedNotice">Hãy chọn phần dữ liệu và Tạng cần tìm.</span>
+            <button class="button" type="submit">Tìm kiếm</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="resultsWrap"></section>
+    </main>
+
+    <script>
+      const form = document.getElementById("searchForm");
+      const resultsWrap = document.getElementById("resultsWrap");
+      const selectedNotice = document.getElementById("selectedNotice");
+      const pitakaBlock = document.getElementById("pitakaBlock");
+
+      function updateNotice() {
+        const corpus = form.querySelector("input[name='corpus_type']:checked");
+        const pitaka = form.querySelector("input[name='pitaka_type']:checked");
+        if (!corpus) {
+          selectedNotice.textContent = "Hãy chọn phần dữ liệu và Tạng cần tìm.";
+          return;
+        }
+        if (corpus.value === "nrf") {
+          pitakaBlock.style.display = "none";
+          form.querySelectorAll("input[name='pitaka_type']").forEach((item) => (item.checked = false));
+          selectedNotice.textContent = "Đã chọn: Ngoại điển.";
+          return;
+        }
+        pitakaBlock.style.display = "block";
+        selectedNotice.textContent = pitaka ? "Đã chọn xong, có thể tìm kiếm." : "Hãy chọn Tạng cần tìm.";
+      }
+
+      form.addEventListener("change", updateNotice);
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        const corpus = data.get("corpus_type");
+        const pitaka = data.get("pitaka_type");
+        if (!corpus) return;
+        if (corpus !== "nrf" && !pitaka) {
+          selectedNotice.textContent = "Vui lòng chọn Tạng trước khi tìm.";
+          return;
+        }
+
+        resultsWrap.innerHTML = "<div class='loading'>Đang tối ưu truy vấn bằng Gemini và tìm kiếm...</div>";
+        const res = await fetch("/search-page", {
+          method: "POST",
+          body: data,
+        });
+        resultsWrap.innerHTML = await res.text();
+      });
+
+      async function translatePassage(id) {
+        const target = document.querySelector(`[data-translation='${id}']`);
+        const button = document.querySelector(`[data-translate-button='${id}']`);
+        if (!target || !button) return;
+        button.disabled = true;
+        button.textContent = "Đang dịch...";
+        try {
+          const res = await fetch(`/api/passages/${id}`);
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || "Không dịch được.");
+          target.innerHTML = `<div class="translation">${json.translation?.vi || "Chưa dịch được."}</div>`;
+        } catch (error) {
+          target.innerHTML = `<div class="error">${error.message}</div>`;
+          button.disabled = false;
+          button.textContent = "Dịch đoạn này";
+        }
+      }
+
+      window.translatePassage = translatePassage;
+    </script>
+  </body>
+</html>
