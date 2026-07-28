@@ -10,7 +10,7 @@ from .config import settings
 from .db import execute, fetch_one
 
 
-PROMPT_VERSION = "python-pali-vi-literal-v3"
+PROMPT_VERSION = "python-pali-vi-contextual-v5"
 CHUNKED_PROMPT_VERSION = f"{PROMPT_VERSION}-chunked"
 TRANSLATION_FALLBACK_CHUNK_CHARS = 3200
 TRANSLATION_RESCUE_CHUNK_CHARS = 900
@@ -176,12 +176,18 @@ def _parse_translation_response(raw_text: str, model: str) -> Translation:
 def _translation_prompt(pali_text: str, json_mode: bool) -> str:
     lines = [
         "Bạn là trợ lý dịch thuật Pali sang tiếng Việt cho văn bản kinh điển Phật giáo Theravāda.",
-        "Dịch sát nguyên văn Pali sang tiếng Việt, ưu tiên đúng nghĩa trước văn chương.",
-        "Viết thành bản dịch liền mạch, dễ đọc. Không dịch kiểu chú giải từng cụm trong ngoặc.",
-        "Không chèn từ Pali trong ngoặc ngay sau mỗi cụm tiếng Việt, trừ khi thật sự cần để tránh mơ hồ.",
-        "Giữ cấu trúc ý của câu gốc; không thêm ý giáo lý nếu Pali không nói.",
-        "Văn phong trang nghiêm, trong sáng, không quá Hán-Việt nếu có thể nói tự nhiên.",
-        "Thuật ngữ nên nhất quán: sīla=giới; dāna=bố thí; cāga=xả thí; dakkhiṇā=cúng dường; vipāka=quả báo/quả dị thục; phala=quả; puñña=phước/công đức; saraṇa=quy y/nơi nương tựa; aparappaccaya=không do người khác làm duyên/không lệ thuộc vào người khác.",
+        "Nhiệm vụ: dịch văn bản Pali sang tiếng Việt tự nhiên, rõ nghĩa, trang nghiêm và chính xác.",
+        "Không dịch máy móc từng chữ. Hãy ưu tiên truyền đạt đúng ý nghĩa của câu Pali bằng tiếng Việt dễ hiểu.",
+        "Giữ đầy đủ nội dung của văn bản gốc; không tóm tắt, không bỏ ý, không thêm ý giáo lý ngoài văn bản.",
+        "Nếu câu Pali rất dài, được phép tách thành vài câu tiếng Việt ngắn hơn để dễ đọc, miễn không đổi nghĩa.",
+        "Nếu văn bản thuộc dạng vấn đáp, tranh luận, phân tích pháp số hoặc định nghĩa Abhidhamma, hãy dịch theo đúng văn thể đó.",
+        "Không dịch kiểu chú giải từng cụm trong ngoặc. Không chèn từ Pali sau mỗi cụm tiếng Việt.",
+        "Chỉ giữ thuật ngữ Pali trong ngoặc khi thuật ngữ đó quan trọng, khó dịch hết nghĩa, hoặc cần đối chiếu học thuật.",
+        "Dùng thuật ngữ Phật học tiếng Việt nhất quán, quen thuộc với truyền thống Theravāda.",
+        "Với các thuật ngữ có nhiều cách dịch, hãy chọn cách dịch phù hợp nhất theo văn cảnh.",
+        "Không áp dụng máy móc một bảng thuật ngữ cố định; luôn xét nghĩa theo văn cảnh Pali cụ thể.",
+        "Với các đoạn lặp công thức hoặc ký hiệu lược như ...pe..., hãy dịch gọn theo đúng ý lược, không tự thêm nội dung không có trong văn bản.",
+        "Văn phong nên trong sáng, mạch lạc, không quá Hán-Việt nếu có thể nói tự nhiên hơn.",
         "Nếu đoạn dài, vẫn dịch đủ toàn bộ, không tóm tắt.",
     ]
     if json_mode:
