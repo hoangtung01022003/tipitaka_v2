@@ -21,6 +21,13 @@ PITAKA_PREFIXES = {
 SNIPPET_MIN_CHARS = 900
 SNIPPET_MAX_CHARS = 2600
 
+PITAKA_SOURCE_ROOTS = {
+    "vinaya": {"vinayapitaka", "vinayapitake"},
+    "sutta": {"suttapitaka", "suttapitake", "suttantapitaka", "suttantapitake"},
+    "abhidhamma": {"abhidhammapitaka", "abhidhammapitake"},
+    "abhidhammapitaka": {"abhidhammapitaka", "abhidhammapitake"},
+}
+
 
 def _regex_for_terms(terms: list[str]) -> str:
     escaped = [re.escape(normalize_pali(term)) for term in terms if normalize_pali(term) and " " not in normalize_pali(term)]
@@ -144,17 +151,39 @@ def _pitaka_label(pitaka_type: str | None, corpus_type: str) -> str | None:
     return f"{base} ({_source_label(corpus_type)})"
 
 
-def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None) -> str:
-    section_source = _source_path_from_value(row.get("section_source_path"))
-    passage_source = _source_path(row.get("hierarchy") or {})
-    source = section_source or passage_source
+def _clean_source_items(source: list[str], pitaka_type: str | None) -> list[str]:
     noisy = {
         "Namo tassa bhagavato arahato sammāsambuddhassa",
         "Nidānavaṇṇanā niṭṭhitā.",
         "Paṭhamavaggavaṇṇanā niṭṭhitā.",
         "Dutiyavaggavaṇṇanā niṭṭhitā.",
     }
-    clean = [item for item in source if item and item not in noisy and "niṭṭhitā" not in item.lower()]
+    pitaka_roots = PITAKA_SOURCE_ROOTS.get(pitaka_type or "", set())
+    clean: list[str] = []
+    skipped_pitaka_root = False
+
+    for item in source:
+        label = str(item or "").strip()
+        if not label or label in noisy:
+            continue
+        normalized = normalize_pali(label)
+        if "nitthita" in normalized or "samatt" in normalized:
+            continue
+        if pitaka_roots and not skipped_pitaka_root and normalized in pitaka_roots:
+            skipped_pitaka_root = True
+            continue
+        if clean and normalize_pali(clean[-1]) == normalized:
+            continue
+        clean.append(label)
+
+    return clean
+
+
+def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None) -> str:
+    section_source = _source_path_from_value(row.get("section_source_path"))
+    passage_source = _source_path(row.get("hierarchy") or {})
+    source = section_source or passage_source
+    clean = _clean_source_items(source, pitaka_type)
     corpus = corpus_types[0] if corpus_types else "mul"
     prefix = [_source_label(corpus)]
     pitaka = _pitaka_label(pitaka_type, corpus)
@@ -222,6 +251,7 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
         "sourcePath": _display_source(row, corpus_types, pitaka_type),
         "paragraphNo": _paragraph_no(row, rank),
         "paliText": row["pali_text"],
+        "contextExpanded": False,
         "translation": {"vi": None, "fromCache": False},
         "matchReason": _match_reason(score, keyword, concept, float(row.get("semantic_score") or 0)),
         "sectionId": str(section_id) if section_id else None,
@@ -395,6 +425,7 @@ def _expand_short_snippets(results: list[dict]) -> None:
         if len(parts) > 1:
             item["paliText"] = "\n\n".join(parts)
             item["snippetParagraphs"] = snippet_paragraphs
+            item["contextExpanded"] = True
 
 
 def _attach_translations(results: list[dict]) -> None:

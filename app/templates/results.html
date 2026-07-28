@@ -6,10 +6,16 @@
   {% for item in result.results %}
     <article class="result">
       <div class="resultTitle">{{ item.rank }}. Trích nguồn</div>
-      <div class="source">{{ item.sourcePath or "Chưa có source path" }} &gt; Đoạn {{ item.paragraphNo }}</div>
+      <div class="source">
+        {{ item.sourcePath or "Chưa có source path" }} &gt;
+        {% if item.contextExpanded %}Ngữ cảnh quanh đoạn{% else %}Đoạn{% endif %}
+        {{ item.paragraphNo }}
+      </div>
       <div class="meta">Rank {{ item.rank }} · Score {{ item.score }}</div>
 
-      <div class="resultTitle">Trích đoạn bản gốc</div>
+      <div class="resultTitle">
+        {% if item.contextExpanded %}Trích đoạn bản gốc / ngữ cảnh quanh đoạn{% else %}Trích đoạn bản gốc{% endif %}
+      </div>
       <p class="pali">{{ item.paliText }}</p>
 
       <div class="resultTitle">Dịch nghĩa</div>
