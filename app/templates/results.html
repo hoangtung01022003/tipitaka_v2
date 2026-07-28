@@ -42,7 +42,7 @@
     </div>
   {% endif %}
 
-  <p class="notice">{{ result.warning }}</p>
+  <p class="notice aiWarning">{{ result.warning }}</p>
   {% if result.pagination.hasMore %}
     <form class="loadMoreForm" onsubmit="event.preventDefault(); this.dataset.submitting='true'; window.loadMoreResults && window.loadMoreResults(this);">
       <input type="hidden" name="query" value="{{ query }}" />

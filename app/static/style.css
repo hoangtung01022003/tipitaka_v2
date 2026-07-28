@@ -458,6 +458,55 @@ body.modalOpen {
   color: var(--muted);
 }
 
+.searchLoading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #eadfce;
+  border-radius: 14px;
+  background: rgba(255, 254, 250, 0.9);
+  box-shadow: 0 16px 45px var(--shadow);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 3px solid #eadfce;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingTitle {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.loadingText {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.aiWarning {
+  display: inline-block;
+  margin-top: 16px;
+  border: 1px solid #d9a245;
+  border-radius: 10px;
+  background: #fff2d4;
+  color: #6e3d00;
+  padding: 10px 12px;
+  font-weight: 750;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 900px) {
   .choiceGrid,
   .choiceGrid.three {

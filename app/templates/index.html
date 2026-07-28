@@ -3,17 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tipitaka AI Search</title>
+    <title>Tipiṭaka AI Search</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <main class="page">
       <header class="hero">
         <p class="eyebrow">Tra cứu Pali bằng AI</p>
-        <h1>Tipitaka AI Search</h1>
+        <h1>Tipiṭaka AI Search</h1>
         <p>
-          Tìm kiếm ngữ nghĩa trong kinh điển Pali, hiển thị Pali gốc, nguồn trích dẫn
-          và bản dịch tiếng Việt bằng AI.
+          Tìm kiếm kinh điển Pali, hiển thị văn bản Pali gốc, nguồn trích dẫn và bản dịch tiếng Việt bằng AI
         </p>
       </header>
 
@@ -24,7 +23,7 @@
             id="query"
             name="query"
             class="queryInput"
-            placeholder="Ví dụ: Tìm cho tôi bài kinh nói về quả báo của sự bố thí"
+            placeholder=""
           >{{ default_query }}</textarea>
 
           <div class="stepBlock">
@@ -133,8 +132,15 @@
           return;
         }
 
-        resultsWrap.innerHTML =
-          "<div class='loading'>Đang tối ưu truy vấn bằng Gemini và tìm kiếm...</div>";
+        resultsWrap.innerHTML = `
+          <div class="loading searchLoading" role="status" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <div>
+              <div class="loadingTitle">Đang tìm kiếm</div>
+              <div class="loadingText">Đang tìm kiếm, vui lòng chờ trong ít phút.</div>
+            </div>
+          </div>
+        `;
 
         try {
           const res = await fetch("/search-page", {
@@ -179,7 +185,15 @@
           button.disabled = true;
           button.textContent = "Đang tải toàn bộ bài kinh...";
         }
-        openModal("<div class='loading'>Đang tải bản gốc và bản dịch...</div>");
+        openModal(`
+          <div class="loading searchLoading" role="status" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <div>
+              <div class="loadingTitle">Đang tải toàn bộ bài kinh</div>
+              <div class="loadingText">Đang tải bản gốc và bản dịch, vui lòng chờ trong ít phút.</div>
+            </div>
+          </div>
+        `);
 
         try {
           const res = await fetch(`/section-page/${sectionId}`);

@@ -110,19 +110,23 @@ def _diversify_results(candidates: list[dict]) -> list[dict]:
     return [*selected, *delayed]
 
 
+def _source_path_from_value(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return []
+
+
 def _source_path(hierarchy: dict[str, Any]) -> list[str]:
     source_path = hierarchy.get("sourcePath")
-    if isinstance(source_path, list):
-        return [str(item) for item in source_path]
-    return []
+    return _source_path_from_value(source_path)
 
 
 def _source_label(corpus_type: str) -> str:
     return {
-        "mul": "Tipitaka (Mula)",
-        "att": "Atthakatha",
-        "tik": "Tika",
-        "nrf": "Anna",
+        "mul": "Tipiṭaka Mūla",
+        "att": "Aṭṭhakathā",
+        "tik": "Ṭīkā",
+        "nrf": "Añña",
     }.get(corpus_type, corpus_type)
 
 
@@ -130,10 +134,10 @@ def _pitaka_label(pitaka_type: str | None, corpus_type: str) -> str | None:
     if not pitaka_type:
         return None
     base = {
-        "vinaya": "Vinayapitaka",
-        "sutta": "Suttapitaka",
-        "abhidhammapitaka": "Abhidhammapitaka",
-        "abhidhamma": "Abhidhammapitaka",
+        "vinaya": "Vinayapiṭaka",
+        "sutta": "Suttapiṭaka",
+        "abhidhammapitaka": "Abhidhammapiṭaka",
+        "abhidhamma": "Abhidhammapiṭaka",
     }.get(pitaka_type, pitaka_type)
     if corpus_type == "mul":
         return base
@@ -141,7 +145,9 @@ def _pitaka_label(pitaka_type: str | None, corpus_type: str) -> str | None:
 
 
 def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None) -> str:
-    source = _source_path(row.get("hierarchy") or {})
+    section_source = _source_path_from_value(row.get("section_source_path"))
+    passage_source = _source_path(row.get("hierarchy") or {})
+    source = section_source or passage_source
     noisy = {
         "Namo tassa bhagavato arahato sammāsambuddhassa",
         "Nidānavaṇṇanā niṭṭhitā.",
@@ -154,7 +160,11 @@ def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None)
     pitaka = _pitaka_label(pitaka_type, corpus)
     if pitaka:
         prefix.append(pitaka)
-    return " -> ".join([*prefix, *clean])
+    merged: list[str] = []
+    for item in [*prefix, *clean]:
+        if item and item not in merged:
+            merged.append(item)
+    return " -> ".join(merged)
 
 
 def _pitaka_sql(pitaka_type: str | None) -> tuple[str, list[str]]:
@@ -252,7 +262,8 @@ def _candidate_columns() -> str:
       p.normalized_pali,
       p.hierarchy,
       p.text_hash,
-      s.title as section_title
+      s.title as section_title,
+      s.source_path as section_source_path
     """
 
 
@@ -487,5 +498,5 @@ def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None
             "pageSize": page_size,
             "hasMore": len(candidate_results) > start + page_size,
         },
-        "warning": "Đây là bản dịch của AI chỉ để tham khảo, chưa có sự kiểm chứng.",
+        "warning": "Đây là bản dịch của AI, chưa có sự kiểm chứng.",
     }

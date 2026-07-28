@@ -15,23 +15,23 @@ APP_DIR = Path(__file__).resolve().parent
 SECTION_TRANSLATION_MAX_CHARS = 18000
 SECTION_TRANSLATION_CHUNK_CHARS = 12000
 
-app = FastAPI(title="Tipitaka Python Search")
+app = FastAPI(title="Tipiṭaka Python Search")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
 CORPUS_OPTIONS = [
-    {"value": "mul", "label": "Tạng kinh", "description": "Tipitaka Mula, gồm Tam tạng gốc"},
-    {"value": "att", "label": "Chú giải", "description": "Atthakatha"},
-    {"value": "tik", "label": "Phụ chú giải", "description": "Tika"},
-    {"value": "nrf", "label": "Ngoại điển", "description": "Anna"},
+    {"value": "mul", "label": "Tam Tạng", "description": "Tipiṭaka Mūla, gồm Tam tạng gốc"},
+    {"value": "att", "label": "Chú giải", "description": "Aṭṭhakathā"},
+    {"value": "tik", "label": "Phụ chú giải", "description": "Ṭīkā"},
+    {"value": "nrf", "label": "Ngoại điển", "description": "Añña"},
 ]
 PITAKA_OPTIONS = [
-    {"value": "vinaya", "label": "Tạng Luật", "description": "Vinayapitaka"},
-    {"value": "sutta", "label": "Tạng Kinh", "description": "Suttapitaka"},
-    {"value": "abhidhamma", "label": "Tạng Vi Diệu Pháp", "description": "Abhidhammapitaka"},
+    {"value": "vinaya", "label": "Tạng Luật", "description": "Vinayapiṭaka"},
+    {"value": "sutta", "label": "Tạng Kinh", "description": "Suttapiṭaka"},
+    {"value": "abhidhamma", "label": "Tạng Vi Diệu Pháp", "description": "Abhidhammapiṭaka"},
 ]
-AI_TRANSLATION_WARNING = "Đây là bản dịch của AI chỉ để tham khảo, chưa có sự kiểm chứng."
+AI_TRANSLATION_WARNING = "Đây là bản dịch của AI, chưa có sự kiểm chứng."
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -42,7 +42,7 @@ def index(request: Request):
             "request": request,
             "corpus_options": CORPUS_OPTIONS,
             "pitaka_options": PITAKA_OPTIONS,
-            "default_query": "Tìm cho tôi bài kinh nói về quả phước của sự bố thí",
+            "default_query": "",
         },
     )
 
