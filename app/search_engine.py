@@ -262,6 +262,7 @@ def _candidate_columns() -> str:
       p.normalized_pali,
       p.hierarchy,
       p.text_hash,
+      d.file_name,
       s.title as section_title,
       s.source_path as section_source_path
     """
