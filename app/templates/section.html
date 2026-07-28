@@ -1,0 +1,54 @@
+<section class="sectionViewer sectionViewerModal">
+  <div class="sectionHeader">
+    <div>
+      <div class="resultTitle">Toàn bộ bài kinh này</div>
+      <h2>{{ section.title }}</h2>
+      <p class="source">{{ section.sourcePath }}</p>
+      <p class="meta">
+        {{ section.passageCount }} đoạn trong mục này · Bản gốc và bản dịch được đặt song song để dễ đối chiếu.
+      </p>
+    </div>
+  </div>
+
+  <div class="sectionColumns">
+    <article class="sectionPassage readerBlock">
+      <div class="readerHeader">
+        <div>
+          <div class="resultTitle">Bản gốc Pali</div>
+          <p class="meta">Văn bản Pali gốc của toàn bộ mục.</p>
+        </div>
+        <button class="button secondary compact" type="button" data-toggle-reader>Mở rộng</button>
+      </div>
+      <div class="readerBody collapsed">
+        <p class="pali">{{ section.paliText }}</p>
+      </div>
+    </article>
+
+    <article class="sectionPassage readerBlock">
+      <div class="readerHeader">
+        <div>
+          <div class="resultTitle">Bản dịch tiếng Việt</div>
+          <p class="meta">Dịch bằng AI, các bài dài được chia theo đoạn/câu rồi ghép lại.</p>
+        </div>
+        {% if section.translation and section.translation.vi %}
+          <button class="button secondary compact" type="button" data-toggle-reader>Mở rộng</button>
+        {% endif %}
+      </div>
+
+      {% if section.translation and section.translation.vi %}
+        <div class="readerBody collapsed">
+          <div class="translation">{{ section.translation.vi }}</div>
+        </div>
+        {% if section.translation.notes %}
+          <p class="meta translationNote">{{ section.translation.notes }}</p>
+        {% endif %}
+      {% elif section.translation and section.translation.error %}
+        <div class="error">{{ section.translation.error }}</div>
+      {% else %}
+        <div class="error">Chưa dịch được bài này.</div>
+      {% endif %}
+    </article>
+  </div>
+
+  <p class="notice">{{ section.warning }}</p>
+</section>

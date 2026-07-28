@@ -9,13 +9,23 @@
   <body>
     <main class="page">
       <header class="hero">
+        <p class="eyebrow">Tra cứu Pali bằng AI</p>
         <h1>Tipitaka AI Search</h1>
-        <p>Tìm kiếm ngữ nghĩa trong kinh điển Pali, hiển thị Pali gốc và dịch từng đoạn bằng Gemini khi cần.</p>
+        <p>
+          Tìm kiếm ngữ nghĩa trong kinh điển Pali, hiển thị Pali gốc, nguồn trích dẫn
+          và bản dịch tiếng Việt bằng AI.
+        </p>
       </header>
 
       <section class="searchBox">
         <form id="searchForm">
-          <textarea id="query" name="query" class="queryInput" placeholder="Nhập câu hỏi tiếng Việt...">{{ default_query }}</textarea>
+          <label class="fieldLabel" for="query">Câu hỏi cần tìm</label>
+          <textarea
+            id="query"
+            name="query"
+            class="queryInput"
+            placeholder="Ví dụ: Tìm cho tôi bài kinh nói về quả báo của sự bố thí"
+          >{{ default_query }}</textarea>
 
           <div class="stepBlock">
             <p class="questionText">Bạn muốn tìm kiếm bài kinh ở trong phần nào?</p>
@@ -45,7 +55,7 @@
 
           <div class="controls">
             <span class="notice" id="selectedNotice">Hãy chọn phần dữ liệu và Tạng cần tìm.</span>
-            <button class="button" type="submit">Tìm kiếm</button>
+            <button class="button" type="submit">🔎 Tìm kiếm</button>
           </div>
         </form>
       </section>
@@ -53,69 +63,192 @@
       <section id="resultsWrap"></section>
     </main>
 
+    <div class="modalOverlay hidden" id="sectionModal" role="dialog" aria-modal="true" aria-labelledby="sectionModalTitle">
+      <div class="modalPanel">
+        <div class="modalTopbar">
+          <div>
+            <p class="eyebrow modalEyebrow">Toàn bộ bài kinh</p>
+            <h2 id="sectionModalTitle">Đối chiếu Pali - Việt</h2>
+          </div>
+          <button class="modalClose" type="button" id="sectionModalClose" aria-label="Đóng popup">×</button>
+        </div>
+        <div class="modalBody" id="sectionModalBody"></div>
+      </div>
+    </div>
+
     <script>
       const form = document.getElementById("searchForm");
       const resultsWrap = document.getElementById("resultsWrap");
       const selectedNotice = document.getElementById("selectedNotice");
       const pitakaBlock = document.getElementById("pitakaBlock");
+      const sectionModal = document.getElementById("sectionModal");
+      const sectionModalBody = document.getElementById("sectionModalBody");
+      const sectionModalClose = document.getElementById("sectionModalClose");
 
       function updateNotice() {
         const corpus = form.querySelector("input[name='corpus_type']:checked");
         const pitaka = form.querySelector("input[name='pitaka_type']:checked");
+
         if (!corpus) {
           selectedNotice.textContent = "Hãy chọn phần dữ liệu và Tạng cần tìm.";
           return;
         }
+
         if (corpus.value === "nrf") {
           pitakaBlock.style.display = "none";
-          form.querySelectorAll("input[name='pitaka_type']").forEach((item) => (item.checked = false));
+          form.querySelectorAll("input[name='pitaka_type']").forEach((item) => {
+            item.checked = false;
+          });
           selectedNotice.textContent = "Đã chọn: Ngoại điển.";
           return;
         }
+
         pitakaBlock.style.display = "block";
-        selectedNotice.textContent = pitaka ? "Đã chọn xong, có thể tìm kiếm." : "Hãy chọn Tạng cần tìm.";
+        selectedNotice.textContent = pitaka
+          ? "Đã chọn xong, có thể tìm kiếm."
+          : "Hãy chọn Tạng cần tìm.";
       }
 
-      form.addEventListener("change", updateNotice);
+      function openModal(content) {
+        sectionModalBody.innerHTML = content;
+        sectionModal.classList.remove("hidden");
+        document.body.classList.add("modalOpen");
+      }
 
-      form.addEventListener("submit", async (event) => {
+      function closeModal() {
+        sectionModal.classList.add("hidden");
+        document.body.classList.remove("modalOpen");
+        sectionModalBody.innerHTML = "";
+      }
+
+      async function submitSearch(event) {
         event.preventDefault();
         const data = new FormData(form);
         const corpus = data.get("corpus_type");
         const pitaka = data.get("pitaka_type");
+
         if (!corpus) return;
         if (corpus !== "nrf" && !pitaka) {
           selectedNotice.textContent = "Vui lòng chọn Tạng trước khi tìm.";
           return;
         }
 
-        resultsWrap.innerHTML = "<div class='loading'>Đang tối ưu truy vấn bằng Gemini và tìm kiếm...</div>";
-        const res = await fetch("/search-page", {
-          method: "POST",
-          body: data,
-        });
-        resultsWrap.innerHTML = await res.text();
-      });
+        resultsWrap.innerHTML =
+          "<div class='loading'>Đang tối ưu truy vấn bằng Gemini và tìm kiếm...</div>";
 
-      async function translatePassage(id) {
-        const target = document.querySelector(`[data-translation='${id}']`);
-        const button = document.querySelector(`[data-translate-button='${id}']`);
-        if (!target || !button) return;
-        button.disabled = true;
-        button.textContent = "Đang dịch...";
         try {
-          const res = await fetch(`/api/passages/${id}`);
-          const json = await res.json();
-          if (!res.ok) throw new Error(json.error || "Không dịch được.");
-          target.innerHTML = `<div class="translation">${json.translation?.vi || "Chưa dịch được."}</div>`;
+          const res = await fetch("/search-page", {
+            method: "POST",
+            body: data,
+          });
+          resultsWrap.innerHTML = await res.text();
         } catch (error) {
-          target.innerHTML = `<div class="error">${error.message}</div>`;
-          button.disabled = false;
-          button.textContent = "Dịch đoạn này";
+          resultsWrap.innerHTML = `<div class="error">${error.message}</div>`;
         }
       }
 
-      window.translatePassage = translatePassage;
+      async function loadMoreResults(loadMoreForm) {
+        const button = loadMoreForm.querySelector("button");
+        if (button) {
+          button.disabled = true;
+          button.textContent = "Đang tải và dịch thêm...";
+        }
+
+        try {
+          const res = await fetch("/search-page", {
+            method: "POST",
+            body: new FormData(loadMoreForm),
+          });
+          const html = await res.text();
+          if (!res.ok) throw new Error("Không tải được kết quả tiếp theo.");
+          loadMoreForm.insertAdjacentHTML("beforebegin", html);
+          loadMoreForm.remove();
+        } catch (error) {
+          if (button) {
+            button.disabled = false;
+            button.textContent = "Hiển thị thêm 5 kết quả";
+          }
+          loadMoreForm.insertAdjacentHTML("beforebegin", `<div class="error">${error.message}</div>`);
+        }
+      }
+
+      async function openSection(sectionId, button) {
+        if (!sectionId) return;
+        const originalText = button?.textContent || "Bạn có muốn xem toàn bộ bài kinh này?";
+        if (button) {
+          button.disabled = true;
+          button.textContent = "Đang tải toàn bộ bài kinh...";
+        }
+        openModal("<div class='loading'>Đang tải bản gốc và bản dịch...</div>");
+
+        try {
+          const res = await fetch(`/section-page/${sectionId}`);
+          const html = await res.text();
+          if (!res.ok) throw new Error("Không tải được bài kinh này.");
+          sectionModalBody.innerHTML = html;
+        } catch (error) {
+          sectionModalBody.innerHTML = `<div class="error">${error.message}</div>`;
+        } finally {
+          if (button) {
+            button.disabled = false;
+            button.textContent = originalText.trim() || "Bạn có muốn xem toàn bộ bài kinh này?";
+          }
+        }
+      }
+
+      function toggleReader(button) {
+        const block = button.closest(".readerBlock");
+        const body = block?.querySelector(".readerBody");
+        if (!body) return;
+
+        const isCollapsed = body.classList.toggle("collapsed");
+        button.textContent = isCollapsed ? "Mở rộng" : "Thu gọn";
+      }
+
+      window.loadMoreResults = loadMoreResults;
+      window.openSection = openSection;
+      window.openSectionModal = openSection;
+
+      form.addEventListener("change", updateNotice);
+      form.addEventListener("submit", submitSearch);
+      sectionModalClose.addEventListener("click", closeModal);
+      sectionModal.addEventListener("click", (event) => {
+        if (event.target === sectionModal) closeModal();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !sectionModal.classList.contains("hidden")) {
+          closeModal();
+        }
+      });
+
+      resultsWrap.addEventListener("submit", (event) => {
+        const loadMoreForm = event.target.closest(".loadMoreForm");
+        if (!loadMoreForm) return;
+        if (loadMoreForm.dataset.submitting === "true") return;
+        event.preventDefault();
+        loadMoreResults(loadMoreForm);
+      });
+
+      resultsWrap.addEventListener("click", (event) => {
+        const sectionButton = event.target.closest("[data-section-id]");
+        if (!sectionButton) return;
+        event.preventDefault();
+        window.openSectionModal(sectionButton.dataset.sectionId, sectionButton);
+      });
+
+      document.addEventListener("click", (event) => {
+        const sectionButton = event.target.closest("[data-section-id]");
+        if (!sectionButton || resultsWrap.contains(sectionButton)) return;
+        event.preventDefault();
+        window.openSectionModal(sectionButton.dataset.sectionId, sectionButton);
+      });
+
+      sectionModalBody.addEventListener("click", (event) => {
+        const readerButton = event.target.closest("[data-toggle-reader]");
+        if (!readerButton) return;
+        event.preventDefault();
+        toggleReader(readerButton);
+      });
     </script>
   </body>
 </html>

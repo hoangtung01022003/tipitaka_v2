@@ -9,7 +9,7 @@ env/
 .env
 .env.*
 !.env.example
-.env.example
+!.env.example
 .env
 
 # Next.js
@@ -41,6 +41,8 @@ pnpm-debug.log*
 *.db
 *.dump
 *.bak
+tipitaka_data*.sql
+*.tsbuildinfo
 
 # Tipitaka source/import dump
 tipitaka-xml/

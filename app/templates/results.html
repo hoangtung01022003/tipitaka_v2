@@ -1,31 +1,50 @@
 {% if result.results %}
-  <div class="results">
-    {% for item in result.results %}
-      <article class="result">
-        <div class="resultTitle">{{ item.rank }}. Trích nguồn</div>
-        <div class="source">{{ item.sourcePath or "Chưa có source path" }} &gt; Đoạn {{ item.paragraphNo }}</div>
-        <div class="meta">Rank {{ item.rank }} · Score {{ item.score }}</div>
+  {% if not append_mode %}
+    <div class="results">
+  {% endif %}
 
-        <div class="resultTitle">Trích đoạn bản gốc</div>
-        <p class="pali">{{ item.paliText }}</p>
+  {% for item in result.results %}
+    <article class="result">
+      <div class="resultTitle">{{ item.rank }}. Trích nguồn</div>
+      <div class="source">{{ item.sourcePath or "Chưa có source path" }} &gt; Đoạn {{ item.paragraphNo }}</div>
+      <div class="meta">Rank {{ item.rank }} · Score {{ item.score }}</div>
 
-        <div class="resultTitle">Dịch nghĩa</div>
-        {% if item.translation and item.translation.vi %}
-          <div class="translation">{{ item.translation.vi }}</div>
-        {% elif item.translation and item.translation.error %}
-          <div class="error">{{ item.translation.error }}</div>
-        {% else %}
-          <div class="error">Chưa dịch được đoạn này. Vui lòng thử lại sau.</div>
-        {% endif %}
+      <div class="resultTitle">Trích đoạn bản gốc</div>
+      <p class="pali">{{ item.paliText }}</p>
 
-        <div class="notice">{{ item.matchReason }}</div>
-      </article>
-    {% endfor %}
-  </div>
+      <div class="resultTitle">Dịch nghĩa</div>
+      {% if item.translation and item.translation.vi %}
+        <div class="translation">{{ item.translation.vi }}</div>
+      {% elif item.translation and item.translation.error %}
+        <div class="error">{{ item.translation.error }}</div>
+      {% else %}
+        <div class="error">Chưa dịch được đoạn này. Vui lòng thử lại sau.</div>
+      {% endif %}
+
+      {% if item.canOpenSection and item.sectionId %}
+        <div class="sectionActions">
+          <button
+            class="button secondary"
+            type="button"
+            data-section-id="{{ item.sectionId }}"
+            onclick="event.preventDefault(); event.stopPropagation(); window.openSectionModal ? window.openSectionModal('{{ item.sectionId }}', this) : alert('Vui lòng tải lại trang để bật popup xem toàn bộ bài kinh.');"
+          >
+            Bạn có muốn xem toàn bộ bài kinh này?
+          </button>
+        </div>
+      {% endif %}
+
+      <div class="notice">{{ item.matchReason }}</div>
+    </article>
+  {% endfor %}
+
+  {% if not append_mode %}
+    </div>
+  {% endif %}
 
   <p class="notice">{{ result.warning }}</p>
   {% if result.pagination.hasMore %}
-    <form class="loadMoreForm" onsubmit="event.preventDefault(); loadMoreResults(this);">
+    <form class="loadMoreForm" onsubmit="event.preventDefault(); this.dataset.submitting='true'; window.loadMoreResults && window.loadMoreResults(this);">
       <input type="hidden" name="query" value="{{ query }}" />
       <input type="hidden" name="corpus_type" value="{{ corpus_type }}" />
       {% if pitaka_type %}
@@ -34,23 +53,13 @@
       <input type="hidden" name="page" value="{{ result.pagination.page + 1 }}" />
       <button class="button secondary" type="submit">Hiển thị thêm 5 kết quả</button>
     </form>
-    <script>
-      async function loadMoreResults(form) {
-        const button = form.querySelector("button");
-        if (button) {
-          button.disabled = true;
-          button.textContent = "Đang tải và dịch thêm...";
-        }
-        const res = await fetch("/search-page", { method: "POST", body: new FormData(form) });
-        form.outerHTML = await res.text();
-      }
-    </script>
   {% endif %}
 {% else %}
   <div class="result">
     <div class="resultTitle">Chưa tìm thấy ứng viên trong phạm vi đã chọn</div>
     <p class="notice">
-      Hãy thử đổi Tạng hoặc mở rộng phạm vi tìm kiếm. Nếu đang tìm Chú giải/Phụ chú giải, hãy chọn đúng phần dữ liệu tương ứng.
+      Hãy thử đổi Tạng hoặc mở rộng phạm vi tìm kiếm. Nếu đang tìm Chú giải/Phụ chú giải,
+      hãy chọn đúng phần dữ liệu tương ứng.
     </p>
   </div>
 {% endif %}

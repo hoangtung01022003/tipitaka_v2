@@ -6,8 +6,11 @@ from dotenv import load_dotenv
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+PYTHON_DIR = Path(__file__).resolve().parents[1]
+
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(ROOT_DIR.parent / ".env")
+load_dotenv(PYTHON_DIR / ".env", override=True)
 
 
 def bool_env(name: str, default: bool = False) -> bool:
@@ -37,7 +40,7 @@ def settings() -> dict[str, object]:
             item.strip()
             for item in os.getenv(
                 "GEMINI_TEXT_MODELS",
-                "gemini-2.5-flash,gemini-3.5-flash,gemini-3.5-flash-lite",
+                "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.6-flash,gemini-3-flash,gemini-2.5-flash-lite",
             ).split(",")
             if item.strip()
         ],

@@ -18,13 +18,19 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.95), transparent 28%),
+    linear-gradient(135deg, #fbf5ec 0%, #f5ece0 100%);
   color: var(--text);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     Arial, Helvetica, sans-serif;
   font-weight: 400;
   letter-spacing: -0.01em;
+}
+
+body.modalOpen {
+  overflow: hidden;
 }
 
 .page {
@@ -37,10 +43,19 @@ body {
   margin-bottom: 30px;
 }
 
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .hero h1 {
   margin: 0 0 10px;
   font-size: clamp(40px, 5vw, 56px);
-  font-weight: 760;
+  font-weight: 720;
   line-height: 1.05;
   letter-spacing: -0.045em;
 }
@@ -57,9 +72,18 @@ body {
 .result {
   background: rgba(255, 254, 250, 0.82);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 22px 24px;
+  border-radius: 18px;
+  padding: 24px;
   box-shadow: 0 16px 45px var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.fieldLabel {
+  display: inline-block;
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .queryInput {
@@ -67,9 +91,9 @@ body {
   min-height: 140px;
   resize: vertical;
   border: 1px solid #d7cfc4;
-  border-radius: 7px;
+  border-radius: 12px;
   padding: 18px;
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 400;
   line-height: 1.5;
   background: white;
@@ -88,8 +112,8 @@ body {
 
 .questionText {
   margin: 0 0 12px;
-  font-size: 21px;
-  font-weight: 680;
+  font-size: 20px;
+  font-weight: 650;
   letter-spacing: -0.02em;
 }
 
@@ -109,7 +133,7 @@ body {
   min-height: 92px;
   padding: 17px 18px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 13px;
   background: rgba(255, 255, 255, 0.82);
   cursor: pointer;
   transition:
@@ -135,8 +159,8 @@ body {
 }
 
 .choiceButton span {
-  font-size: 21px;
-  font-weight: 690;
+  font-size: 20px;
+  font-weight: 650;
   letter-spacing: -0.025em;
 }
 
@@ -157,11 +181,11 @@ body {
 
 .button {
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--accent);
   color: white;
   padding: 12px 22px;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 650;
   cursor: pointer;
   letter-spacing: -0.01em;
@@ -191,6 +215,13 @@ body {
   cursor: wait;
 }
 
+.button.compact {
+  padding: 8px 13px;
+  border-radius: 8px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
 .results {
   display: grid;
   gap: 16px;
@@ -198,7 +229,7 @@ body {
 }
 
 .resultTitle {
-  font-weight: 690;
+  font-weight: 660;
   font-size: 18px;
   margin: 14px 0 8px;
   letter-spacing: -0.018em;
@@ -218,7 +249,7 @@ body {
 .pali {
   white-space: pre-wrap;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 19px;
+  font-size: 18.5px;
   line-height: 1.65;
   font-weight: 400;
   letter-spacing: 0;
@@ -229,11 +260,186 @@ body {
   white-space: pre-wrap;
   background: #fff8ed;
   border-left: 3px solid #d9a245;
-  border-radius: 7px;
+  border-radius: 10px;
   padding: 14px 16px;
   line-height: 1.6;
-  font-size: 17.5px;
+  font-size: 17px;
   font-weight: 400;
+}
+
+.sectionActions {
+  margin: 16px 0 10px;
+}
+
+.sectionMount {
+  margin-top: 14px;
+}
+
+.sectionViewer {
+  border: 1px solid #ead9bc;
+  border-radius: 14px;
+  background: #fffaf1;
+  padding: 18px;
+}
+
+.sectionViewerModal {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.sectionHeader h2 {
+  margin: 4px 0 8px;
+  font-size: 25px;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+}
+
+.sectionPassage {
+  border-top: 1px solid #eadfce;
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.sectionColumns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.sectionColumns .sectionPassage {
+  min-width: 0;
+  border: 1px solid #eadfce;
+  border-radius: 14px;
+  margin-top: 12px;
+  padding: 16px;
+  background: rgba(255, 254, 250, 0.82);
+}
+
+.readerBlock {
+  position: relative;
+}
+
+.readerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.readerHeader .resultTitle,
+.readerHeader .meta {
+  margin-top: 0;
+}
+
+.readerBody {
+  position: relative;
+  max-height: none;
+  overflow: visible;
+  transition: max-height 0.2s ease;
+}
+
+.readerBody.collapsed {
+  max-height: 62vh;
+  overflow: hidden;
+}
+
+.readerBody.collapsed::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 95px;
+  background: linear-gradient(to bottom, rgba(255, 250, 241, 0), #fffaf1 82%);
+  pointer-events: none;
+}
+
+.sectionViewer .pali,
+.sectionViewer .translation {
+  margin-bottom: 0;
+}
+
+.translationNote {
+  margin: 10px 0 0;
+  font-style: italic;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(25, 19, 14, 0.56);
+  backdrop-filter: blur(8px);
+}
+
+.modalOverlay.hidden {
+  display: none;
+}
+
+.modalPanel {
+  display: flex;
+  flex-direction: column;
+  width: min(1540px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  border: 1px solid rgba(222, 214, 202, 0.92);
+  border-radius: 22px;
+  background: #fffaf1;
+  box-shadow: 0 30px 90px rgba(35, 24, 13, 0.32);
+}
+
+.modalTopbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  border-bottom: 1px solid #eadfce;
+  background: rgba(255, 254, 250, 0.92);
+}
+
+.modalTopbar h2 {
+  margin: 2px 0 0;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+
+.modalEyebrow {
+  margin-bottom: 4px;
+}
+
+.modalClose {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fffaf1;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.modalClose:hover {
+  background: #f5ede3;
+}
+
+.modalBody {
+  overflow: auto;
+  padding: 20px 22px 24px;
+}
+
+.loadMoreForm {
+  margin: 18px 0 0;
 }
 
 .error {
@@ -261,5 +467,51 @@ body {
   .controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .sectionColumns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .page {
+    width: min(100% - 28px, 1350px);
+    padding-top: 28px;
+  }
+
+  .searchBox,
+  .result {
+    padding: 18px;
+  }
+
+  .readerHeader {
+    flex-direction: column;
+  }
+
+  .button.compact {
+    width: 100%;
+  }
+
+  .readerBody.collapsed {
+    max-height: 430px;
+  }
+
+  .modalOverlay {
+    padding: 10px;
+  }
+
+  .modalPanel {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    border-radius: 16px;
+  }
+
+  .modalTopbar {
+    padding: 14px 16px;
+  }
+
+  .modalBody {
+    padding: 14px 16px 18px;
   }
 }

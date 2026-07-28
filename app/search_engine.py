@@ -9,7 +9,7 @@ from .db import execute, fetch_all
 from .glossary import analyze_query
 from .normalize import normalize_pali
 from .query_expander import expand_query_with_ai, merge_expansion, rerank_candidates_with_ai
-from .translator import translate_passage
+from .translator import public_translation_error, translate_passage, translate_text
 
 
 PITAKA_PREFIXES = {
@@ -17,6 +17,9 @@ PITAKA_PREFIXES = {
     "sutta": ["s%"],
     "abhidhamma": ["abh%"],
 }
+
+SNIPPET_MIN_CHARS = 900
+SNIPPET_MAX_CHARS = 2600
 
 
 def _regex_for_terms(terms: list[str]) -> str:
@@ -75,11 +78,7 @@ def _content_words(text: str) -> set[str]:
         "idha", "kho", "pana", "tasmā", "tattha", "tena", "vutta", "vuccati",
         "eva", "evam", "evaṃ", "iti", "santi", "ahosi",
     }
-    return {
-        word
-        for word in normalize_pali(text).split()
-        if len(word) >= 5 and word not in stopwords
-    }
+    return {word for word in normalize_pali(text).split() if len(word) >= 5 and word not in stopwords}
 
 
 def _jaccard(left: set[str], right: set[str]) -> float:
@@ -94,25 +93,20 @@ def _source_family(source_path: str) -> str:
 
 
 def _is_near_duplicate(candidate: dict, selected: dict) -> bool:
-    candidate_words = candidate.get("_contentWords") or set()
-    selected_words = selected.get("_contentWords") or set()
-    lexical_similarity = _jaccard(candidate_words, selected_words)
+    lexical_similarity = _jaccard(candidate.get("_contentWords") or set(), selected.get("_contentWords") or set())
     same_source_family = _source_family(candidate.get("sourcePath", "")) == _source_family(selected.get("sourcePath", ""))
-
     return lexical_similarity >= 0.42 or (same_source_family and lexical_similarity >= 0.26)
 
 
 def _diversify_results(candidates: list[dict]) -> list[dict]:
     selected: list[dict] = []
     delayed: list[dict] = []
-
     for candidate in candidates:
         candidate["_contentWords"] = _content_words(candidate.get("paliText", ""))
         if any(_is_near_duplicate(candidate, item) for item in selected):
             delayed.append(candidate)
         else:
             selected.append(candidate)
-
     return [*selected, *delayed]
 
 
@@ -160,10 +154,7 @@ def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None)
     pitaka = _pitaka_label(pitaka_type, corpus)
     if pitaka:
         prefix.append(pitaka)
-    important = [item for item in clean if re.search(r"nikāy|pitak|aṭṭhakath|pāḷi", item, re.I)][:3]
-    nearest = [clean[-1]] if clean else []
-    compact = list(dict.fromkeys([*important, *nearest]))
-    return " -> ".join([*prefix, *compact])
+    return " -> ".join([*prefix, *clean])
 
 
 def _pitaka_sql(pitaka_type: str | None) -> tuple[str, list[str]]:
@@ -184,7 +175,6 @@ def _score(row: dict, analysis: dict, base: float, semantic_weight: float = 0.0)
     must = analysis["mustHavePali"]
     should = analysis["shouldHavePali"]
     avoid = analysis["avoidPali"]
-
     keyword = _hit_score(text, hints)
     must_score = _hit_score(text, must) if must else 1.0
     should_score = _hit_score(text, should)
@@ -192,7 +182,6 @@ def _score(row: dict, analysis: dict, base: float, semantic_weight: float = 0.0)
     proximity = _proximity_score(text, [*must, *should])
     penalty = _hit_score(text, avoid) * 0.3
     semantic = float(row.get("semantic_score") or 0)
-
     db_hits = float(row.get("term_hits") or row.get("phrase_hits") or 0)
     db_hit_score = min(1.0, db_hits / max(1, len(set([*hints, *must, *should]))))
     score = base + keyword * 0.22 + concept * 0.38 + proximity * 0.17 + db_hit_score * 0.16 + semantic * semantic_weight - penalty
@@ -209,19 +198,30 @@ def _match_reason(score: float, keyword: float, concept: float, semantic: float)
     return "Vượt ngưỡng lọc nhiễu theo điểm lexical/proximity."
 
 
+def _paragraph_no(row: dict, fallback_rank: int) -> str:
+    del fallback_rank
+    return str(row.get("display_paragraph_no") or row.get("xml_paragraph_no") or row.get("paragraph_no") or "N/A")
+
+
 def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_types: list[str], pitaka_type: str | None, rank: int) -> dict:
+    section_id = row.get("section_id")
     return {
         "id": str(row["id"]),
         "rank": rank,
         "score": round(score, 4),
         "sourcePath": _display_source(row, corpus_types, pitaka_type),
-        "paragraphNo": row.get("paragraph_no") or str(rank),
+        "paragraphNo": _paragraph_no(row, rank),
         "paliText": row["pali_text"],
         "translation": {"vi": None, "fromCache": False},
         "matchReason": _match_reason(score, keyword, concept, float(row.get("semantic_score") or 0)),
+        "sectionId": str(section_id) if section_id else None,
+        "sectionTitle": row.get("section_title"),
+        "canOpenSection": bool(section_id),
         "_textHash": row["text_hash"],
         "_keyword": keyword,
         "_concept": concept,
+        "_sortOrder": row.get("sort_order"),
+        "_originalPaliText": row["pali_text"],
     }
 
 
@@ -240,16 +240,20 @@ def _insert_log(query: str, corpus_types: list[str], pitaka_type: str | None, an
     )
 
 
-def _attach_translations(results: list[dict]) -> None:
-    for item in results:
-        try:
-            item["translation"] = translate_passage(item["id"])
-        except Exception as exc:
-            item["translation"] = {
-                "vi": None,
-                "fromCache": False,
-                "error": f"Chưa dịch được đoạn này: {exc}",
-            }
+def _candidate_columns() -> str:
+    return """
+      p.id,
+      p.section_id,
+      p.sort_order,
+      p.paragraph_no,
+      p.xml_paragraph_no,
+      p.display_paragraph_no,
+      p.pali_text,
+      p.normalized_pali,
+      p.hierarchy,
+      p.text_hash,
+      s.title as section_title
+    """
 
 
 def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str | None, analysis: dict, limit: int) -> list[dict]:
@@ -261,7 +265,7 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
         rows = fetch_all(
             f"""
             select
-              p.id, p.paragraph_no, p.pali_text, p.normalized_pali, p.hierarchy, p.text_hash,
+              {_candidate_columns()},
               0::float as semantic_score,
               (
                 select count(*)
@@ -270,6 +274,7 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
               ) as phrase_hits
             from passages p
             join documents d on d.id = p.document_id
+            left join sections s on s.id = p.section_id
             where d.corpus_type = any(%s)
               and p.normalized_pali like any(%s)
               {pitaka_sql}
@@ -288,7 +293,7 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
         rows = fetch_all(
             f"""
             select
-              p.id, p.paragraph_no, p.pali_text, p.normalized_pali, p.hierarchy, p.text_hash,
+              {_candidate_columns()},
               0::float as semantic_score,
               (
                 select count(*)
@@ -297,6 +302,7 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
               ) as term_hits
             from passages p
             join documents d on d.id = p.document_id
+            left join sections s on s.id = p.section_id
             where d.corpus_type = any(%s)
               and p.normalized_pali ~* %s
               {pitaka_sql}
@@ -317,11 +323,12 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
             rows = fetch_all(
                 f"""
                 select
-                  p.id, p.paragraph_no, p.pali_text, p.normalized_pali, p.hierarchy, p.text_hash,
+                  {_candidate_columns()},
                   1 - (p.embedding <=> %s::vector) as semantic_score,
                   0 as term_hits
                 from passages p
                 join documents d on d.id = p.document_id
+                left join sections s on s.id = p.section_id
                 where p.embedding is not null
                   and d.corpus_type = any(%s)
                   {pitaka_sql}
@@ -337,17 +344,77 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
     return candidates
 
 
+def _expand_short_snippets(results: list[dict]) -> None:
+    for item in results:
+        if len(item.get("paliText") or "") >= SNIPPET_MIN_CHARS:
+            continue
+        section_id = item.get("sectionId")
+        sort_order = item.get("_sortOrder")
+        if not section_id or sort_order is None:
+            continue
+
+        rows = fetch_all(
+            """
+            select id, sort_order, coalesce(display_paragraph_no, xml_paragraph_no, paragraph_no) as paragraph_no, pali_text
+            from passages
+            where section_id = %s
+              and sort_order between %s and %s
+            order by sort_order asc
+            """,
+            [section_id, max(0, int(sort_order) - 1), int(sort_order) + 3],
+        )
+        if not rows:
+            continue
+
+        parts: list[str] = []
+        snippet_paragraphs: list[dict] = []
+        total = 0
+        for row in rows:
+            text = str(row["pali_text"])
+            if total + len(text) > SNIPPET_MAX_CHARS and parts:
+                break
+            label = row.get("paragraph_no")
+            parts.append(text)
+            snippet_paragraphs.append({"id": str(row["id"]), "paragraphNo": label})
+            total += len(text)
+            if total >= SNIPPET_MIN_CHARS:
+                break
+
+        if len(parts) > 1:
+            item["paliText"] = "\n\n".join(parts)
+            item["snippetParagraphs"] = snippet_paragraphs
+
+
+def _attach_translations(results: list[dict]) -> None:
+    for item in results:
+        try:
+            if item.get("paliText") != item.get("_originalPaliText"):
+                item["translation"] = translate_text(item["paliText"])
+            else:
+                item["translation"] = translate_passage(item["id"])
+        except Exception:
+            item["translation"] = {
+                "vi": None,
+                "fromCache": False,
+                "error": public_translation_error(),
+            }
+
 def _page_results(candidate_results: list[dict], page: int, page_size: int) -> list[dict]:
     start = (page - 1) * page_size
     results = candidate_results[start : start + page_size]
     for idx, item in enumerate(results):
         item["rank"] = start + idx + 1
+    return results
+
+
+def _strip_internal_fields(results: list[dict]) -> None:
     for item in results:
         item.pop("_textHash", None)
         item.pop("_keyword", None)
         item.pop("_concept", None)
         item.pop("_contentWords", None)
-    return results
+        item.pop("_sortOrder", None)
+        item.pop("_originalPaliText", None)
 
 
 def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None, page: int = 1, page_size: int = 5) -> dict:
@@ -405,8 +472,9 @@ def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None
 
     candidate_results = _diversify_results(candidate_results)
     results = _page_results(candidate_results, page, page_size)
-
+    _expand_short_snippets(results)
     _attach_translations(results)
+    _strip_internal_fields(results)
     _insert_log(query, corpus_types, pitaka_type, analysis, [item["id"] for item in results])
 
     start = (page - 1) * page_size
