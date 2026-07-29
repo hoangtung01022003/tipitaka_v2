@@ -283,12 +283,7 @@ def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None)
     section_source = _source_path_from_value(row.get("section_source_path"))
     passage_source = _source_path(row.get("hierarchy") or {})
     source = section_source or passage_source
-    has_noisy_source_item = any(_looks_like_source_noise(str(item or "")) for item in source if item)
     clean = _clean_source_items(source, pitaka_type)
-    if has_noisy_source_item:
-        nearby_heading = _nearby_heading_title(row)
-        if nearby_heading and all(normalize_pali(nearby_heading) != normalize_pali(item) for item in clean):
-            clean.append(nearby_heading)
     corpus = corpus_types[0] if corpus_types else "mul"
     prefix = [_source_label(corpus)]
     pitaka = _pitaka_label(pitaka_type, corpus)
@@ -299,6 +294,30 @@ def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None)
         if item and item not in merged:
             merged.append(item)
     return " -> ".join(merged)
+
+
+def _source_has_noisy_item(row: dict) -> bool:
+    section_source = _source_path_from_value(row.get("section_source_path"))
+    passage_source = _source_path(row.get("hierarchy") or {})
+    source = section_source or passage_source
+    return any(_looks_like_source_noise(str(item or "")) for item in source if item)
+
+
+def _append_nearby_heading_to_source(item: dict) -> None:
+    if not item.get("_needsNearbyHeading"):
+        return
+    nearby_heading = _nearby_heading_title(
+        {
+            "document_id": item.get("_documentId"),
+            "sort_order": item.get("_sortOrder"),
+        }
+    )
+    if not nearby_heading:
+        return
+    source_path = str(item.get("sourcePath") or "")
+    parts = [part.strip() for part in source_path.split(" -> ") if part.strip()]
+    if all(_source_key(nearby_heading) != _source_key(part) for part in parts):
+        item["sourcePath"] = " -> ".join([*parts, nearby_heading])
 
 
 def _pitaka_sql(pitaka_type: str | None) -> tuple[str, list[str]]:
@@ -362,6 +381,8 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
         "sectionId": str(section_id) if section_id else None,
         "sectionTitle": row.get("section_title"),
         "canOpenSection": bool(section_id),
+        "_documentId": row.get("document_id"),
+        "_needsNearbyHeading": _source_has_noisy_item(row),
         "_textHash": row["text_hash"],
         "_keyword": keyword,
         "_concept": concept,
@@ -558,6 +579,8 @@ def _page_results(candidate_results: list[dict], page: int, page_size: int) -> l
 
 def _strip_internal_fields(results: list[dict]) -> None:
     for item in results:
+        item.pop("_documentId", None)
+        item.pop("_needsNearbyHeading", None)
         item.pop("_textHash", None)
         item.pop("_keyword", None)
         item.pop("_concept", None)
@@ -621,6 +644,8 @@ def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None
 
     candidate_results = _diversify_results(candidate_results)
     results = _page_results(candidate_results, page, page_size)
+    for item in results:
+        _append_nearby_heading_to_source(item)
     _expand_short_snippets(results)
     _attach_translations(results)
     _strip_internal_fields(results)
