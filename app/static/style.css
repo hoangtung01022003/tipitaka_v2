@@ -306,6 +306,10 @@ body.modalOpen {
   animation: none;
 }
 
+.translationLoading:has([data-translate-next-section]) {
+  animation: none;
+}
+
 .sectionActions {
   margin: 16px 0 10px;
 }

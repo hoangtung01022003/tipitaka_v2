@@ -223,9 +223,12 @@
             const current = Number(payload.chunkIndex || 0) + 2;
             const total = Number(payload.totalChunks || current);
             progress.innerHTML = `
-              <span class="miniSpinner" aria-hidden="true"></span>
-              <span>Đang dịch tiếp phần ${current}/${total}. Các phần đã dịch được hiển thị ở trên.</span>
+              <button class="button secondary compact" type="button" data-translate-next-section>
+                Dịch tiếp phần ${current}/${total}
+              </button>
+              <span>Các phần đã dịch được hiển thị ở trên. Bấm để dịch tiếp khi cần đọc thêm.</span>
             `;
+            progress.classList.remove("translationDone");
           } else {
             progress.innerHTML = `<span>Đã dịch xong toàn bộ mục này.</span>`;
             progress.classList.add("translationDone");
@@ -242,14 +245,23 @@
         mount.dataset.loading = "true";
         let chunk = Number(mount.dataset.nextChunk || 0);
         try {
-          while (true) {
-            const res = await fetch(`/api/sections/${viewer.dataset.sectionId}/translate-chunk?chunk=${chunk}`);
-            const payload = await res.json();
-            if (!res.ok) throw new Error(payload.error || "Không tải được phần dịch tiếp theo.");
-            appendSectionTranslationChunk(viewer, payload);
-            chunk += 1;
-            mount.dataset.nextChunk = String(chunk);
-            if (!payload.hasMore) break;
+          const progress = viewer.querySelector("[data-section-translation-progress]");
+          if (progress) {
+            const label = chunk === 0 ? "Đang dịch phần đầu tiên..." : `Đang dịch phần ${chunk + 1}...`;
+            progress.innerHTML = `
+              <span class="miniSpinner" aria-hidden="true"></span>
+              <span>${label}</span>
+            `;
+            progress.classList.remove("translationDone");
+          }
+          const res = await fetch(`/api/sections/${viewer.dataset.sectionId}/translate-chunk?chunk=${chunk}`);
+          const payload = await res.json();
+          if (!res.ok) throw new Error(payload.error || "Không tải được phần dịch tiếp theo.");
+          appendSectionTranslationChunk(viewer, payload);
+          chunk += 1;
+          mount.dataset.nextChunk = String(chunk);
+          if (!payload.hasMore) {
+            mount.dataset.loaded = "true";
           }
         } catch (error) {
           const progress = viewer.querySelector("[data-section-translation-progress]");
@@ -257,7 +269,9 @@
             progress.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
           }
         } finally {
-          mount.dataset.loaded = "true";
+          if (mount.dataset.loaded !== "true" && mount.dataset.nextChunk && mount.dataset.nextChunk !== "0") {
+            mount.dataset.loaded = "partial";
+          }
           mount.dataset.loading = "false";
         }
       }
@@ -415,6 +429,13 @@
       });
 
       sectionModalBody.addEventListener("click", (event) => {
+        const translateNextButton = event.target.closest("[data-translate-next-section]");
+        if (translateNextButton) {
+          event.preventDefault();
+          hydrateSectionTranslation(sectionModalBody);
+          return;
+        }
+
         const readerButton = event.target.closest("[data-toggle-reader]");
         if (!readerButton) return;
         event.preventDefault();
