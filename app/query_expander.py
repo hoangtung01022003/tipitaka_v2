@@ -1,4 +1,3 @@
-from functools import lru_cache
 import json
 
 from google import genai
@@ -33,6 +32,9 @@ class RerankOutput(BaseModel):
     results: list[RerankItem] = Field(default_factory=list)
 
 
+_EXPANSION_CACHE: dict[tuple[str, str], dict] = {}
+
+
 def _client() -> genai.Client:
     api_key = str(settings()["gemini_api_key"])
     if not api_key:
@@ -58,6 +60,20 @@ def _normalize_list(values: list[str]) -> list[str]:
     return output
 
 
+def _has_pali_search_terms(data: dict) -> bool:
+    return any(
+        data.get(key)
+        for key in [
+            "paliHints",
+            "paliExactTerms",
+            "paliRelatedTerms",
+            "mustHavePali",
+            "shouldHavePali",
+            "expandedQueries",
+        ]
+    )
+
+
 def merge_expansion(local: dict, ai: dict | None) -> dict:
     if not ai:
         return local
@@ -75,7 +91,15 @@ def merge_expansion(local: dict, ai: dict | None) -> dict:
         "expandedQueries",
     ]:
         values = [*(local.get(key) or []), *(ai.get(key) or [])]
-        if key in {"paliHints", "paliExactTerms", "paliRelatedTerms", "mustHavePali", "shouldHavePali", "avoidPali", "expandedQueries"}:
+        if key in {
+            "paliHints",
+            "paliExactTerms",
+            "paliRelatedTerms",
+            "mustHavePali",
+            "shouldHavePali",
+            "avoidPali",
+            "expandedQueries",
+        }:
             merged[key] = _normalize_list(values)
         else:
             merged[key] = list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
@@ -83,9 +107,17 @@ def merge_expansion(local: dict, ai: dict | None) -> dict:
     merged["mainMeaning"] = ai.get("mainMeaning") or local.get("mainMeaning")
     merged["cleanQuery"] = ai.get("cleanQuery") or local.get("cleanQuery") or local.get("mainMeaning")
     merged["intent"] = ai.get("intent") or local.get("intent") or "search"
-    merged["paliHints"] = _normalize_list([*(merged.get("paliHints") or []), *(merged.get("paliExactTerms") or []), *(merged.get("paliRelatedTerms") or [])])
+    merged["paliHints"] = _normalize_list(
+        [
+            *(merged.get("paliHints") or []),
+            *(merged.get("paliExactTerms") or []),
+            *(merged.get("paliRelatedTerms") or []),
+        ]
+    )
     merged["mustHavePali"] = _normalize_list([*(merged.get("mustHavePali") or []), *(merged.get("paliExactTerms") or [])])
-    merged["shouldHavePali"] = _normalize_list([*(merged.get("shouldHavePali") or []), *(merged.get("paliRelatedTerms") or [])])
+    merged["shouldHavePali"] = _normalize_list(
+        [*(merged.get("shouldHavePali") or []), *(merged.get("paliRelatedTerms") or [])]
+    )
     return merged
 
 
@@ -94,17 +126,24 @@ def _is_retryable_error(exc: Exception) -> bool:
     return any(part in message for part in ["429", "quota", "rate", "resource_exhausted", "404", "not found", "unsupported"])
 
 
-@lru_cache(maxsize=512)
 def expand_query_with_ai(query: str, clean_query: str = "") -> dict | None:
     if settings()["search_ai_mode"] not in {"query", "full"}:
         return None
     if not settings()["gemini_api_key"]:
         return None
 
+    cache_key = (query.strip(), clean_query.strip())
+    cached = _EXPANSION_CACHE.get(cache_key)
+    if cached:
+        return dict(cached)
+
     prompt = "\n".join(
         [
             "Bạn là bộ phân tích truy vấn cho search engine kinh điển Pali.",
-            "Không trả lời nội dung kinh. Không dịch đoạn kinh. Chỉ chuyển câu hỏi tiếng Việt thành tín hiệu tìm kiếm Pali.",
+            "DB chỉ có văn bản Pali, không có tiếng Việt.",
+            "Nhiệm vụ: biến câu hỏi tiếng Việt thành nhiều tín hiệu tìm kiếm Pali để search DB Pali.",
+            "Không trả lời nội dung kinh. Không dịch đoạn kinh. Không rewrite câu hỏi để thay thế query gốc.",
+            "Hãy tạo search plan Pali rộng nhưng có trọng tâm: thuật ngữ chính, thuật ngữ liên quan, cụm Pali, biến thể không dấu.",
             "Mục tiêu là tìm được đoạn kinh/chú giải/phụ chú giải đúng ý nghĩa, không phải chỉ trùng chữ tiếng Việt.",
             "Trả JSON thuần theo schema:",
             '{"mainMeaning":"","cleanQuery":"","intent":"","vietnameseKeywords":[],"relatedConcepts":[],"paliHints":[],"paliExactTerms":[],"paliRelatedTerms":[],"mustHavePali":[],"shouldHavePali":[],"avoidPali":[],"expandedQueries":[]}',
@@ -113,17 +152,18 @@ def expand_query_with_ai(query: str, clean_query: str = "") -> dict | None:
             "paliHints: thuật ngữ Pali liên quan rộng.",
             "paliExactTerms: thuật ngữ Pali trọng tâm nhất, nếu có.",
             "paliRelatedTerms: thuật ngữ Pali liên quan để mở rộng tìm kiếm.",
-            "mustHavePali: thuật ngữ/cụm gần như bắt buộc nếu chủ đề rõ.",
+            "mustHavePali: chỉ 1-3 thuật ngữ/cụm gần như bắt buộc nếu chủ đề rất rõ. Đừng đưa quá nhiều từ vào mustHavePali.",
             "shouldHavePali: thuật ngữ nên có để tăng độ chính xác.",
             "avoidPali: thuật ngữ dễ gây nhiễu nếu có.",
-            "expandedQueries: các cụm Pali hoặc cách diễn đạt Pali liên quan, tối đa 12 mục.",
-            "Nếu truy vấn là một khái niệm Phật học tiếng Việt, hãy suy luận các thuật ngữ Pali tương ứng.",
-            "Ví dụ không ăn phi thời -> vikālabhojana, vikālabhojanā veramaṇī, vikāle bhojanaṃ, sikkhāpada.",
-            "Ví dụ quy y không lệ thuộc -> saraṇa, saraṇagamana, aparappaccaya, esa me saraṇaṃ, esa me parāyaṇaṃ.",
-            "Ví dụ khái niệm Tăng bảo -> saṅgharatana, saṅgha, ariyasaṅgha, sāvakasaṅgha, ratanattaya.",
-            "Ví dụ khái niệm Phật bảo/Pháp bảo -> buddharatana/buddha hoặc dhammaratana/dhamma, ratanattaya.",
-            "Ví dụ quả báo bố thí -> dāna, dakkhiṇā, cāga, vipāka, phala, puñña, ānisaṃsa.",
-            "Ví dụ trộm cắp -> adinnādāna, adinnaṃ, theyya, theyyasaṅkhāta, adinnādānā veramaṇī.",
+            "expandedQueries: các cụm Pali hoặc cách diễn đạt Pali liên quan, tối đa 20 mục.",
+            "Nếu truy vấn là khái niệm Phật học tiếng Việt, hãy suy luận thuật ngữ Pali tương ứng.",
+            "Ví dụ không ăn phi thời -> vikalabhojana, vikalabhojana veramani, vikale bhojanam, sikkhapada.",
+            "Ví dụ quy y không lệ thuộc -> sarana, saranagamana, aparappaccaya, esa me saranam, esa me parayanam.",
+            "Ví dụ khái niệm Tăng bảo -> sangharatana, sangha, ariyasangha, savakasangha, ratanattaya.",
+            "Ví dụ quả báo bố thí -> dana, dakkhina, caga, vipaka, phala, punna, anisamsa.",
+            "Ví dụ trộm cắp -> adinnadana, adinnam, theyya, theyyasankhata, adinnadana veramani.",
+            "Ví dụ lòng từ bi -> metta, karuna, mettasahagata, karunasahagata, brahmavihara, appamanna.",
+            "Ví dụ Tứ Diệu Đế -> cattari ariyasaccani, dukkha, samudaya, nirodha, magga.",
             f"Truy vấn gốc: {query}",
             f"Clean query sơ bộ: {clean_query or query}",
         ]
@@ -139,8 +179,19 @@ def expand_query_with_ai(query: str, clean_query: str = "") -> dict | None:
             )
             expansion = QueryExpansion.model_validate_json(response.text or "{}")
             data = json.loads(expansion.model_dump_json())
-            for key in ["paliHints", "paliExactTerms", "paliRelatedTerms", "mustHavePali", "shouldHavePali", "avoidPali", "expandedQueries"]:
+            for key in [
+                "paliHints",
+                "paliExactTerms",
+                "paliRelatedTerms",
+                "mustHavePali",
+                "shouldHavePali",
+                "avoidPali",
+                "expandedQueries",
+            ]:
                 data[key] = _normalize_list(data.get(key) or [])
+            if not _has_pali_search_terms(data):
+                continue
+            _EXPANSION_CACHE[cache_key] = dict(data)
             return data
         except Exception as exc:
             if not _is_retryable_error(exc):

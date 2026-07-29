@@ -282,23 +282,14 @@ def _clean_source_items(source: list[str], pitaka_type: str | None) -> list[str]
         "Paṭhamavaggavaṇṇanā niṭṭhitā.",
         "Dutiyavaggavaṇṇanā niṭṭhitā.",
     }
-    pitaka_roots = PITAKA_SOURCE_ROOTS.get(pitaka_type or "", set())
     clean: list[str] = []
-    skipped_pitaka_root = False
 
     for item in source:
         label = str(item or "").strip()
         if not label or label in noisy:
             continue
-        if _is_display_hidden_source_level(label):
-            continue
         normalized = normalize_pali(label)
-        if _looks_like_source_noise(label):
-            continue
-        if pitaka_roots and not skipped_pitaka_root and normalized in pitaka_roots:
-            skipped_pitaka_root = True
-            continue
-        if clean and normalize_pali(clean[-1]) == normalized:
+        if "nitthita" in normalized or "samatt" in normalized:
             continue
         clean.append(label)
 
@@ -312,21 +303,16 @@ def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None)
     clean = _clean_source_items(source, pitaka_type)
     corpus = corpus_types[0] if corpus_types else "mul"
     prefix = [_source_label(corpus)]
-    pitaka = _pitaka_label(pitaka_type, corpus)
-    if pitaka:
-        prefix.append(pitaka)
     merged: list[str] = []
     for item in [*prefix, *clean]:
-        if item and item not in merged:
+        if item:
             merged.append(item)
     return " -> ".join(merged)
 
 
 def _source_has_noisy_item(row: dict) -> bool:
-    section_source = _source_path_from_value(row.get("section_source_path"))
-    passage_source = _source_path(row.get("hierarchy") or {})
-    source = section_source or passage_source
-    return any(_looks_like_source_noise(str(item or "")) for item in source if item)
+    del row
+    return False
 
 
 def _append_nearby_heading_to_source(item: dict) -> None:
@@ -715,8 +701,6 @@ def search_passages(
 
     candidate_results = _diversify_results(candidate_results)
     results = _page_results(candidate_results, page, page_size)
-    for item in results:
-        _append_nearby_heading_to_source(item)
     _expand_short_snippets(results)
     if include_translations:
         _attach_translations(results)
