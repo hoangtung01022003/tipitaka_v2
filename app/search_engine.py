@@ -1,5 +1,6 @@
 import math
 import re
+import unicodedata
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -27,6 +28,25 @@ PITAKA_SOURCE_ROOTS = {
     "abhidhamma": {"abhidhammapitaka", "abhidhammapitake"},
     "abhidhammapitaka": {"abhidhammapitaka", "abhidhammapitake"},
 }
+
+HEADING_SUFFIXES = (
+    "vaggo",
+    "vagga",
+    "nikayo",
+    "nikaya",
+    "pitaka",
+    "pali",
+    "patho",
+    "suttam",
+    "sutta",
+    "suttavannana",
+    "vannana",
+    "katha",
+    "niddeso",
+    "niddesa",
+    "nipato",
+    "bhago",
+)
 
 
 def _regex_for_terms(terms: list[str]) -> str:
@@ -151,6 +171,84 @@ def _pitaka_label(pitaka_type: str | None, corpus_type: str) -> str | None:
     return f"{base} ({_source_label(corpus_type)})"
 
 
+def _source_key(label: str) -> str:
+    decomposed = unicodedata.normalize("NFD", label.lower())
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    without_marks = without_marks.replace("ṃ", "m").replace("ṁ", "m")
+    without_marks = re.sub(r"[^\w\s().-]", " ", without_marks, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", without_marks).strip()
+
+
+def _looks_like_source_noise(label: str) -> bool:
+    normalized = _source_key(label)
+    words = normalized.split()
+    compact = normalized.replace(" ", "")
+    if not normalized:
+        return True
+    if "nitthita" in normalized or "samatt" in normalized:
+        return True
+    is_known_heading_shape = any(compact.endswith(suffix) for suffix in HEADING_SUFFIXES)
+    if len(label) > 180:
+        return True
+    sentence_markers = ["ti ", " tattha ", " vutta ", " hoti ", " yatha ", " ettha ", " iti "]
+    if len(label) > 90 and sum(1 for marker in sentence_markers if marker in f" {normalized} ") >= 2:
+        return True
+    if re.match(r"^\d+[\.-]\s+", normalized) and not is_known_heading_shape:
+        if len(label) > 70 or label.count(".") >= 2 or any(marker in f" {normalized} " for marker in sentence_markers):
+            return True
+    if label.endswith(".") and not is_known_heading_shape:
+        if len(words) > 1 or any(marker in f" {normalized} " for marker in sentence_markers):
+            return True
+    if len(words) > 18 and label.count(".") >= 1:
+        return True
+    return False
+
+
+def _is_display_hidden_source_level(label: str) -> bool:
+    normalized = _source_key(label)
+    return re.fullmatch(r"\(?\s*(pathamo|dutiyo|tatiyo|catuttho|pancamo|chattho|sattamo|atthamo|navamo|dasamo)\s+bhago\s*\)?", normalized) is not None
+
+
+def _looks_like_heading_title(label: str) -> bool:
+    normalized = _source_key(label)
+    if _looks_like_source_noise(label):
+        return False
+    words = normalized.split()
+    if not words or len(words) > 10:
+        return False
+    compact = normalized.replace(" ", "")
+    if any(compact.endswith(suffix) for suffix in HEADING_SUFFIXES):
+        return True
+    if re.match(r"^\(?\d+\)?\s+", normalized):
+        return True
+    return False
+
+
+def _nearby_heading_title(row: dict) -> str | None:
+    document_id = row.get("document_id")
+    sort_order = row.get("sort_order")
+    if not document_id or sort_order is None:
+        return None
+
+    rows = fetch_all(
+        """
+        select pali_text
+        from passages
+        where document_id = %s
+          and sort_order < %s
+          and sort_order >= greatest(0, %s - 140)
+        order by sort_order desc
+        limit 140
+        """,
+        [document_id, sort_order, sort_order],
+    )
+    for candidate in rows:
+        title = str(candidate.get("pali_text") or "").strip()
+        if _looks_like_heading_title(title):
+            return title
+    return None
+
+
 def _clean_source_items(source: list[str], pitaka_type: str | None) -> list[str]:
     noisy = {
         "Namo tassa bhagavato arahato sammāsambuddhassa",
@@ -166,8 +264,10 @@ def _clean_source_items(source: list[str], pitaka_type: str | None) -> list[str]
         label = str(item or "").strip()
         if not label or label in noisy:
             continue
+        if _is_display_hidden_source_level(label):
+            continue
         normalized = normalize_pali(label)
-        if "nitthita" in normalized or "samatt" in normalized:
+        if _looks_like_source_noise(label):
             continue
         if pitaka_roots and not skipped_pitaka_root and normalized in pitaka_roots:
             skipped_pitaka_root = True
@@ -183,7 +283,12 @@ def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None)
     section_source = _source_path_from_value(row.get("section_source_path"))
     passage_source = _source_path(row.get("hierarchy") or {})
     source = section_source or passage_source
+    has_noisy_source_item = any(_looks_like_source_noise(str(item or "")) for item in source if item)
     clean = _clean_source_items(source, pitaka_type)
+    if has_noisy_source_item:
+        nearby_heading = _nearby_heading_title(row)
+        if nearby_heading and all(normalize_pali(nearby_heading) != normalize_pali(item) for item in clean):
+            clean.append(nearby_heading)
     corpus = corpus_types[0] if corpus_types else "mul"
     prefix = [_source_label(corpus)]
     pitaka = _pitaka_label(pitaka_type, corpus)
@@ -283,6 +388,7 @@ def _insert_log(query: str, corpus_types: list[str], pitaka_type: str | None, an
 def _candidate_columns() -> str:
     return """
       p.id,
+      p.document_id,
       p.section_id,
       p.sort_order,
       p.paragraph_no,
