@@ -81,6 +81,33 @@ CONCEPTS: tuple[Concept, ...] = (
         phrases=("saranagamanam", "esa me saranam", "esa me parayanam", "aparappaccayo cittuppado"),
     ),
     Concept(
+        id="sangha_jewel",
+        label="Tăng bảo, Tăng già, Thánh chúng",
+        triggers=("tang bao", "tang gia", "tang chung", "chung tang", "thanh tang", "tang doan", "khai niem tang bao", "dinh nghia tang bao"),
+        pali=("sangharatana", "sangha", "ariyasangha", "savakasangha", "ratana", "ratanattaya", "supatipanna", "ujupatipanna", "nayapatipanna", "samicipatipanna"),
+        must=("sangha",),
+        should=("sangharatana", "ariyasangha", "savakasangha", "ratana", "ratanattaya", "supatipanna", "ujupatipanna", "nayapatipanna", "samicipatipanna"),
+        phrases=("sangharatanam", "sangham saranam", "ariyasangha", "savakasangha", "supatipanno bhagavato savakasangho"),
+    ),
+    Concept(
+        id="buddha_jewel",
+        label="Phật bảo",
+        triggers=("phat bao", "duc phat bao", "khai niem phat bao", "dinh nghia phat bao"),
+        pali=("buddharatana", "buddha", "bhagava", "tathagata", "araha", "sammasambuddha", "ratana", "ratanattaya"),
+        must=("buddha",),
+        should=("buddharatana", "bhagava", "tathagata", "araha", "sammasambuddha", "ratana", "ratanattaya"),
+        phrases=("buddharatanam", "buddham saranam", "itipi so bhagava araham sammasambuddho"),
+    ),
+    Concept(
+        id="dhamma_jewel",
+        label="Pháp bảo",
+        triggers=("phap bao", "giao phap", "khai niem phap bao", "dinh nghia phap bao"),
+        pali=("dhammaratana", "dhamma", "svakkhata", "sanditthika", "akalika", "ehipassika", "opanayika", "paccattam", "ratana", "ratanattaya"),
+        must=("dhamma",),
+        should=("dhammaratana", "svakkhata", "sanditthika", "akalika", "ehipassika", "opanayika", "paccattam", "ratana", "ratanattaya"),
+        phrases=("dhammaratanam", "dhammam saranam", "svakkhato bhagavata dhammo"),
+    ),
+    Concept(
         id="not_eating_after_noon",
         label="giới không ăn phi thời",
         triggers=("khong an phi thoi", "phi thoi", "an phi thoi", "qua ngo", "sau gio ngo", "sau bua trua", "an ban dem"),
@@ -152,8 +179,55 @@ def _unique_normalized(values: list[str] | tuple[str, ...]) -> list[str]:
     return output
 
 
+def canonicalize_query(query: str) -> str:
+    normalized = strip_vietnamese(query)
+    normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    prefix_patterns = [
+        r"^(toi\s+)?(muon|can)\s+tim\s+",
+        r"^(hay\s+)?tim\s+(kiem\s+)?(cho\s+toi\s+)?",
+        r"^(cho\s+toi\s+)?tim\s+(bai\s+kinh|doan\s+kinh|kinh|doan)\s+",
+        r"^(bai\s+kinh|doan\s+kinh|kinh|doan)\s+",
+        r"^(noi|noi\s+ve|ve)\s+",
+        r"^(khai\s+niem|dinh\s+nghia|giai\s+thich)\s+(cua|ve)?\s*",
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for pattern in prefix_patterns:
+            new_value = re.sub(pattern, "", normalized).strip()
+            if new_value != normalized:
+                normalized = new_value
+                changed = True
+
+    suffix_patterns = [
+        r"\s+(la\s+gi|nghia\s+la\s+gi|la\s+sao|nhu\s+the\s+nao|the\s+nao)$",
+        r"\s+(o\s+dau|trong\s+kinh\s+nao)$",
+    ]
+    for pattern in suffix_patterns:
+        normalized = re.sub(pattern, "", normalized).strip()
+
+    filler_words = {
+        "cua",
+        "ve",
+        "la",
+        "gi",
+        "su",
+        "cac",
+        "nhung",
+        "mot",
+        "noi",
+        "den",
+        "trong",
+    }
+    tokens = [token for token in normalized.split() if token not in filler_words]
+    return " ".join(tokens) or normalized or strip_vietnamese(query)
+
+
 def analyze_query(query: str, corpus_types: list[str]) -> dict:
-    normalized_query = strip_vietnamese(query)
+    clean_query = canonicalize_query(query)
+    normalized_query = " ".join(dict.fromkeys([strip_vietnamese(query), clean_query]))
 
     def has_trigger(trigger: str) -> bool:
         normalized_trigger = strip_vietnamese(trigger)
@@ -183,10 +257,13 @@ def analyze_query(query: str, corpus_types: list[str]) -> dict:
         phrases.extend(concept.phrases)
 
     query_tokens = tokenize(query)
+    clean_tokens = tokenize(clean_query)
 
     return {
         "mainMeaning": query,
-        "vietnameseKeywords": query_tokens,
+        "cleanQuery": clean_query,
+        "intent": "definition" if any(word in strip_vietnamese(query) for word in ["khai niem", "dinh nghia", "la gi", "giai thich"]) else "search",
+        "vietnameseKeywords": list(dict.fromkeys([*clean_tokens, *query_tokens])),
         "relatedConcepts": concepts,
         "paliHints": _unique_normalized(pali),
         "mustHavePali": _unique_normalized(must),

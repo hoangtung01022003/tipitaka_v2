@@ -1,5 +1,6 @@
 import json
 import re
+import hashlib
 from itertools import count
 from threading import Lock
 
@@ -39,7 +40,10 @@ def _client() -> genai.Client:
     api_key = str(settings()["gemini_api_key"])
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
-    return genai.Client(api_key=api_key)
+    return genai.Client(
+        api_key=api_key,
+        http_options={"timeout": int(settings()["gemini_request_timeout_ms"])},
+    )
 
 
 def _models() -> list[str]:
@@ -117,6 +121,56 @@ def translate_text(pali_text: str) -> dict:
         "notes": translated.notes,
         "model": translated.model or (_models()[0] if _models() else None),
         "fromCache": False,
+    }
+
+
+def _text_hash(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def translate_text_cached(pali_text: str) -> dict:
+    active_models = _models()
+    text_hash = _text_hash(pali_text)
+    cached = fetch_one(
+        """
+        select translated_text, notes, model
+        from text_translations
+        where text_hash = %s
+          and language = 'vi'
+          and model = any(%s)
+          and prompt_version = %s
+        order by created_at desc
+        limit 1
+        """,
+        [text_hash, active_models, PROMPT_VERSION],
+    )
+    if cached:
+        return {
+            "vi": cached["translated_text"],
+            "notes": cached["notes"],
+            "model": cached["model"],
+            "fromCache": True,
+            "textHash": text_hash,
+        }
+
+    translated = _translate_text_resilient(pali_text)
+    model = translated.model or active_models[0]
+    execute(
+        """
+        insert into text_translations (text_hash, language, model, prompt_version, source_text, translated_text, notes)
+        values (%s, 'vi', %s, %s, %s, %s, %s)
+        on conflict (text_hash, language, model, prompt_version)
+        do update set translated_text = excluded.translated_text, notes = excluded.notes, source_text = excluded.source_text, created_at = now()
+        """,
+        [text_hash, model, PROMPT_VERSION, pali_text, translated.translatedText, translated.notes],
+    )
+    return {
+        "vi": translated.translatedText,
+        "notes": translated.notes,
+        "model": model,
+        "fromCache": False,
+        "textHash": text_hash,
     }
 
 
@@ -320,7 +374,10 @@ def embed_query_vector(text: str) -> str | None:
     if not api_key:
         return None
     try:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": int(settings()["gemini_request_timeout_ms"])},
+        )
         response = client.models.embed_content(
             model="gemini-embedding-2",
             contents=text,

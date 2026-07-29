@@ -1,11 +1,11 @@
-<section class="sectionViewer sectionViewerModal">
+<section class="sectionViewer sectionViewerModal" data-section-viewer data-section-id="{{ section.sectionId }}">
   <div class="sectionHeader">
     <div>
       <div class="resultTitle">Toàn bộ bài kinh này</div>
       <h2>{{ section.title }}</h2>
       <p class="source">{{ section.sourcePath }}</p>
       <p class="meta">
-        {{ section.passageCount }} đoạn trong mục này · Bản gốc và bản dịch được đặt song song để dễ đối chiếu.
+        {{ section.passageCount }} đoạn trong mục này · Bản gốc Pali hiển thị trước, bản dịch AI được tải sau để không làm chậm popup.
       </p>
     </div>
   </div>
@@ -30,23 +30,16 @@
           <div class="resultTitle">Bản dịch tiếng Việt</div>
           <p class="meta">Dịch bằng AI, các bài dài được chia theo đoạn/câu rồi ghép lại.</p>
         </div>
-        {% if section.translation and section.translation.vi %}
-          <button class="button secondary compact" type="button" data-toggle-reader>Mở rộng</button>
-        {% endif %}
+        <button class="button secondary compact hidden" type="button" data-toggle-reader data-section-translation-toggle>Mở rộng</button>
       </div>
 
-      {% if section.translation and section.translation.vi %}
-        <div class="readerBody collapsed">
-          <div class="translation">{{ section.translation.vi }}</div>
+      <div class="sectionTranslationMount" data-section-translation data-loaded="false">
+        <div data-section-translation-output></div>
+        <div class="translationLoading" data-section-translation-progress role="status" aria-live="polite">
+          <span class="miniSpinner" aria-hidden="true"></span>
+          <span>Đang dịch phần đầu tiên. Bạn có thể đọc bản Pali trước trong khi chờ.</span>
         </div>
-        {% if section.translation.notes %}
-          <p class="meta translationNote">{{ section.translation.notes }}</p>
-        {% endif %}
-      {% elif section.translation and section.translation.error %}
-        <div class="error">{{ section.translation.error }}</div>
-      {% else %}
-        <div class="error">Chưa dịch được bài này.</div>
-      {% endif %}
+      </div>
     </article>
   </div>
 

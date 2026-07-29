@@ -27,6 +27,13 @@ def float_env(name: str, default: float) -> float:
         return default
 
 
+def int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, ""))
+    except ValueError:
+        return default
+
+
 @lru_cache(maxsize=1)
 def settings() -> dict[str, object]:
     database_url = os.getenv("DATABASE_URL")
@@ -48,4 +55,5 @@ def settings() -> dict[str, object]:
         "search_enable_vector": bool_env("PY_SEARCH_ENABLE_VECTOR", True),
         "search_ai_mode": os.getenv("PY_SEARCH_AI_MODE", "full").strip().lower(),
         "search_rerank_limit": int(os.getenv("PY_SEARCH_RERANK_LIMIT", "100")),
+        "gemini_request_timeout_ms": int_env("GEMINI_REQUEST_TIMEOUT_MS", 12000),
     }

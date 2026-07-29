@@ -83,6 +83,9 @@
       const sectionModal = document.getElementById("sectionModal");
       const sectionModalBody = document.getElementById("sectionModalBody");
       const sectionModalClose = document.getElementById("sectionModalClose");
+      const sectionHtmlCache = new Map();
+      const sectionLoadingSet = new Set();
+      let activeSectionId = null;
 
       function updateNotice() {
         const corpus = form.querySelector("input[name='corpus_type']:checked");
@@ -118,6 +121,145 @@
         sectionModal.classList.add("hidden");
         document.body.classList.remove("modalOpen");
         sectionModalBody.innerHTML = "";
+        activeSectionId = null;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function renderTranslation(card, translation) {
+        if (translation && translation.vi) {
+          card.innerHTML = `<div class="translation">${escapeHtml(translation.vi)}</div>`;
+          return;
+        }
+        const message = translation?.error || "Chưa dịch được đoạn này. Vui lòng thử lại sau.";
+        card.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
+      }
+
+      async function translateCard(card) {
+        if (!card || card.dataset.loaded === "true" || card.dataset.loading === "true") return;
+        card.dataset.loading = "true";
+        const passageId = card.dataset.passageId;
+        const textNode = document.getElementById(`pali-text-${passageId}`);
+        let paliText = "";
+        try {
+          paliText = textNode ? JSON.parse(textNode.textContent || '""') : "";
+        } catch (_error) {
+          paliText = "";
+        }
+
+        try {
+          const res = await fetch("/api/translate-result", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              passageId,
+              paliText,
+              usePassageCache: card.dataset.usePassageCache === "true",
+            }),
+          });
+          const payload = await res.json();
+          renderTranslation(card, payload.translation || {});
+        } catch (error) {
+          renderTranslation(card, { error: error.message });
+        } finally {
+          card.dataset.loaded = "true";
+          card.dataset.loading = "false";
+        }
+      }
+
+      async function hydrateLazyTranslations(root = document) {
+        const cards = Array.from(root.querySelectorAll("[data-translation-card][data-loaded='false']"));
+        const workers = 3;
+        let index = 0;
+
+        async function runWorker() {
+          while (index < cards.length) {
+            const card = cards[index++];
+            await translateCard(card);
+          }
+        }
+
+        await Promise.all(Array.from({ length: Math.min(workers, cards.length) }, runWorker));
+      }
+
+      function appendSectionTranslationChunk(viewer, payload) {
+        const mount = viewer.querySelector("[data-section-translation]");
+        const output = viewer.querySelector("[data-section-translation-output]");
+        const progress = viewer.querySelector("[data-section-translation-progress]");
+        const toggle = viewer.querySelector("[data-section-translation-toggle]");
+        if (!mount || !output) return;
+
+        const translation = payload?.translation || {};
+        if (translation.vi) {
+          let body = output.querySelector(".readerBody");
+          let translatedText = output.querySelector(".translation");
+          if (!body || !translatedText) {
+            output.innerHTML = `
+              <div class="readerBody collapsed">
+                <div class="translation"></div>
+              </div>
+            `;
+            body = output.querySelector(".readerBody");
+            translatedText = output.querySelector(".translation");
+          }
+          translatedText.innerHTML += `${translatedText.innerHTML ? "\n\n" : ""}${escapeHtml(translation.vi)}`;
+          if (toggle) toggle.classList.remove("hidden");
+        } else if (translation.error) {
+          output.insertAdjacentHTML(
+            "beforeend",
+            `<div class="error">${escapeHtml(translation.error)}</div>`,
+          );
+        }
+
+        if (progress) {
+          if (payload?.hasMore) {
+            const current = Number(payload.chunkIndex || 0) + 2;
+            const total = Number(payload.totalChunks || current);
+            progress.innerHTML = `
+              <span class="miniSpinner" aria-hidden="true"></span>
+              <span>Đang dịch tiếp phần ${current}/${total}. Các phần đã dịch được hiển thị ở trên.</span>
+            `;
+          } else {
+            progress.innerHTML = `<span>Đã dịch xong toàn bộ mục này.</span>`;
+            progress.classList.add("translationDone");
+          }
+        }
+      }
+
+      async function hydrateSectionTranslation(root = document) {
+        const viewer = root.querySelector("[data-section-viewer][data-section-id]");
+        if (!viewer) return;
+        const mount = viewer.querySelector("[data-section-translation]");
+        if (!mount || mount.dataset.loaded === "true" || mount.dataset.loading === "true") return;
+
+        mount.dataset.loading = "true";
+        let chunk = Number(mount.dataset.nextChunk || 0);
+        try {
+          while (true) {
+            const res = await fetch(`/api/sections/${viewer.dataset.sectionId}/translate-chunk?chunk=${chunk}`);
+            const payload = await res.json();
+            if (!res.ok) throw new Error(payload.error || "Không tải được phần dịch tiếp theo.");
+            appendSectionTranslationChunk(viewer, payload);
+            chunk += 1;
+            mount.dataset.nextChunk = String(chunk);
+            if (!payload.hasMore) break;
+          }
+        } catch (error) {
+          const progress = viewer.querySelector("[data-section-translation-progress]");
+          if (progress) {
+            progress.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+          }
+        } finally {
+          mount.dataset.loaded = "true";
+          mount.dataset.loading = "false";
+        }
       }
 
       async function submitSearch(event) {
@@ -148,6 +290,7 @@
             body: data,
           });
           resultsWrap.innerHTML = await res.text();
+          hydrateLazyTranslations(resultsWrap);
         } catch (error) {
           resultsWrap.innerHTML = `<div class="error">${error.message}</div>`;
         }
@@ -168,6 +311,7 @@
           const html = await res.text();
           if (!res.ok) throw new Error("Không tải được kết quả tiếp theo.");
           loadMoreForm.insertAdjacentHTML("beforebegin", html);
+          hydrateLazyTranslations(resultsWrap);
           loadMoreForm.remove();
         } catch (error) {
           if (button) {
@@ -181,6 +325,22 @@
       async function openSection(sectionId, button) {
         if (!sectionId) return;
         const originalText = button?.textContent || "Bạn có muốn xem toàn bộ bài kinh này?";
+        if (activeSectionId === sectionId && !sectionModal.classList.contains("hidden")) {
+          return;
+        }
+        if (sectionHtmlCache.has(sectionId)) {
+          activeSectionId = sectionId;
+          openModal(sectionHtmlCache.get(sectionId));
+          hydrateSectionTranslation(sectionModalBody);
+          return;
+        }
+        if (sectionLoadingSet.has(sectionId)) {
+          sectionModal.classList.remove("hidden");
+          document.body.classList.add("modalOpen");
+          return;
+        }
+        sectionLoadingSet.add(sectionId);
+        activeSectionId = sectionId;
         if (button) {
           button.disabled = true;
           button.textContent = "Đang tải toàn bộ bài kinh...";
@@ -199,10 +359,13 @@
           const res = await fetch(`/section-page/${sectionId}`);
           const html = await res.text();
           if (!res.ok) throw new Error("Không tải được bài kinh này.");
+          sectionHtmlCache.set(sectionId, html);
           sectionModalBody.innerHTML = html;
+          hydrateSectionTranslation(sectionModalBody);
         } catch (error) {
           sectionModalBody.innerHTML = `<div class="error">${error.message}</div>`;
         } finally {
+          sectionLoadingSet.delete(sectionId);
           if (button) {
             button.disabled = false;
             button.textContent = originalText.trim() || "Bạn có muốn xem toàn bộ bài kinh này?";
@@ -247,13 +410,7 @@
         const sectionButton = event.target.closest("[data-section-id]");
         if (!sectionButton) return;
         event.preventDefault();
-        window.openSectionModal(sectionButton.dataset.sectionId, sectionButton);
-      });
-
-      document.addEventListener("click", (event) => {
-        const sectionButton = event.target.closest("[data-section-id]");
-        if (!sectionButton || resultsWrap.contains(sectionButton)) return;
-        event.preventDefault();
+        event.stopPropagation();
         window.openSectionModal(sectionButton.dataset.sectionId, sectionButton);
       });
 

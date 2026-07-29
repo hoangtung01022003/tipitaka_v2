@@ -1,19 +1,20 @@
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .db import fetch_all, fetch_one
 from .search_engine import search_passages
-from .translator import public_translation_error, translate_passage, translate_text
+from .translator import public_translation_error, translate_passage, translate_text, translate_text_cached
 
 
 APP_DIR = Path(__file__).resolve().parent
 SECTION_TRANSLATION_MAX_CHARS = 18000
 SECTION_TRANSLATION_CHUNK_CHARS = 12000
+SECTION_TRANSLATION_STREAM_CHUNK_CHARS = 3600
 
 app = FastAPI(title="Tipiṭaka Python Search")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
@@ -57,7 +58,8 @@ def search_api(payload: dict):
     page_size = min(20, int(payload.get("pageSize") or 5))
     if not query:
         raise HTTPException(status_code=400, detail="Missing query.")
-    return search_passages(query, corpus_types, pitaka_type, page, page_size)
+    include_translations = bool(payload.get("includeTranslations", True))
+    return search_passages(query, corpus_types, pitaka_type, page, page_size, include_translations=include_translations)
 
 
 @app.post("/search-page", response_class=HTMLResponse)
@@ -68,7 +70,7 @@ def search_page(
     pitaka_type: str | None = Form(None),
     page: int = Form(1),
 ):
-    result = search_passages(query, [corpus_type], pitaka_type or None, page, 5)
+    result = search_passages(query, [corpus_type], pitaka_type or None, page, 5, include_translations=False)
     return templates.TemplateResponse(
         "results.html",
         {
@@ -90,6 +92,35 @@ def _translation_or_error(passage_id: str) -> dict:
             "vi": None,
             "fromCache": False,
             "error": public_translation_error(),
+        }
+
+
+@app.post("/api/translate-result")
+def translate_result_api(payload: dict):
+    passage_id = str(payload.get("passageId") or "").strip()
+    pali_text = str(payload.get("paliText") or "").strip()
+    use_passage_cache = bool(payload.get("usePassageCache"))
+
+    if not passage_id and not pali_text:
+        raise HTTPException(status_code=400, detail="Missing passageId or paliText.")
+
+    try:
+        if use_passage_cache and passage_id:
+            translation = translate_passage(passage_id)
+        elif pali_text:
+            translation = translate_text_cached(pali_text)
+        else:
+            translation = translate_passage(passage_id)
+        return {"ok": True, "translation": translation, "warning": AI_TRANSLATION_WARNING}
+    except Exception:
+        return {
+            "ok": False,
+            "translation": {
+                "vi": None,
+                "fromCache": False,
+                "error": public_translation_error(),
+            },
+            "warning": AI_TRANSLATION_WARNING,
         }
 
 
@@ -175,7 +206,7 @@ def _translate_section_text(pali_text: str) -> tuple[dict, bool]:
 
     try:
         if len(chunks) == 1 and len(pali_text) <= SECTION_TRANSLATION_MAX_CHARS:
-            return translate_text(pali_text), True
+            return translate_text_cached(pali_text), True
 
         translated_parts: list[str] = []
         failed_parts: list[int] = []
@@ -183,7 +214,7 @@ def _translate_section_text(pali_text: str) -> tuple[dict, bool]:
 
         for index, chunk in enumerate(chunks, start=1):
             try:
-                translated = translate_text(chunk)
+                translated = translate_text_cached(chunk)
                 text = str(translated.get("vi") or "").strip()
                 if text:
                     translated_parts.append(text)
@@ -241,7 +272,7 @@ def _paragraph_label(row: dict) -> str:
     return "Đoạn tiếp theo"
 
 
-def _section_payload(section_id: str) -> dict:
+def _section_payload(section_id: str, include_translation: bool = True) -> dict:
     section = fetch_one(
         """
         select id, title, source_path
@@ -268,7 +299,10 @@ def _section_payload(section_id: str) -> dict:
         parts.append(f"{label}\n{row['pali_text']}")
 
     pali_text = "\n\n".join(parts)
-    translation, attempted_translation = _translate_section_text(pali_text)
+    if include_translation:
+        translation, attempted_translation = _translate_section_text(pali_text)
+    else:
+        translation, attempted_translation = {"vi": None, "fromCache": False, "pending": True}, False
     source_path = section.get("source_path") or []
     return {
         "sectionId": str(section["id"]),
@@ -284,12 +318,66 @@ def _section_payload(section_id: str) -> dict:
 
 @app.get("/api/sections/{section_id}")
 def section_api(section_id: str):
-    return _section_payload(section_id)
+    return _section_payload(section_id, include_translation=False)
+
+
+@app.get("/api/sections/{section_id}/translate")
+def section_translate_api(section_id: str):
+    section = _section_payload(section_id, include_translation=True)
+    return {
+        "ok": bool(section.get("translation", {}).get("vi")),
+        "sectionId": section["sectionId"],
+        "translation": section["translation"],
+        "warning": section["warning"],
+    }
+
+
+@app.get("/api/sections/{section_id}/translate-chunk")
+def section_translate_chunk_api(section_id: str, chunk: int = Query(0, ge=0)):
+    section = _section_payload(section_id, include_translation=False)
+    chunks = _chunk_section_text(
+        str(section.get("paliText") or ""),
+        max_chars=SECTION_TRANSLATION_STREAM_CHUNK_CHARS,
+    )
+    total_chunks = len(chunks)
+    if total_chunks == 0:
+        return {
+            "ok": True,
+            "sectionId": section["sectionId"],
+            "chunkIndex": 0,
+            "totalChunks": 0,
+            "hasMore": False,
+            "translation": {"vi": "", "fromCache": False},
+            "warning": section["warning"],
+        }
+    if chunk >= total_chunks:
+        raise HTTPException(status_code=404, detail="Translation chunk not found.")
+
+    try:
+        translation = translate_text_cached(chunks[chunk])
+        ok = bool(translation.get("vi"))
+    except Exception:
+        translation = {
+            "vi": None,
+            "fromCache": False,
+            "error": public_translation_error(),
+        }
+        ok = False
+
+    return {
+        "ok": ok,
+        "sectionId": section["sectionId"],
+        "chunkIndex": chunk,
+        "totalChunks": total_chunks,
+        "hasMore": chunk + 1 < total_chunks,
+        "translation": translation,
+        "warning": section["warning"],
+    }
 
 
 @app.get("/section-page/{section_id}", response_class=HTMLResponse)
 def section_page(request: Request, section_id: str):
-    section = _section_payload(section_id)
+    section = _section_payload(section_id, include_translation=False)
     return templates.TemplateResponse(
         "section.html",
         {

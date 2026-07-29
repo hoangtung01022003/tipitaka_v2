@@ -16,6 +16,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background:
@@ -267,6 +271,41 @@ body.modalOpen {
   font-weight: 400;
 }
 
+.translationMount {
+  min-height: 54px;
+}
+
+.translationLoading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff8ed;
+  border-left: 3px solid #d9a245;
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 16px;
+  animation: softPulse 1.6s ease-in-out infinite;
+}
+
+.miniSpinner {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 3px solid #eadfce;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.translationDone {
+  border-left-color: #4a8f4a;
+  background: #f1faef;
+  color: #286028;
+  animation: none;
+}
+
 .sectionActions {
   margin: 16px 0 10px;
 }
@@ -504,6 +543,16 @@ body.modalOpen {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes softPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(217, 162, 69, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(217, 162, 69, 0.12);
   }
 }
 

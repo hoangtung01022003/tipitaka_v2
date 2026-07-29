@@ -69,6 +69,32 @@ def _single_terms(terms: list[str]) -> list[str]:
     return sorted({normalize_pali(term) for term in terms if normalize_pali(term) and " " not in normalize_pali(term)})
 
 
+def _term_like_patterns(terms: list[str]) -> list[str]:
+    return sorted({f"%{term}%" for term in _single_terms(terms)})
+
+
+def _tsquery_for_terms(terms: list[str]) -> str:
+    parts = []
+    for term in _single_terms(terms):
+        safe = re.sub(r"[^a-z0-9]+", "", term)
+        if safe:
+            parts.append(f"{safe}:*")
+    return " | ".join(parts)
+
+
+def _tsquery_for_phrases(terms: list[str]) -> str:
+    phrases: list[str] = []
+    for term in terms:
+        normalized = normalize_pali(term)
+        if " " not in normalized:
+            continue
+        tokens = [re.sub(r"[^a-z0-9]+", "", token) for token in normalized.split()]
+        tokens = [token for token in tokens if token]
+        if len(tokens) >= 2 and all(len(token) >= 2 for token in tokens):
+            phrases.append("(" + " <-> ".join(f"{token}:*" for token in tokens) + ")")
+    return " | ".join(dict.fromkeys(phrases))
+
+
 def _has_stem(text: str, term: str) -> bool:
     normalized = normalize_pali(term)
     if not normalized:
@@ -326,6 +352,20 @@ def _pitaka_sql(pitaka_type: str | None) -> tuple[str, list[str]]:
     return "and lower(d.file_name) like any(%s)", PITAKA_PREFIXES.get(pitaka_type, [])
 
 
+def _document_ids(corpus_types: list[str], pitaka_type: str | None) -> list[str]:
+    pitaka_sql, pitaka_params = _pitaka_sql(pitaka_type)
+    rows = fetch_all(
+        f"""
+        select id
+        from documents d
+        where d.corpus_type = any(%s)
+          {pitaka_sql}
+        """,
+        [corpus_types, *([pitaka_params] if pitaka_params else [])],
+    )
+    return [str(row["id"]) for row in rows]
+
+
 def _params_with_pitaka(base: list[Any], pitaka_params: list[str], tail: list[Any]) -> list[Any]:
     if pitaka_params:
         return [*base, pitaka_params, *tail]
@@ -426,39 +466,38 @@ def _candidate_columns() -> str:
 
 
 def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str | None, analysis: dict, limit: int) -> list[dict]:
-    pitaka_sql, pitaka_params = _pitaka_sql(pitaka_type)
+    doc_ids = _document_ids(corpus_types, pitaka_type)
+    if not doc_ids:
+        return []
     candidates: list[dict] = []
+    keyword_terms = sorted({*analysis["paliHints"], *analysis["mustHavePali"], *analysis["shouldHavePali"]})
+    keyword_single_terms = _single_terms(keyword_terms)
 
-    phrase_patterns = _phrase_patterns([*analysis["expandedQueries"], *analysis["mustHavePali"], *analysis["shouldHavePali"]])
-    if phrase_patterns:
+    phrase_tsquery = _tsquery_for_phrases([*analysis["expandedQueries"], *analysis["mustHavePali"], *analysis["shouldHavePali"]])
+    if phrase_tsquery:
         rows = fetch_all(
             f"""
             select
               {_candidate_columns()},
               0::float as semantic_score,
-              (
-                select count(*)
-                from unnest(%s::text[]) pattern
-                where p.normalized_pali like pattern
-              ) as phrase_hits
+              ts_rank_cd(to_tsvector('simple', p.normalized_pali), to_tsquery('simple', %s)) as phrase_hits
             from passages p
             join documents d on d.id = p.document_id
             left join sections s on s.id = p.section_id
-            where d.corpus_type = any(%s)
-              and p.normalized_pali like any(%s)
-              {pitaka_sql}
-            order by phrase_hits desc, length(p.normalized_pali) asc, p.sort_order asc
+            where p.document_id = any(%s::uuid[])
+              and to_tsvector('simple', p.normalized_pali) @@ to_tsquery('simple', %s)
+            order by phrase_hits desc, p.sort_order asc
             limit %s
             """,
-            _params_with_pitaka([phrase_patterns, corpus_types, phrase_patterns], pitaka_params, [limit]),
+            [phrase_tsquery, doc_ids, phrase_tsquery, limit],
         )
         for row in rows:
             score, keyword, concept = _score(row, analysis, base=0.52)
             candidates.append({"row": row, "score": score, "keyword": keyword, "concept": concept})
 
-    keyword_terms = sorted({*analysis["paliHints"], *analysis["mustHavePali"], *analysis["shouldHavePali"]})
-    keyword_single_terms = _single_terms(keyword_terms)
-    if keyword_single_terms:
+    gate_terms = _single_terms(analysis["mustHavePali"]) or keyword_single_terms
+    gate_tsquery = _tsquery_for_terms(gate_terms)
+    if keyword_single_terms and gate_tsquery:
         rows = fetch_all(
             f"""
             select
@@ -472,13 +511,12 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
             from passages p
             join documents d on d.id = p.document_id
             left join sections s on s.id = p.section_id
-            where d.corpus_type = any(%s)
-              and p.normalized_pali ~* %s
-              {pitaka_sql}
-            order by term_hits desc, length(p.normalized_pali) asc, p.sort_order asc
+            where p.document_id = any(%s::uuid[])
+              and to_tsvector('simple', p.normalized_pali) @@ to_tsquery('simple', %s)
+            order by term_hits desc, p.sort_order asc
             limit %s
             """,
-            _params_with_pitaka([keyword_single_terms, corpus_types, _regex_for_terms(keyword_single_terms)], pitaka_params, [limit * 2]),
+            [keyword_single_terms, doc_ids, gate_tsquery, limit * 2],
         )
         for row in rows:
             score, keyword, concept = _score(row, analysis, base=0.18)
@@ -499,12 +537,11 @@ def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str |
                 join documents d on d.id = p.document_id
                 left join sections s on s.id = p.section_id
                 where p.embedding is not null
-                  and d.corpus_type = any(%s)
-                  {pitaka_sql}
+                  and p.document_id = any(%s::uuid[])
                 order by p.embedding <=> %s::vector
                 limit %s
                 """,
-                _params_with_pitaka([vector, corpus_types], pitaka_params, [vector, limit]),
+                [vector, doc_ids, vector, limit],
             )
             for row in rows:
                 score, keyword, concept = _score(row, analysis, base=0.05, semantic_weight=0.45)
@@ -589,11 +626,45 @@ def _strip_internal_fields(results: list[dict]) -> None:
         item.pop("_originalPaliText", None)
 
 
-def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None, page: int = 1, page_size: int = 5) -> dict:
+def _candidate_limit(page: int, page_size: int, analysis: dict) -> int:
+    strong_terms = [
+        *(analysis.get("mustHavePali") or []),
+        *(analysis.get("paliExactTerms") or []),
+    ]
+    has_strong_pali_signal = bool(strong_terms)
+    per_page_factor = 30 if has_strong_pali_signal else 80
+    base_limit = 150 if has_strong_pali_signal else 600
+    return max(base_limit, page * page_size * per_page_factor)
+
+
+def _rerank_limit(ranked: list[dict], analysis: dict) -> int:
+    configured = min(50, max(5, int(settings()["search_rerank_limit"])))
+    if not ranked:
+        return configured
+
+    strong_terms = [
+        *(analysis.get("mustHavePali") or []),
+        *(analysis.get("paliExactTerms") or []),
+    ]
+    if strong_terms and ranked[0].get("score", 0) >= 0.78:
+        return min(configured, 30)
+    return configured
+
+
+def search_passages(
+    query: str,
+    corpus_types: list[str],
+    pitaka_type: str | None,
+    page: int = 1,
+    page_size: int = 5,
+    include_translations: bool = True,
+) -> dict:
     local_analysis = analyze_query(query, corpus_types)
-    analysis = merge_expansion(local_analysis, expand_query_with_ai(query))
-    limit = max(600, page * page_size * 80)
-    candidates = _retrieve_candidates(query, corpus_types, pitaka_type, analysis, limit)
+    clean_query = str(local_analysis.get("cleanQuery") or query)
+    analysis = merge_expansion(local_analysis, expand_query_with_ai(query, clean_query))
+    retrieval_query = str(analysis.get("cleanQuery") or clean_query or query)
+    limit = _candidate_limit(page, page_size, analysis)
+    candidates = _retrieve_candidates(retrieval_query, corpus_types, pitaka_type, analysis, limit)
 
     min_score = float(settings()["search_min_score"])
     by_hash: dict[str, dict] = {}
@@ -607,7 +678,7 @@ def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None
                 by_hash[text_hash] = item
 
     ranked = sorted((by_hash or by_hash_all).values(), key=lambda item: item["score"], reverse=True)
-    rerank_limit = max(5, int(settings()["search_rerank_limit"]))
+    rerank_limit = _rerank_limit(ranked, analysis)
     rerank_window = ranked[:rerank_limit]
     rerank_candidates = [
         _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_type, idx + 1)
@@ -647,7 +718,11 @@ def search_passages(query: str, corpus_types: list[str], pitaka_type: str | None
     for item in results:
         _append_nearby_heading_to_source(item)
     _expand_short_snippets(results)
-    _attach_translations(results)
+    if include_translations:
+        _attach_translations(results)
+    else:
+        for item in results:
+            item["translation"] = {"vi": None, "fromCache": False, "pending": True}
     _strip_internal_fields(results)
     _insert_log(query, corpus_types, pitaka_type, analysis, [item["id"] for item in results])
 

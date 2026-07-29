@@ -19,13 +19,19 @@
       <p class="pali">{{ item.paliText }}</p>
 
       <div class="resultTitle">Dịch nghĩa</div>
-      {% if item.translation and item.translation.vi %}
-        <div class="translation">{{ item.translation.vi }}</div>
-      {% elif item.translation and item.translation.error %}
-        <div class="error">{{ item.translation.error }}</div>
-      {% else %}
-        <div class="error">Chưa dịch được đoạn này. Vui lòng thử lại sau.</div>
-      {% endif %}
+      <div
+        class="translationMount"
+        data-translation-card
+        data-passage-id="{{ item.id }}"
+        data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
+        data-loaded="false"
+      >
+        <div class="translationLoading" role="status" aria-live="polite">
+          <span class="miniSpinner" aria-hidden="true"></span>
+          <span>Đang dịch đoạn này, bản Pali và nguồn đã hiển thị trước.</span>
+        </div>
+      </div>
+      <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
 
       {% if item.canOpenSection and item.sectionId %}
         <div class="sectionActions">
