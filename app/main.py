@@ -33,6 +33,7 @@ PITAKA_OPTIONS = [
     {"value": "abhidhamma", "label": "Tạng Vi Diệu Pháp", "description": "Abhidhammapiṭaka"},
 ]
 AI_TRANSLATION_WARNING = "Đây là bản dịch của AI, chưa có sự kiểm chứng."
+GATHA_RENDS = {"gatha1", "gatha2", "gatha3", "gathalast"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -263,13 +264,43 @@ def _translate_section_text(pali_text: str) -> tuple[dict, bool]:
         )
 
 
-def _paragraph_label(row: dict) -> str:
+def _passage_rend(row: dict) -> str:
+    hierarchy = row.get("hierarchy") or {}
+    if isinstance(hierarchy, dict):
+        return str(hierarchy.get("rend") or "")
+    return ""
+
+
+def _paragraph_label(row: dict) -> str | None:
     paragraph_no = row.get("paragraph_no")
     if paragraph_no and row.get("xml_paragraph_no"):
         return f"Đoạn {paragraph_no}"
-    if paragraph_no:
-        return f"Đoạn {paragraph_no} (tiếp)"
-    return "Đoạn tiếp theo"
+    return None
+
+
+def _join_section_passages(rows: list[dict]) -> str:
+    parts: list[str] = []
+    previous_rend = ""
+
+    for row in rows:
+        text = str(row["pali_text"]).strip()
+        if not text:
+            continue
+
+        rend = _passage_rend(row)
+        label = _paragraph_label(row)
+        line = f"{label}\n{text}" if label else text
+
+        if not parts:
+            parts.append(line)
+        elif previous_rend in GATHA_RENDS and rend in GATHA_RENDS:
+            parts[-1] = f"{parts[-1]}\n{line}"
+        else:
+            parts.append(line)
+
+        previous_rend = rend
+
+    return "\n\n".join(parts)
 
 
 def _section_payload(section_id: str, include_translation: bool = True) -> dict:
@@ -286,19 +317,19 @@ def _section_payload(section_id: str, include_translation: bool = True) -> dict:
 
     rows = fetch_all(
         """
-        select id, coalesce(display_paragraph_no, xml_paragraph_no, paragraph_no) as paragraph_no, xml_paragraph_no, pali_text
+        select
+          id,
+          coalesce(display_paragraph_no, xml_paragraph_no, paragraph_no) as paragraph_no,
+          xml_paragraph_no,
+          pali_text,
+          hierarchy
         from passages
         where section_id = %s
         order by sort_order asc
         """,
         [section_id],
     )
-    parts: list[str] = []
-    for row in rows:
-        label = _paragraph_label(row)
-        parts.append(f"{label}\n{row['pali_text']}")
-
-    pali_text = "\n\n".join(parts)
+    pali_text = _join_section_passages(rows)
     if include_translation:
         translation, attempted_translation = _translate_section_text(pali_text)
     else:
