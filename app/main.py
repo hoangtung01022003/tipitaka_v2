@@ -3,10 +3,10 @@ import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .db import execute, fetch_all, fetch_one
@@ -21,6 +21,7 @@ SECTION_TRANSLATION_STREAM_CHUNK_CHARS = 3600
 
 app = FastAPI(title="Tipiṭaka Python Search")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+app.add_middleware(SessionMiddleware, secret_key=settings().get("secret_key", "default_secret_key"))
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
@@ -456,25 +457,40 @@ def handle_exception(_request: Request, exc: Exception):
     status = exc.status_code if isinstance(exc, HTTPException) else 500
     detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
     return JSONResponse({"error": detail}, status_code=status)
-security = HTTPBasic()
+def get_current_admin(request: Request):
+    if not request.session.get("admin_logged_in"):
+        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"Location": "/admin/login"})
+    return True
 
 
-def get_current_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    current_username_bytes = credentials.username.encode("utf8")
+@app.get("/admin/login", response_class=HTMLResponse)
+def admin_login_page(request: Request):
+    if request.session.get("admin_logged_in"):
+        return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse("admin_login.html", {"request": request})
+
+
+@app.post("/admin/login")
+def admin_login_post(request: Request, username: str = Form(...), password: str = Form(...)):
+    current_username_bytes = username.encode("utf8")
     correct_username_bytes = str(settings().get("admin_username", "")).encode("utf8")
     is_correct_username = secrets.compare_digest(current_username_bytes, correct_username_bytes)
 
-    current_password_bytes = credentials.password.encode("utf8")
+    current_password_bytes = password.encode("utf8")
     correct_password_bytes = str(settings().get("admin_password", "")).encode("utf8")
     is_correct_password = secrets.compare_digest(current_password_bytes, correct_password_bytes)
 
     if not (is_correct_username and is_correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sai tên đăng nhập hoặc mật khẩu",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+        return templates.TemplateResponse("admin_login.html", {"request": request, "error": "Sai tên đăng nhập hoặc mật khẩu"})
+    
+    request.session["admin_logged_in"] = True
+    return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/admin/logout")
+def admin_logout(request: Request):
+    request.session.pop("admin_logged_in", None)
+    return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/admin/history", response_class=HTMLResponse)
@@ -514,6 +530,8 @@ def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Que
             "request": request,
             "logs": logs,
             "total_logs": total_logs,
+            "corpus_options": {item["value"]: item["label"] for item in CORPUS_OPTIONS},
+            "pitaka_options": {item["value"]: item["label"] for item in PITAKA_OPTIONS},
             "top_queries": top_queries,
             "page": page,
             "limit": limit,

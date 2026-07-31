@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 import os
+import secrets
 
 from dotenv import load_dotenv
 
@@ -59,4 +60,5 @@ def settings() -> dict[str, object]:
         "ga_measurement_id": os.getenv("GA_MEASUREMENT_ID", "").strip(),
         "admin_username": os.getenv("ADMIN_USERNAME", "admin").strip(),
         "admin_password": os.getenv("ADMIN_PASSWORD", "123456").strip(),
+        "secret_key": os.getenv("SECRET_KEY", secrets.token_hex(32)),
     }

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Đăng nhập Admin - Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: #f3f4f6;
+      }
+      .loginCard {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        width: 100%;
+        max-width: 400px;
+      }
+      .loginCard h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+        text-align: center;
+        color: #111827;
+      }
+      .formGroup {
+        margin-bottom: 1rem;
+      }
+      .formGroup label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: #374151;
+      }
+      .formGroup input {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 1rem;
+        box-sizing: border-box;
+      }
+      .formGroup input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      }
+      .submitBtn {
+        width: 100%;
+        padding: 0.75rem;
+        background-color: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 1rem;
+        transition: background-color 0.2s;
+      }
+      .submitBtn:hover {
+        background-color: #1d4ed8;
+      }
+      .errorMsg {
+        background-color: #fee2e2;
+        color: #dc2626;
+        padding: 0.75rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        text-align: center;
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="loginCard">
+      <h1>Admin Đăng Nhập</h1>
+      {% if error %}
+        <div class="errorMsg">{{ error }}</div>
+      {% endif %}
+      <form method="POST" action="/admin/login">
+        <div class="formGroup">
+          <label for="username">Tài khoản</label>
+          <input type="text" id="username" name="username" required autofocus />
+        </div>
+        <div class="formGroup">
+          <label for="password">Mật khẩu</label>
+          <input type="password" id="password" name="password" required />
+        </div>
+        <button type="submit" class="submitBtn">Đăng Nhập</button>
+      </form>
+    </div>
+  </body>
+</html>

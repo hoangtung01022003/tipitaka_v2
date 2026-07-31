@@ -16,36 +16,99 @@
     </script>
     {% endif %}
     <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        min-height: 100vh;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader {
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        border-bottom: 1px solid #374151;
+        text-align: center;
+      }
+      .sidebarMenu {
+        flex: 1;
+        padding: 1rem 0;
+      }
+      .menuItem {
+        display: block;
+        padding: 0.75rem 1.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+      .menuItem:hover, .menuItem.active {
+        background-color: #374151;
+        color: white;
+      }
+      .sidebarFooter {
+        padding: 1rem;
+        border-top: 1px solid #374151;
+      }
+      .logoutBtn {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: #ef4444;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: background 0.2s;
+      }
+      .logoutBtn:hover {
+        background-color: #dc2626;
+      }
+      .mainContent {
+        flex: 1;
+        padding: 2rem;
+        overflow-y: auto;
+      }
       .adminHeader {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 2rem;
-        flex-wrap: wrap;
-        gap: 1rem;
+      }
+      .adminHeader h1 {
+        margin: 0;
+        font-size: 1.8rem;
+        color: #111827;
       }
       .statsGrid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
         margin-bottom: 2rem;
       }
       .statCard {
         background: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
-        padding: 1.25rem;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       }
       .statCard h3 {
-        font-size: 0.875rem;
+        font-size: 0.9rem;
         color: #6b7280;
         margin: 0 0 0.5rem 0;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
       }
       .statCard .statNum {
-        font-size: 1.875rem;
+        font-size: 2rem;
         font-weight: 700;
         color: #111827;
         margin: 0;
@@ -54,36 +117,33 @@
         margin: 0;
         padding-left: 1.2rem;
         color: #374151;
-        font-size: 0.9rem;
       }
       .topQueriesList li {
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.4rem;
       }
       .historyTableWrap {
         background: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
-        overflow-x: auto;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       }
       table.adminTable {
         width: 100%;
         border-collapse: collapse;
         text-align: left;
-        font-size: 0.9rem;
       }
       table.adminTable th,
       table.adminTable td {
-        padding: 0.85rem 1.1rem;
+        padding: 1rem 1.2rem;
         border-bottom: 1px solid #f3f4f6;
       }
       table.adminTable th {
         background: #f9fafb;
         color: #374151;
         font-weight: 600;
+        font-size: 0.85rem;
         text-transform: uppercase;
-        font-size: 0.75rem;
-        letter-spacing: 0.05em;
       }
       table.adminTable tr:hover {
         background: #f9fafb;
@@ -96,11 +156,12 @@
         display: inline-block;
         background: #eff6ff;
         color: #1d4ed8;
-        padding: 0.2rem 0.5rem;
-        border-radius: 4px;
+        padding: 0.25rem 0.6rem;
+        border-radius: 9999px;
         font-size: 0.75rem;
-        font-weight: 500;
+        font-weight: 600;
         margin-right: 0.25rem;
+        margin-bottom: 0.25rem;
       }
       .dangerButton {
         background: #ef4444;
@@ -108,97 +169,143 @@
         border: none;
         padding: 0.5rem 1rem;
         border-radius: 6px;
-        font-weight: 500;
+        font-weight: 600;
         cursor: pointer;
         transition: background 0.2s;
       }
       .dangerButton:hover {
         background: #dc2626;
       }
-      .backLink {
-        color: #4b5563;
-        text-decoration: none;
-        font-weight: 500;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        margin-bottom: 1rem;
+      
+      /* Tabs implementation using simple JS */
+      .tabContent {
+        display: none;
       }
-      .backLink:hover {
-        color: #111827;
+      .tabContent.active {
+        display: block;
       }
     </style>
   </head>
   <body>
-    <main class="page">
-      <a href="/" class="backLink">← Quay lại trang tìm kiếm</a>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebarHeader">
+        Tipiṭaka Admin
+      </div>
+      <div class="sidebarMenu">
+        <a href="#" class="menuItem active" onclick="switchTab('history')">📜 Lịch sử tìm kiếm</a>
+        <a href="#" class="menuItem" onclick="switchTab('analytics')">📈 Google Analytics</a>
+        <a href="/" class="menuItem" target="_blank">🌐 Về trang chủ</a>
+      </div>
+      <div class="sidebarFooter">
+        <a href="/admin/logout" class="logoutBtn">Đăng xuất</a>
+      </div>
+    </nav>
 
-      <header class="adminHeader">
-        <div>
-          <h1>📜 Lịch Sử Tìm Kiếm</h1>
-          <p style="color: #6b7280; margin-top: 0.25rem;">Quản lý nhật ký và từ khóa được người dùng tra cứu nhiều nhất</p>
-        </div>
-        <button class="dangerButton" id="clearLogsBtn" type="button">🗑 Xóa lịch sử</button>
-      </header>
+    <!-- Main Content -->
+    <main class="mainContent">
+      
+      <!-- Lịch sử tìm kiếm TAB -->
+      <div id="tab-history" class="tabContent active">
+        <header class="adminHeader">
+          <div>
+            <h1>Lịch Sử Tìm Kiếm</h1>
+            <p style="color: #6b7280; margin-top: 0.25rem;">Quản lý nhật ký và từ khóa được người dùng tra cứu nhiều nhất</p>
+          </div>
+          <button class="dangerButton" id="clearLogsBtn" type="button">🗑 Xóa toàn bộ lịch sử</button>
+        </header>
 
-      <div class="statsGrid">
-        <div class="statCard">
-          <h3>Tổng số lượt tìm kiếm</h3>
-          <p class="statNum">{{ total_logs }}</p>
+        <div class="statsGrid">
+          <div class="statCard">
+            <h3>Tổng số lượt tìm kiếm</h3>
+            <p class="statNum">{{ total_logs }}</p>
+          </div>
+          <div class="statCard">
+            <h3>Top từ khóa tìm nhiều nhất</h3>
+            <ol class="topQueriesList">
+              {% for item in top_queries %}
+                <li><strong>{{ item.query }}</strong> <span style="color:#9ca3af; font-size:0.85em;">({{ item.count }} lần)</span></li>
+              {% else %}
+                <li>Chưa có dữ liệu</li>
+              {% endfor %}
+            </ol>
+          </div>
         </div>
+
+        <div class="historyTableWrap">
+          <table class="adminTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Thời gian</th>
+                <th>Từ khóa tìm kiếm</th>
+                <th>Tùy chọn tìm kiếm</th>
+                <th>Số kết quả</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in logs %}
+                <tr>
+                  <td>{{ loop.index + (page - 1) * limit }}</td>
+                  <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
+                  <td class="queryTag">{{ log.query }}</td>
+                  <td>
+                    {% if log.filters and log.filters.corpusType %}
+                      {% for c in log.filters.corpusType %}
+                        <span class="filterBadge">{{ corpus_options.get(c, c) }}</span>
+                      {% endfor %}
+                    {% endif %}
+                    {% if log.filters and log.filters.pitakaType %}
+                      <span class="filterBadge">{{ pitaka_options.get(log.filters.pitakaType, log.filters.pitakaType) }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ log.result_count or 0 }} kết quả</td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="5" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Google Analytics TAB -->
+      <div id="tab-analytics" class="tabContent">
+        <header class="adminHeader">
+          <div>
+            <h1>Tích hợp Google Analytics</h1>
+            <p style="color: #6b7280; margin-top: 0.25rem;">Quản lý mã theo dõi lưu lượng truy cập</p>
+          </div>
+        </header>
+
         <div class="statCard">
-          <h3>Top từ khóa tìm nhiều nhất</h3>
-          <ol class="topQueriesList">
-            {% for item in top_queries %}
-              <li><strong>{{ item.query }}</strong> ({{ item.count }} lần)</li>
-            {% else %}
-              <li>Chưa có dữ liệu</li>
-            {% endfor %}
-          </ol>
+          <h3>Mã Measurement ID hiện tại</h3>
+          {% if ga_measurement_id %}
+            <p class="statNum" style="color: #2563eb;">{{ ga_measurement_id }}</p>
+            <p style="margin-top: 1rem; color: #4b5563;">Hệ thống đang được theo dõi trên Google Analytics. Hãy truy cập <a href="https://analytics.google.com" target="_blank" style="color: #2563eb;">Google Analytics Dashboard</a> để xem chi tiết báo cáo lượt truy cập của trang.</p>
+          {% else %}
+            <p class="statNum" style="color: #ef4444;">Chưa cấu hình</p>
+            <p style="margin-top: 1rem; color: #4b5563;">Vui lòng thêm biến môi trường <code style="background: #f3f4f6; padding: 0.2rem 0.4rem; border-radius: 4px;">GA_MEASUREMENT_ID=G-XXXXXXXXXX</code> vào file <strong>.env</strong> và khởi động lại ứng dụng để kích hoạt Google Analytics.</p>
+          {% endif %}
         </div>
       </div>
 
-      <div class="historyTableWrap">
-        <table class="adminTable">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Thời gian</th>
-              <th>Từ khóa tìm kiếm</th>
-              <th>Bộ lọc</th>
-              <th>Số kết quả</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for log in logs %}
-              <tr>
-                <td>{{ loop.index + (page - 1) * limit }}</td>
-                <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
-                <td class="queryTag">{{ log.query }}</td>
-                <td>
-                  {% if log.filters and log.filters.corpusType %}
-                    {% for c in log.filters.corpusType %}
-                      <span class="filterBadge">{{ c }}</span>
-                    {% endfor %}
-                  {% endif %}
-                  {% if log.filters and log.filters.pitakaType %}
-                    <span class="filterBadge">{{ log.filters.pitakaType }}</span>
-                  {% endif %}
-                </td>
-                <td>{{ log.result_count or 0 }} kết quả</td>
-              </tr>
-            {% else %}
-              <tr>
-                <td colspan="5" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
     </main>
 
     <script>
-      document.getElementById("clearLogsBtn").addEventListener("click", async () => {
+      // Tab switching logic
+      function switchTab(tabId) {
+        document.querySelectorAll('.tabContent').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.menuItem').forEach(item => item.classList.remove('active'));
+        
+        document.getElementById('tab-' + tabId).classList.add('active');
+        event.currentTarget.classList.add('active');
+      }
+
+      // Clear logs logic
+      document.getElementById("clearLogsBtn")?.addEventListener("click", async () => {
         if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử tìm kiếm không?")) return;
         try {
           const res = await fetch("/api/admin/history/clear", { method: "POST" });

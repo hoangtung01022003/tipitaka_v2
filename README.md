@@ -16,7 +16,7 @@ pip install -r requirements.txt
 copy .env.example .env
 uvicorn app.main:app --reload --port 8001
 ```
-.\python_app\.venv\Scripts\uvicorn.exe app.main:app --app-dir python_app --host 127.0.0.1 --port 8002 --reload
+.\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8002 --reload
 Mở:
 
 ```txt
