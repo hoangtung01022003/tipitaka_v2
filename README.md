@@ -63,16 +63,20 @@ search_logs  0
 
 ## 5. Export SQL mới từ local
 
-Lưu ý: lần này không dùng `--disable-triggers`.
+Lưu ý: Không dùng cờ `-t` và không dùng dấu `>` để tránh lỗi hỏng cấu trúc file do Windows PowerShell. Nên export dưới dạng nén (Custom Format) để an toàn 100%.
 
 ```bat
-docker exec -t tipitaka-postgres pg_dump -U postgres -d tipitaka_ai --data-only --table=documents --table=sections --table=passages --table=translations --table=search_logs > tipitaka-data.sql
+:: Bước 1: Tạo file backup nén bên trong Docker container
+docker exec tipitaka-postgres pg_dump -U postgres -d tipitaka_ai -F c --data-only -t documents -t sections -t passages -t translations -t search_logs -f /tmp/tipitaka-data.dump
+
+:: Bước 2: Copy file backup ra ngoài máy host (Windows)
+docker cp tipitaka-postgres:/tmp/tipitaka-data.dump .\tipitaka-data.dump
 ```
 
 Kiểm tra file:
 
 ```bat
-dir tipitaka-data.sql
+dir tipitaka-data.dump
 ```
 
 ## 6. Rollback/xóa sạch Supabase
