@@ -1,8 +1,10 @@
 import re
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -454,10 +456,29 @@ def handle_exception(_request: Request, exc: Exception):
     status = exc.status_code if isinstance(exc, HTTPException) else 500
     detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
     return JSONResponse({"error": detail}, status_code=status)
+security = HTTPBasic()
+
+
+def get_current_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    current_username_bytes = credentials.username.encode("utf8")
+    correct_username_bytes = str(settings().get("admin_username", "")).encode("utf8")
+    is_correct_username = secrets.compare_digest(current_username_bytes, correct_username_bytes)
+
+    current_password_bytes = credentials.password.encode("utf8")
+    correct_password_bytes = str(settings().get("admin_password", "")).encode("utf8")
+    is_correct_password = secrets.compare_digest(current_password_bytes, correct_password_bytes)
+
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sai tên đăng nhập hoặc mật khẩu",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 
 @app.get("/admin/history", response_class=HTMLResponse)
-def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200)):
+def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200), _: str = Depends(get_current_admin)):
     offset = (page - 1) * limit
     logs = fetch_all(
         """
@@ -502,6 +523,6 @@ def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Que
 
 
 @app.post("/api/admin/history/clear")
-def clear_admin_history():
+def clear_admin_history(_: str = Depends(get_current_admin)):
     execute("truncate table search_logs restart identity;")
     return {"ok": True, "message": "Đã xóa toàn bộ lịch sử tìm kiếm."}

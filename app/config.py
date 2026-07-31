@@ -57,4 +57,6 @@ def settings() -> dict[str, object]:
         "search_rerank_limit": int(os.getenv("PY_SEARCH_RERANK_LIMIT", "100")),
         "gemini_request_timeout_ms": int_env("GEMINI_REQUEST_TIMEOUT_MS", 12000),
         "ga_measurement_id": os.getenv("GA_MEASUREMENT_ID", "").strip(),
+        "admin_username": os.getenv("ADMIN_USERNAME", "admin").strip(),
+        "admin_password": os.getenv("ADMIN_PASSWORD", "123456").strip(),
     }
