@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lịch Sử Tìm Kiếm - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    {% if ga_measurement_id %}
+    <!-- Google Analytics (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      .adminHeader {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      .statsGrid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+      .statCard {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.25rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+      }
+      .statCard h3 {
+        font-size: 0.875rem;
+        color: #6b7280;
+        margin: 0 0 0.5rem 0;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .statCard .statNum {
+        font-size: 1.875rem;
+        font-weight: 700;
+        color: #111827;
+        margin: 0;
+      }
+      .topQueriesList {
+        margin: 0;
+        padding-left: 1.2rem;
+        color: #374151;
+        font-size: 0.9rem;
+      }
+      .topQueriesList li {
+        margin-bottom: 0.25rem;
+      }
+      .historyTableWrap {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        overflow-x: auto;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+      }
+      table.adminTable {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+        font-size: 0.9rem;
+      }
+      table.adminTable th,
+      table.adminTable td {
+        padding: 0.85rem 1.1rem;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      table.adminTable th {
+        background: #f9fafb;
+        color: #374151;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+      }
+      table.adminTable tr:hover {
+        background: #f9fafb;
+      }
+      .queryTag {
+        font-weight: 600;
+        color: #1e40af;
+      }
+      .filterBadge {
+        display: inline-block;
+        background: #eff6ff;
+        color: #1d4ed8;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-right: 0.25rem;
+      }
+      .dangerButton {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .dangerButton:hover {
+        background: #dc2626;
+      }
+      .backLink {
+        color: #4b5563;
+        text-decoration: none;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-bottom: 1rem;
+      }
+      .backLink:hover {
+        color: #111827;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <a href="/" class="backLink">← Quay lại trang tìm kiếm</a>
+
+      <header class="adminHeader">
+        <div>
+          <h1>📜 Lịch Sử Tìm Kiếm</h1>
+          <p style="color: #6b7280; margin-top: 0.25rem;">Quản lý nhật ký và từ khóa được người dùng tra cứu nhiều nhất</p>
+        </div>
+        <button class="dangerButton" id="clearLogsBtn" type="button">🗑 Xóa lịch sử</button>
+      </header>
+
+      <div class="statsGrid">
+        <div class="statCard">
+          <h3>Tổng số lượt tìm kiếm</h3>
+          <p class="statNum">{{ total_logs }}</p>
+        </div>
+        <div class="statCard">
+          <h3>Top từ khóa tìm nhiều nhất</h3>
+          <ol class="topQueriesList">
+            {% for item in top_queries %}
+              <li><strong>{{ item.query }}</strong> ({{ item.count }} lần)</li>
+            {% else %}
+              <li>Chưa có dữ liệu</li>
+            {% endfor %}
+          </ol>
+        </div>
+      </div>
+
+      <div class="historyTableWrap">
+        <table class="adminTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Thời gian</th>
+              <th>Từ khóa tìm kiếm</th>
+              <th>Bộ lọc</th>
+              <th>Số kết quả</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in logs %}
+              <tr>
+                <td>{{ loop.index + (page - 1) * limit }}</td>
+                <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
+                <td class="queryTag">{{ log.query }}</td>
+                <td>
+                  {% if log.filters and log.filters.corpusType %}
+                    {% for c in log.filters.corpusType %}
+                      <span class="filterBadge">{{ c }}</span>
+                    {% endfor %}
+                  {% endif %}
+                  {% if log.filters and log.filters.pitakaType %}
+                    <span class="filterBadge">{{ log.filters.pitakaType }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ log.result_count or 0 }} kết quả</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="5" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <script>
+      document.getElementById("clearLogsBtn").addEventListener("click", async () => {
+        if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử tìm kiếm không?")) return;
+        try {
+          const res = await fetch("/api/admin/history/clear", { method: "POST" });
+          const data = await res.json();
+          if (data.ok) {
+            alert("Đã xóa toàn bộ lịch sử thành công!");
+            window.location.reload();
+          } else {
+            alert("Lỗi: " + (data.message || "Không thể xóa lịch sử."));
+          }
+        } catch (err) {
+          alert("Lỗi kết nối: " + err.message);
+        }
+      });
+    </script>
+  </body>
+</html>

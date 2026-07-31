@@ -6,7 +6,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .db import fetch_all, fetch_one
+from .config import settings
+from .db import execute, fetch_all, fetch_one
 from .search_engine import search_passages
 from .translator import public_translation_error, translate_passage, translate_text, translate_text_cached
 
@@ -45,6 +46,7 @@ def index(request: Request):
             "corpus_options": CORPUS_OPTIONS,
             "pitaka_options": PITAKA_OPTIONS,
             "default_query": "",
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
         },
     )
 
@@ -452,3 +454,54 @@ def handle_exception(_request: Request, exc: Exception):
     status = exc.status_code if isinstance(exc, HTTPException) else 500
     detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
     return JSONResponse({"error": detail}, status_code=status)
+
+
+@app.get("/admin/history", response_class=HTMLResponse)
+def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200)):
+    offset = (page - 1) * limit
+    logs = fetch_all(
+        """
+        select 
+            id,
+            query,
+            filters,
+            array_length(result_passage_ids, 1) as result_count,
+            created_at
+        from search_logs
+        order by created_at desc
+        limit %s offset %s
+        """,
+        [limit, offset],
+    )
+
+    total_row = fetch_one("select count(*) as cnt from search_logs")
+    total_logs = total_row["cnt"] if total_row else 0
+
+    top_queries = fetch_all(
+        """
+        select query, count(*) as count
+        from search_logs
+        group by query
+        order by count desc
+        limit 10
+        """
+    )
+
+    return templates.TemplateResponse(
+        "admin_history.html",
+        {
+            "request": request,
+            "logs": logs,
+            "total_logs": total_logs,
+            "top_queries": top_queries,
+            "page": page,
+            "limit": limit,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
+@app.post("/api/admin/history/clear")
+def clear_admin_history():
+    execute("truncate table search_logs restart identity;")
+    return {"ok": True, "message": "Đã xóa toàn bộ lịch sử tìm kiếm."}

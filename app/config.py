@@ -56,4 +56,5 @@ def settings() -> dict[str, object]:
         "search_ai_mode": os.getenv("PY_SEARCH_AI_MODE", "full").strip().lower(),
         "search_rerank_limit": int(os.getenv("PY_SEARCH_RERANK_LIMIT", "100")),
         "gemini_request_timeout_ms": int_env("GEMINI_REQUEST_TIMEOUT_MS", 12000),
+        "ga_measurement_id": os.getenv("GA_MEASUREMENT_ID", "").strip(),
     }
