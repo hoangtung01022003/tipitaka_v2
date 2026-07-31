@@ -419,6 +419,10 @@
           const res = await fetch(`/api/admin/history/${logId}`);
           const data = await res.json();
           
+          if (data.error) {
+            throw new Error(data.error);
+          }
+
           modalTitle.textContent = `Chi tiết kết quả: "${data.log.query}"`;
           
           if (!data.passages || data.passages.length === 0) {
