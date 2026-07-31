@@ -463,6 +463,13 @@ def get_current_admin(request: Request):
     return True
 
 
+@app.get("/admin", include_in_schema=False)
+def admin_root(request: Request):
+    if request.session.get("admin_logged_in"):
+        return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
+
+
 @app.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page(request: Request):
     if request.session.get("admin_logged_in"):
