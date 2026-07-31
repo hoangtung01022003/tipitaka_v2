@@ -6,3 +6,4 @@ psycopg[binary]==3.2.3
 google-genai==1.17.0
 pydantic==2.10.4
 python-multipart==0.0.20
+itsdangerous==2.2.0
