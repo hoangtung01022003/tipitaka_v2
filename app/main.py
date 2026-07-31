@@ -547,6 +547,40 @@ def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Que
     )
 
 
+@app.get("/admin/history/{log_id}", response_class=HTMLResponse)
+def admin_history_detail(request: Request, log_id: int, _: str = Depends(get_current_admin)):
+    log = fetch_one("select * from search_logs where id = %s", [log_id])
+    if not log:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lịch sử này.")
+
+    passage_ids = log.get("result_passage_ids") or []
+    passages = []
+    
+    if passage_ids:
+        rows = fetch_all(
+            """
+            select p.id, p.pali_text, p.paragraph_no, d.file_name, s.title as section_title
+            from passages p
+            join documents d on d.id = p.document_id
+            left join sections s on s.id = p.section_id
+            where p.id = any(%s::uuid[])
+            """,
+            [passage_ids]
+        )
+        passage_map = {str(row["id"]): row for row in rows}
+        passages = [passage_map[str(pid)] for pid in passage_ids if str(pid) in passage_map]
+
+    return templates.TemplateResponse(
+        "admin_history_detail.html",
+        {
+            "request": request,
+            "log": log,
+            "passages": passages,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
 @app.post("/api/admin/history/clear")
 def clear_admin_history(_: str = Depends(get_current_admin)):
     execute("truncate table search_logs restart identity;")

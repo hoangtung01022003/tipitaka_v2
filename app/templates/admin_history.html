@@ -241,6 +241,7 @@
                 <th>Từ khóa tìm kiếm</th>
                 <th>Tùy chọn tìm kiếm</th>
                 <th>Số kết quả</th>
+                <th>Hành động</th>
               </tr>
             </thead>
             <tbody>
@@ -260,10 +261,13 @@
                     {% endif %}
                   </td>
                   <td>{{ log.result_count or 0 }} kết quả</td>
+                  <td>
+                    <a href="/admin/history/{{ log.id }}" style="background: #2563eb; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">Xem chi tiết</a>
+                  </td>
                 </tr>
               {% else %}
                 <tr>
-                  <td colspan="5" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
+                  <td colspan="6" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
                 </tr>
               {% endfor %}
             </tbody>

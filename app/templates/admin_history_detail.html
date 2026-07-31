@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chi tiết Lịch Sử - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <style>
+      body {
+        background-color: #f3f4f6;
+        margin: 0;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .pageWrap {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+      }
+      .backBtn {
+        display: inline-flex;
+        align-items: center;
+        color: #4b5563;
+        text-decoration: none;
+        font-weight: 500;
+        margin-bottom: 1.5rem;
+      }
+      .backBtn:hover {
+        color: #111827;
+      }
+      .infoCard {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin-bottom: 2rem;
+      }
+      .infoCard h1 {
+        margin: 0 0 1rem 0;
+        font-size: 1.5rem;
+        color: #111827;
+      }
+      .infoRow {
+        display: flex;
+        margin-bottom: 0.5rem;
+        font-size: 0.95rem;
+      }
+      .infoLabel {
+        width: 120px;
+        font-weight: 600;
+        color: #6b7280;
+      }
+      .infoValue {
+        color: #111827;
+        font-weight: 500;
+      }
+      .passageCard {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1rem;
+      }
+      .passageMeta {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-bottom: 0.75rem;
+        border-bottom: 1px solid #f3f4f6;
+        padding-bottom: 0.75rem;
+      }
+      .paliText {
+        font-size: 1.05rem;
+        line-height: 1.6;
+        color: #374151;
+      }
+      .noResults {
+        text-align: center;
+        padding: 3rem;
+        color: #6b7280;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="pageWrap">
+      <a href="/admin/history" class="backBtn">← Quay lại danh sách</a>
+      
+      <div class="infoCard">
+        <h1>Chi tiết lượt tìm kiếm #{{ log.id }}</h1>
+        <div class="infoRow">
+          <div class="infoLabel">Từ khóa:</div>
+          <div class="infoValue" style="color: #2563eb;">{{ log.query }}</div>
+        </div>
+        <div class="infoRow">
+          <div class="infoLabel">Thời gian:</div>
+          <div class="infoValue">{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</div>
+        </div>
+        <div class="infoRow">
+          <div class="infoLabel">Bộ lọc:</div>
+          <div class="infoValue">
+            {% if log.filters %}
+              {{ log.filters | tojson }}
+            {% else %}
+              Không có
+            {% endif %}
+          </div>
+        </div>
+        <div class="infoRow">
+          <div class="infoLabel">Kết quả:</div>
+          <div class="infoValue">{{ passages | length }} đoạn văn</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 1.25rem; color: #374151; margin-bottom: 1rem;">Nội dung kết quả trả về</h2>
+      
+      {% if passages %}
+        {% for passage in passages %}
+          <div class="passageCard">
+            <div class="passageMeta">
+              <strong>Tệp:</strong> {{ passage.file_name }} | 
+              <strong>Mục:</strong> {{ passage.section_title or 'Không có tiêu đề' }} | 
+              <strong>Đoạn:</strong> {{ passage.paragraph_no or 'N/A' }}
+            </div>
+            <div class="paliText">
+              {{ passage.pali_text }}
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="noResults">
+          Không tìm thấy nội dung đoạn văn nào cho lượt tìm kiếm này.
+        </div>
+      {% endif %}
+    </div>
+  </body>
+</html>
