@@ -1,4 +1,3 @@
-create extension if not exists vector;
 create extension if not exists pg_trgm;
 create extension if not exists pgcrypto;
 
@@ -24,7 +23,6 @@ create table if not exists passages (
   normalized_pali text not null,
   hierarchy jsonb not null default '{}',
   page_markers jsonb not null default '[]',
-  embedding vector(768),
   text_hash text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -97,4 +95,3 @@ create index if not exists passages_text_hash_idx on passages (text_hash);
 create index if not exists text_translations_text_hash_idx on text_translations (text_hash);
 create index if not exists passages_normalized_pali_trgm_idx on passages using gin (normalized_pali gin_trgm_ops);
 create index if not exists passages_normalized_pali_fts_idx on passages using gin (to_tsvector('simple', normalized_pali));
-create index if not exists passages_embedding_idx on passages using hnsw (embedding vector_cosine_ops);
