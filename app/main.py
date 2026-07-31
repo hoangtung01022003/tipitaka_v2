@@ -547,8 +547,8 @@ def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Que
     )
 
 
-@app.get("/admin/history/{log_id}", response_class=HTMLResponse)
-def admin_history_detail(request: Request, log_id: str, _: str = Depends(get_current_admin)):
+@app.get("/api/admin/history/{log_id}")
+def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
     log = fetch_one("select * from search_logs where id = %s", [log_id])
     if not log:
         raise HTTPException(status_code=404, detail="Không tìm thấy lịch sử này.")
@@ -570,15 +570,22 @@ def admin_history_detail(request: Request, log_id: str, _: str = Depends(get_cur
         passage_map = {str(row["id"]): row for row in rows}
         passages = [passage_map[str(pid)] for pid in passage_ids if str(pid) in passage_map]
 
-    return templates.TemplateResponse(
-        "admin_history_detail.html",
-        {
-            "request": request,
-            "log": log,
-            "passages": passages,
-            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+    return {
+        "log": {
+            "id": log["id"],
+            "query": log["query"],
+            "created_at": log["created_at"].strftime('%H:%M:%S %d/%m/%Y') if log["created_at"] else "N/A",
+            "filters": log["filters"],
         },
-    )
+        "passages": [
+            {
+                "file_name": p["file_name"],
+                "section_title": p["section_title"],
+                "paragraph_no": p["paragraph_no"],
+                "pali_text": p["pali_text"]
+            } for p in passages
+        ]
+    }
 
 
 @app.post("/api/admin/history/clear")

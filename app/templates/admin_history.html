@@ -184,6 +184,75 @@
       .tabContent.active {
         display: block;
       }
+      
+      /* Modal Styles */
+      .modalOverlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 50;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+      }
+      .modalOverlay.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .modalPanel {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      }
+      .modalHeader {
+        padding: 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .modalHeader h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #111827;
+      }
+      .closeModalBtn {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #6b7280;
+      }
+      .closeModalBtn:hover {
+        color: #111827;
+      }
+      .modalBody {
+        padding: 1.5rem;
+        overflow-y: auto;
+      }
+      .passageItem {
+        background: #f9fafb;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        border: 1px solid #e5e7eb;
+      }
+      .passageItem strong {
+        color: #374151;
+      }
+      .passageText {
+        margin-top: 0.5rem;
+        color: #111827;
+        line-height: 1.5;
+      }
     </style>
   </head>
   <body>
@@ -262,7 +331,7 @@
                   </td>
                   <td>{{ log.result_count or 0 }} kết quả</td>
                   <td>
-                    <a href="/admin/history/{{ log.id }}" style="background: #2563eb; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">Xem chi tiết</a>
+                    <button onclick="openModal('{{ log.id }}')" style="background: #2563eb; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600;">Xem popup</button>
                   </td>
                 </tr>
               {% else %}
@@ -298,6 +367,19 @@
 
     </main>
 
+    <!-- Modal -->
+    <div class="modalOverlay" id="detailModal">
+      <div class="modalPanel">
+        <div class="modalHeader">
+          <h2 id="modalTitle">Chi tiết kết quả</h2>
+          <button class="closeModalBtn" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modalBody" id="modalBody">
+          Đang tải...
+        </div>
+      </div>
+    </div>
+
     <script>
       // Tab switching logic
       function switchTab(tabId) {
@@ -324,6 +406,45 @@
           alert("Lỗi kết nối: " + err.message);
         }
       });
+
+      // Modal logic
+      async function openModal(logId) {
+        document.getElementById("detailModal").classList.add("active");
+        const modalBody = document.getElementById("modalBody");
+        const modalTitle = document.getElementById("modalTitle");
+        modalBody.innerHTML = '<div style="text-align: center; padding: 2rem;">Đang tải dữ liệu...</div>';
+        
+        try {
+          const res = await fetch(`/api/admin/history/${logId}`);
+          const data = await res.json();
+          
+          modalTitle.textContent = `Chi tiết kết quả: "${data.log.query}"`;
+          
+          if (!data.passages || data.passages.length === 0) {
+            modalBody.innerHTML = '<div style="text-align: center; color: #6b7280; padding: 2rem;">Không có đoạn văn nào được tìm thấy.</div>';
+            return;
+          }
+
+          let html = '';
+          data.passages.forEach(p => {
+            html += `
+              <div class="passageItem">
+                <div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem;">
+                  <strong>Tệp:</strong> ${p.file_name} | <strong>Mục:</strong> ${p.section_title || 'N/A'} | <strong>Đoạn:</strong> ${p.paragraph_no || 'N/A'}
+                </div>
+                <div class="passageText">${p.pali_text}</div>
+              </div>
+            `;
+          });
+          modalBody.innerHTML = html;
+        } catch (err) {
+          modalBody.innerHTML = `<div style="color: red; text-align: center; padding: 2rem;">Lỗi tải dữ liệu: ${err.message}</div>`;
+        }
+      }
+
+      function closeModal() {
+        document.getElementById("detailModal").classList.remove("active");
+      }
     </script>
   </body>
 </html>
