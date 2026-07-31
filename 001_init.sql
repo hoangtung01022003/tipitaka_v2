@@ -23,6 +23,7 @@ create table if not exists passages (
   normalized_pali text not null,
   hierarchy jsonb not null default '{}',
   page_markers jsonb not null default '[]',
+  embedding text,
   text_hash text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
