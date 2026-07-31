@@ -548,7 +548,7 @@ def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Que
 
 
 @app.get("/admin/history/{log_id}", response_class=HTMLResponse)
-def admin_history_detail(request: Request, log_id: int, _: str = Depends(get_current_admin)):
+def admin_history_detail(request: Request, log_id: str, _: str = Depends(get_current_admin)):
     log = fetch_one("select * from search_logs where id = %s", [log_id])
     if not log:
         raise HTTPException(status_code=404, detail="Không tìm thấy lịch sử này.")
