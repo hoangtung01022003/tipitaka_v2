@@ -40,18 +40,31 @@ def normalize_database_url(database_url: str) -> str:
     )
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, clean_query, parsed.fragment))
 
+import atexit
+from psycopg_pool import ConnectionPool
+
+_pool: ConnectionPool | None = None
+
+def get_pool() -> ConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            normalize_database_url(str(settings()["database_url"])),
+            kwargs={
+                "row_factory": dict_row,
+                "autocommit": True,
+            },
+            min_size=1,
+            max_size=20,
+            open=True,
+        )
+        atexit.register(_pool.close)
+    return _pool
 
 @contextmanager
 def get_conn():
-    conn = psycopg.connect(
-        normalize_database_url(str(settings()["database_url"])),
-        row_factory=dict_row,
-        autocommit=True,
-    )
-    try:
+    with get_pool().connection() as conn:
         yield conn
-    finally:
-        conn.close()
 
 
 def fetch_all(sql: str, params: tuple | list = ()) -> list[dict]:
