@@ -10,7 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .db import execute, fetch_all, fetch_one
-from .search_engine import search_passages
+from .search_engine import search_passages, _display_source
 from .translator import public_translation_error, translate_passage, translate_text, translate_text_cached
 
 
@@ -559,10 +559,15 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
     if passage_ids:
         rows = fetch_all(
             """
-            select p.id, p.pali_text, p.paragraph_no, d.file_name, s.title as section_title
+            select 
+                p.id, p.pali_text, p.paragraph_no, p.display_paragraph_no, p.xml_paragraph_no, p.hierarchy,
+                d.file_name, d.corpus_type, d.pitaka_type,
+                s.title as section_title, s.source_path as section_source_path,
+                t.translated_text
             from passages p
             join documents d on d.id = p.document_id
             left join sections s on s.id = p.section_id
+            left join translations t on t.passage_id = p.id
             where p.id = any(%s::uuid[])
             """,
             [passage_ids]
@@ -581,8 +586,10 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
             {
                 "file_name": p["file_name"],
                 "section_title": p["section_title"],
-                "paragraph_no": p["paragraph_no"],
-                "pali_text": p["pali_text"]
+                "paragraph_no": p.get("display_paragraph_no") or p.get("xml_paragraph_no") or p.get("paragraph_no"),
+                "pali_text": p["pali_text"],
+                "translated_text": p["translated_text"],
+                "breadcrumb": _display_source(p, [p["corpus_type"]], p.get("pitaka_type"))
             } for p in passages
         ]
     }

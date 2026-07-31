@@ -428,12 +428,19 @@
 
           let html = '';
           data.passages.forEach(p => {
+            const breadcrumbHtml = p.breadcrumb 
+              ? `<div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem; line-height: 1.4;"><strong>Nguồn:</strong> ${p.breadcrumb} > Đoạn ${p.paragraph_no || 'N/A'}</div>`
+              : `<div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem; line-height: 1.4;"><strong>Tệp:</strong> ${p.file_name} | <strong>Mục:</strong> ${p.section_title || 'N/A'} | <strong>Đoạn:</strong> ${p.paragraph_no || 'N/A'}</div>`;
+            
+            const translationHtml = p.translated_text
+              ? `<div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #d1d5db; color: #047857; font-size: 1rem; line-height: 1.6;"><strong>Bản dịch AI:</strong><br/>${p.translated_text.replace(/\n/g, '<br/>')}</div>`
+              : `<div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #d1d5db; color: #9ca3af; font-size: 0.9rem; font-style: italic;">(Chưa có bản dịch cho đoạn này)</div>`;
+
             html += `
               <div class="passageItem">
-                <div style="font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.5rem;">
-                  <strong>Tệp:</strong> ${p.file_name} | <strong>Mục:</strong> ${p.section_title || 'N/A'} | <strong>Đoạn:</strong> ${p.paragraph_no || 'N/A'}
-                </div>
-                <div class="passageText">${p.pali_text}</div>
+                ${breadcrumbHtml}
+                <div class="passageText">${p.pali_text.replace(/\n/g, '<br/>')}</div>
+                ${translationHtml}
               </div>
             `;
           });
