@@ -41,7 +41,7 @@ pnpm-debug.log*
 *.db
 *.dump
 *.bak
-tipitaka_data*.sql
+*.sql
 *.tsbuildinfo
 
 # Tipitaka source/import dump
