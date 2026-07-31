@@ -561,7 +561,7 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
             """
             select 
                 p.id, p.pali_text, p.paragraph_no, p.display_paragraph_no, p.xml_paragraph_no, p.hierarchy,
-                d.file_name, d.corpus_type, d.pitaka_type,
+                d.file_name, d.corpus_type,
                 s.title as section_title, s.source_path as section_source_path,
                 t.translated_text
             from passages p
@@ -574,6 +574,10 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
         )
         passage_map = {str(row["id"]): row for row in rows}
         passages = [passage_map[str(pid)] for pid in passage_ids if str(pid) in passage_map]
+
+    pitaka_type = None
+    if log.get("filters"):
+        pitaka_type = log["filters"].get("pitakaType")
 
     return {
         "log": {
@@ -589,7 +593,7 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
                 "paragraph_no": p.get("display_paragraph_no") or p.get("xml_paragraph_no") or p.get("paragraph_no"),
                 "pali_text": p["pali_text"],
                 "translated_text": p["translated_text"],
-                "breadcrumb": _display_source(p, [p["corpus_type"]], p.get("pitaka_type"))
+                "breadcrumb": _display_source(p, [p["corpus_type"]], pitaka_type)
             } for p in passages
         ]
     }
