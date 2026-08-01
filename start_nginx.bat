@@ -8,4 +8,3 @@ cd %NGINX_DIR%
 start nginx.exe
 cd ..
 echo Nginx đang chạy. Đã có thể truy cập qua cổng 80.
-pause

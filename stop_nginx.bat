@@ -8,4 +8,3 @@ cd %NGINX_DIR%
 nginx.exe -s quit
 cd ..
 echo Nginx đã được tắt.
-pause
