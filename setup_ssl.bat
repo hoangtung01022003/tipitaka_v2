@@ -17,10 +17,10 @@ mkdir %CERTS_DIR% 2>nul
 mkdir %WACS_DIR% 2>nul
 
 if exist %WACS_DIR%\wacs.exe (
-    echo [!] Cong cu Win-Acme da ton tai, bo qua tai ve...
+    echo [!] Cong cu Win-Acme da ton tai, bo qua tai ve
 ) else (
     echo.
-    echo [2/4] Đang tải Win-Acme (Công cụ lấy SSL miễn phí)...
+    echo [2/4] Đang tải Win-Acme - Cong cu lay SSL mien phi...
     powershell -Command "Invoke-WebRequest -Uri '%WACS_URL%' -OutFile 'wacs.zip'"
     powershell -Command "Expand-Archive -Path 'wacs.zip' -DestinationPath '%WACS_DIR%' -Force"
     del wacs.zip
