@@ -28,7 +28,7 @@ echo.
 echo [3/4] Đang lấy chứng chỉ SSL (Let's Encrypt)...
 cd %WACS_DIR%
 :: Dung self-hosting de chung thuc qua port 80
-wacs.exe --source manual --host suttasearch.net,www.suttasearch.net --validation selfhosting --store pemfiles --pemfilespath "%CERTS_DIR%" --installation none --agree-tos --email admin@suttasearch.net
+wacs.exe --source manual --host suttasearch.net,www.suttasearch.net --validation selfhosting --store pemfiles --pemfilespath "%CERTS_DIR%" --installation none --accepttos --emailaddress admin@suttasearch.net
 cd ..
 
 echo.
