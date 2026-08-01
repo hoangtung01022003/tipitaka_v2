@@ -21,9 +21,7 @@ if exist %WACS_DIR%\wacs.exe (
 ) else (
     echo.
     echo [2/4] Đang tải Win-Acme - Cong cu lay SSL mien phi...
-    powershell -Command "Invoke-WebRequest -Uri '%WACS_URL%' -OutFile 'wacs.zip'"
-    powershell -Command "Expand-Archive -Path 'wacs.zip' -DestinationPath '%WACS_DIR%' -Force"
-    del wacs.zip
+    python download_wacs.py
 )
 
 echo.
