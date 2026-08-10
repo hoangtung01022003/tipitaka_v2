@@ -16,9 +16,6 @@
   box-sizing: border-box;
 }
 
-.hidden {
-  display: none !important;
-}
 
 body {
   margin: 0;
@@ -122,8 +119,9 @@ body.modalOpen {
 }
 
 .choiceGrid {
+  /* auto-fit vi so o tuy chon thay doi theo ngon ngu va co them muc "tat ca" */
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -616,4 +614,151 @@ body.modalOpen {
   .modalBody {
     padding: 14px 16px 18px;
   }
+}
+
+/* ---- Bổ sung: chuyển ngôn ngữ, chọn nguồn bản dịch, bảng thông báo, banner fallback ---- */
+
+.heroTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.languageSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.languageSwitchLabel {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.languageSwitch select,
+.sourceSelect {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d9cfc2;
+  border-radius: 8px;
+  background: #fffdf9;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: inherit;
+  cursor: pointer;
+}
+
+.officialTranslation {
+  border-left: 3px solid #b45309;
+  padding-left: 0.9rem;
+  margin: 0.35rem 0 0.9rem;
+}
+
+.officialLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 0.3rem;
+}
+
+.officialMissing {
+  font-style: italic;
+  color: #8a8073;
+}
+
+/* Ban dich cap bai kinh chi in doan dau; hai dong duoi la chu thich cho viec do. */
+.officialHint {
+  font-size: 0.8rem;
+  font-weight: 400;
+  font-style: italic;
+  color: #8a8073;
+  margin-left: 0.4rem;
+}
+
+.officialMore {
+  margin: 0.35rem 0 0;
+  margin-left: 0;
+}
+
+/* Nguon chua co ban dich: van hien ten cho biet la co ton tai, nhung bam khong duoc. */
+.button.secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.noticeOverlay .modalPanel {
+  max-width: 640px;
+}
+
+.noticePanel .modalTopbar h2 {
+  margin: 0;
+}
+
+.noticeBody {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.noticeActions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1.5rem 1.5rem;
+}
+
+.fallbackBanner {
+  border-left: 4px solid #b45309;
+  background: #fffbeb;
+}
+
+.fallbackSteps {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+/* ---- Tab chọn dịch giả trong popup toàn bộ bài kinh ---- */
+
+.sourceTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 14px 0;
+}
+
+.sourceTab {
+  border: 1px solid #d9cfc2;
+  background: #fffdf9;
+  color: #6b6154;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+/* Tab cua nguon chua co ban dich cho muc nay: van bam duoc de nguoi doc thay loi bao,
+   nhung lam mo de phan biet voi nguon co du lieu. */
+.sourceTab.unavailable {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.sourceTab:hover {
+  border-color: #b45309;
+}
+
+.sourceTab.active {
+  background: #b45309;
+  border-color: #b45309;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Mỗi dịch giả một nút riêng nên hàng nút phải xuống dòng được */
+.sectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

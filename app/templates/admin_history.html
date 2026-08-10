@@ -254,6 +254,68 @@
         color: #111827;
         line-height: 1.5;
       }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        margin-bottom: 1rem;
+      }
+      .toolbar input[type="text"],
+      .toolbar select {
+        padding: 0.5rem 0.7rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-family: inherit;
+      }
+      .toolbar input[type="text"] {
+        min-width: 240px;
+      }
+      .toolbar label {
+        font-size: 0.9rem;
+        color: #374151;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .toolbarButton {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .toolbarButton.ghost {
+        background: #e5e7eb;
+        color: #374151;
+      }
+      .pagination {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.2rem;
+        border-top: 1px solid #f3f4f6;
+        color: #6b7280;
+        font-size: 0.9rem;
+      }
+      .emptyBadge {
+        display: inline-block;
+        background: #fee2e2;
+        color: #b91c1c;
+        padding: 0.2rem 0.55rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -264,6 +326,7 @@
       </div>
       <div class="sidebarMenu">
         <a href="#" class="menuItem active" onclick="switchTab('history')">📜 Lịch sử tìm kiếm</a>
+        <a href="/admin/notice" class="menuItem">📢 Bảng thông báo</a>
         <a href="#" class="menuItem" onclick="switchTab('analytics')">📈 Google Analytics</a>
         <a href="/" class="menuItem" target="_blank">🌐 Về trang chủ</a>
       </div>
@@ -288,7 +351,12 @@
         <div class="statsGrid">
           <div class="statCard">
             <h3>Tổng số lượt tìm kiếm</h3>
-            <p class="statNum">{{ total_logs }}</p>
+            <p class="statNum">{{ all_logs }}</p>
+          </div>
+          <div class="statCard">
+            <h3>Lượt tìm không ra kết quả</h3>
+            <p class="statNum" style="color:#b91c1c;">{{ empty_logs }}</p>
+            <p style="color:#6b7280; font-size:0.85rem; margin:0.4rem 0 0;">Đây là nhóm từ khóa cần ưu tiên tối ưu.</p>
           </div>
           <div class="statCard">
             <h3>Top từ khóa tìm nhiều nhất</h3>
@@ -302,6 +370,16 @@
           </div>
         </div>
 
+        <form class="toolbar" method="get" action="/admin/history">
+          <input type="text" name="q" value="{{ q }}" placeholder="Lọc theo từ khóa tìm kiếm..." />
+          <label>
+            <input type="checkbox" name="only_empty" value="true" {% if only_empty %}checked{% endif %} />
+            Chỉ hiện lượt không ra kết quả
+          </label>
+          <button class="toolbarButton" type="submit">Áp dụng</button>
+          <a class="toolbarButton ghost" href="/admin/history" style="text-decoration:none;">Xóa bộ lọc</a>
+        </form>
+
         <div class="historyTableWrap">
           <table class="adminTable">
             <thead>
@@ -314,10 +392,10 @@
                 <th>Hành động</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="historyBody">
               {% for log in logs %}
                 <tr>
-                  <td>{{ loop.index + (page - 1) * limit }}</td>
+                  <td>{{ loop.index }}</td>
                   <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
                   <td class="queryTag">{{ log.query }}</td>
                   <td>
@@ -330,19 +408,148 @@
                       <span class="filterBadge">{{ pitaka_options.get(log.filters.pitakaType, log.filters.pitakaType) }}</span>
                     {% endif %}
                   </td>
-                  <td>{{ log.result_count or 0 }} kết quả</td>
+                  <td>
+                    {% if log.result_count %}
+                      {{ log.result_count }} kết quả
+                    {% else %}
+                      <span class="emptyBadge">0 kết quả</span>
+                    {% endif %}
+                  </td>
                   <td>
                     <button onclick="openModal('{{ log.id }}')" style="background: #2563eb; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600;">Xem popup</button>
                   </td>
                 </tr>
               {% else %}
-                <tr>
+                <tr id="historyEmptyRow">
                   <td colspan="6" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
+
+          {# Mốc cuộn: khi nó lọt vào khung nhìn thì xin thêm một mẻ. Đặt SAU bảng để chỉ
+             kích hoạt lúc người dùng đã cuộn tới đáy. #}
+          <div id="historySentinel" style="height: 1px;"></div>
+          <div class="pagination">
+            <span id="historyStatus">
+              Đang hiện <b id="historyShown">{{ logs | length }}</b> / {{ total_logs }} dòng khớp bộ lọc
+            </span>
+            <span id="historyLoading" style="display:none; color:#6b7280;">Đang tải thêm…</span>
+          </div>
         </div>
+
+        <script>
+          (function () {
+            const body = document.getElementById('historyBody');
+            const sentinel = document.getElementById('historySentinel');
+            const shownEl = document.getElementById('historyShown');
+            const loadingEl = document.getElementById('historyLoading');
+            if (!body || !sentinel) return;
+
+            const BATCH = {{ batch }};
+            const params = new URLSearchParams({
+              q: {{ (q or '') | tojson }},
+              only_empty: {{ 'true' if only_empty else 'false' }},
+              limit: String(BATCH),
+            });
+
+            let shown = {{ logs | length }};
+            let hasMore = {{ 'true' if logs | length >= batch else 'false' }};
+            let busy = false;
+            // Mốc của dòng cuối cùng đang hiện. Phân trang theo con trỏ nên phải nhớ nó,
+            // không dùng offset - xem chú thích ở `_admin_history_rows`.
+            let cursorTime = {{ (logs[-1].created_at.isoformat() if logs else '') | tojson }};
+            let cursorId = {{ (logs[-1].id | string if logs else '') | tojson }};
+
+            function cell(text) {
+              const td = document.createElement('td');
+              // textContent chứ không phải innerHTML: từ khóa tìm kiếm là dữ liệu người
+              // dùng nhập, dựng bằng chuỗi HTML là mở đường cho script chèn vào trang admin.
+              td.textContent = text;
+              return td;
+            }
+
+            function addRow(row, index) {
+              const tr = document.createElement('tr');
+              tr.appendChild(cell(String(index)));
+              tr.appendChild(cell(row.time));
+              const q = cell(row.query);
+              q.className = 'queryTag';
+              tr.appendChild(q);
+
+              const badges = document.createElement('td');
+              row.badges.forEach(function (b) {
+                const span = document.createElement('span');
+                span.className = 'filterBadge';
+                span.textContent = b;
+                badges.appendChild(span);
+              });
+              tr.appendChild(badges);
+
+              const count = document.createElement('td');
+              if (row.resultCount) {
+                count.textContent = row.resultCount + ' kết quả';
+              } else {
+                const badge = document.createElement('span');
+                badge.className = 'emptyBadge';
+                badge.textContent = '0 kết quả';
+                count.appendChild(badge);
+              }
+              tr.appendChild(count);
+
+              const action = document.createElement('td');
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.textContent = 'Xem popup';
+              button.setAttribute('style', 'background:#2563eb;color:#fff;padding:0.4rem 0.8rem;border-radius:6px;border:none;cursor:pointer;font-size:0.85rem;font-weight:600;');
+              button.addEventListener('click', function () { openModal(row.id); });
+              action.appendChild(button);
+              tr.appendChild(action);
+
+              body.appendChild(tr);
+            }
+
+            async function loadMore() {
+              if (busy || !hasMore) return;
+              busy = true;
+              loadingEl.style.display = '';
+              try {
+                params.set('before_time', cursorTime || '');
+                params.set('before_id', cursorId || '');
+                const res = await fetch('/api/admin/history/rows?' + params.toString());
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                data.rows.forEach(function (row) {
+                  shown += 1;
+                  addRow(row, shown);
+                  cursorTime = row.createdAt;
+                  cursorId = row.id;
+                });
+                shownEl.textContent = String(shown);
+                hasMore = data.hasMore;
+                if (!hasMore) {
+                  loadingEl.textContent = 'Đã hiện hết lịch sử.';
+                  loadingEl.style.display = '';
+                  observer.disconnect();
+                  return;
+                }
+              } catch (err) {
+                // Báo ra chứ không im lặng: cuộn mãi không thấy gì thêm mà không có lời
+                // giải thích thì người dùng tưởng đã hết dữ liệu.
+                loadingEl.textContent = 'Không tải thêm được. Cuộn lại để thử tiếp.';
+                hasMore = true;
+              } finally {
+                busy = false;
+                if (hasMore) loadingEl.style.display = 'none';
+              }
+            }
+
+            const observer = new IntersectionObserver(function (entries) {
+              if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
+            }, { rootMargin: '300px' });
+            observer.observe(sentinel);
+          })();
+        </script>
       </div>
       
       <!-- Google Analytics TAB -->

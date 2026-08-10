@@ -8,3 +8,7 @@ google-genai==1.17.0
 pydantic==2.10.4
 python-multipart==0.0.20
 itsdangerous==2.2.0
+# Chi `import_indacanda.py` can, khong phai phu thuoc luc chay web. Van de o day vi
+# project khong co file requirements rieng cho cong cu, ma thieu no thi dung venv sach
+# chay importer se bao ModuleNotFoundError.
+pypdf==6.15.0

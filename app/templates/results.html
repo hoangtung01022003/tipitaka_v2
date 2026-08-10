@@ -1,3 +1,13 @@
+{% if result.fallback and result.fallback.used and not append_mode %}
+  <div class="result fallbackBanner">
+    <div class="resultTitle">{{ t('results.fallbackTitle') }}</div>
+    <p class="notice">{{ t('results.fallbackBody', query=result.fallback.usedQuery) }}</p>
+    {% if result.fallback.triedQueries %}
+      <p class="notice fallbackSteps">{{ t('results.fallbackLadder', steps=result.fallback.triedQueries | join(' → ')) }}</p>
+    {% endif %}
+  </div>
+{% endif %}
+
 {% if result.results %}
   {% if not append_mode %}
     <div class="results">
@@ -5,20 +15,47 @@
 
   {% for item in result.results %}
     <article class="result">
-      <div class="resultTitle">{{ item.rank }}. Trích nguồn</div>
+      <div class="resultTitle">{{ t('results.sourceTitle', rank=item.rank) }}</div>
       <div class="source">
-        {{ item.sourcePath or "Chưa có source path" }} &gt;
-        {% if item.contextExpanded %}Ngữ cảnh quanh đoạn{% else %}Đoạn{% endif %}
+        {{ item.sourcePath or t('results.noSourcePath') }} &gt;
+        {% if item.contextExpanded %}{{ t('results.contextAround') }}{% else %}{{ t('results.paragraph') }}{% endif %}
         {{ item.paragraphNo }}
       </div>
-      <div class="meta">Rank {{ item.rank }} · Score {{ item.score }}</div>
+      <div class="meta">{{ t('results.meta', rank=item.rank, score=item.score) }}</div>
 
       <div class="resultTitle">
-        {% if item.contextExpanded %}Trích đoạn bản gốc / ngữ cảnh quanh đoạn{% else %}Trích đoạn bản gốc{% endif %}
+        {% if item.contextExpanded %}{{ t('results.originalTitleExpanded') }}{% else %}{{ t('results.originalTitle') }}{% endif %}
       </div>
       <p class="pali">{{ item.paliText }}</p>
 
-      <div class="resultTitle">Dịch nghĩa</div>
+      {# Bản dịch của dịch giả có sẵn trong DB nên in ra ngay, không phải chờ tải.
+         Hiện theo TỪNG đoạn vì độ phủ mỗi đoạn một khác. #}
+      <div class="resultTitle">{{ t('translation.officialTitle') }}</div>
+      {% if item.officialTranslations %}
+        {% for official in item.officialTranslations %}
+          <div class="officialTranslation">
+            {# Bản cấp bài kinh (Minh Châu) phủ cả bài, có bản ~147.000 ký tự. Ở đây chỉ
+               in đoạn đầu - đủ để nhận ra bài kinh mà không lấp mất phần Pali lẫn các
+               bản dịch khác; nút "Xem toàn bộ bài kinh" ngay dưới thẻ mở trang đọc với
+               đủ nguyên văn, nên không cần nhét trọn bài vào đây. #}
+            <div class="officialLabel">
+              {{ official.label }}
+              {% if official.truncated %}<span class="officialHint">{{ t('translation.wholeSutta') }}</span>{% endif %}
+            </div>
+            <div class="translation">{{ official.text }}</div>
+            {% if official.truncated %}
+              <p class="officialHint officialMore">{{ t('translation.wholeSuttaMore') }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="notice officialMissing">{{ t('translation.noOfficial') }}</p>
+      {% endif %}
+      {% if item.missingTranslations %}
+        <p class="notice officialMissing">{{ t('translation.missingList', sources=item.missingTranslations | join(', ')) }}</p>
+      {% endif %}
+
+      <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
       <div
         class="translationMount"
         data-translation-card
@@ -28,21 +65,33 @@
       >
         <div class="translationLoading" role="status" aria-live="polite">
           <span class="miniSpinner" aria-hidden="true"></span>
-          <span>Đang dịch đoạn này, bản Pali và nguồn đã hiển thị trước.</span>
+          <span>{{ t('results.translationLoading') }}</span>
         </div>
       </div>
       <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
 
       {% if item.canOpenSection and item.sectionId %}
+        {# Mỗi dịch giả một nút riêng. Liệt kê ĐỦ mọi dịch giả: nguồn chưa có bản dịch cho
+           bài này vẫn hiện tên nhưng tắt nút và ghi rõ là chưa có. Trước đây ẩn hẳn nguồn
+           không có dữ liệu, nên bản Indacanda biến mất khỏi mọi bộ kinh chưa nạp - nhìn
+           vào không phân biệt được là chưa nạp hay giao diện hỏng. #}
         <div class="sectionActions">
-          <button
-            class="button secondary"
-            type="button"
-            data-section-id="{{ item.sectionId }}"
-            onclick="event.preventDefault(); event.stopPropagation(); window.openSectionModal ? window.openSectionModal('{{ item.sectionId }}', this) : alert('Vui lòng tải lại trang để bật popup xem toàn bộ bài kinh.');"
-          >
-            Bạn có muốn xem toàn bộ bài kinh này?
-          </button>
+          {% for entry in item.sectionSources %}
+            {% if entry.available %}
+              <button
+                class="button secondary"
+                type="button"
+                data-section-id="{{ item.sectionId }}"
+                data-section-source="{{ entry.source }}"
+              >
+                {{ t('results.openSectionWith', source=entry.label) }}{% if entry.elsewhereOnly %}<span class="officialHint">{{ t('translation.elsewhereInSutta') }}</span>{% endif %}
+              </button>
+            {% else %}
+              <button class="button secondary" type="button" disabled title="{{ t('translation.noOfficial') }}">
+                {{ t('results.openSectionWith', source=entry.label) }}<span class="officialHint">{{ t('translation.noData') }}</span>
+              </button>
+            {% endif %}
+          {% endfor %}
         </div>
       {% endif %}
 
@@ -57,21 +106,22 @@
   <p class="notice aiWarning">{{ result.warning }}</p>
   {% if result.pagination.hasMore %}
     <form class="loadMoreForm" onsubmit="event.preventDefault(); this.dataset.submitting='true'; window.loadMoreResults && window.loadMoreResults(this);">
-      <input type="hidden" name="query" value="{{ query }}" />
+      {# Khi đã rơi vào fallback thì phân trang phải đi tiếp theo từ khóa rút gọn,
+         vì bộ kết quả đang hiển thị là của từ khóa đó chứ không phải câu gốc. #}
+      {% set paging_query = result.fallback.usedQuery if (result.fallback and result.fallback.used) else result.query %}
+      <input type="hidden" name="query" value="{{ paging_query }}" />
       <input type="hidden" name="corpus_type" value="{{ corpus_type }}" />
       {% if pitaka_type %}
         <input type="hidden" name="pitaka_type" value="{{ pitaka_type }}" />
       {% endif %}
+      <input type="hidden" name="lang" value="{{ lang }}" />
       <input type="hidden" name="page" value="{{ result.pagination.page + 1 }}" />
-      <button class="button secondary" type="submit">Hiển thị thêm 5 kết quả</button>
+      <button class="button secondary" type="submit">{{ t('search.loadMore') }}</button>
     </form>
   {% endif %}
 {% else %}
   <div class="result">
-    <div class="resultTitle">Chưa tìm thấy ứng viên trong phạm vi đã chọn</div>
-    <p class="notice">
-      Hãy thử đổi Tạng hoặc mở rộng phạm vi tìm kiếm. Nếu đang tìm Chú giải/Phụ chú giải,
-      hãy chọn đúng phần dữ liệu tương ứng.
-    </p>
+    <div class="resultTitle">{{ t('results.empty') }}</div>
+    <p class="notice">{{ t('results.emptyHint') }}</p>
   </div>
 {% endif %}

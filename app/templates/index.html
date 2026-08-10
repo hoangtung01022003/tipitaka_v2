@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="vi">
+<html lang="{{ lang }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tipiṭaka AI Search</title>
+    <title>{{ t('site.title') }}</title>
     <link rel="stylesheet" href="/static/style.css" />
     {% if ga_measurement_id %}
     <!-- Google Analytics (gtag.js) -->
@@ -19,16 +19,26 @@
   <body>
     <main class="page">
       <header class="hero">
-        <p class="eyebrow">Tra cứu Pali bằng AI</p>
-        <h1>Tipiṭaka AI Search</h1>
-        <p>
-          Tìm kiếm kinh điển Pali, hiển thị văn bản Pali gốc, nguồn trích dẫn và bản dịch tiếng Việt bằng AI
-        </p>
+        <div class="heroTop">
+          <div>
+            <p class="eyebrow">{{ t('site.eyebrow') }}</p>
+            <h1>{{ t('site.title') }}</h1>
+          </div>
+          <label class="languageSwitch">
+            <span class="languageSwitchLabel">{{ t('language.label') }}</span>
+            <select id="languageSelect" aria-label="{{ t('language.label') }}">
+              {% for item in language_options %}
+                <option value="{{ item.value }}" {% if item.value == lang %}selected{% endif %}>{{ item.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <p>{{ t('site.tagline') }}</p>
       </header>
 
       <section class="searchBox">
         <form id="searchForm">
-          <label class="fieldLabel" for="query">Câu hỏi cần tìm</label>
+          <label class="fieldLabel" for="query">{{ t('search.label') }}</label>
           <textarea
             id="query"
             name="query"
@@ -37,11 +47,11 @@
           >{{ default_query }}</textarea>
 
           <div class="stepBlock">
-            <p class="questionText">Bạn muốn tìm kiếm bài kinh ở trong phần nào?</p>
+            <p class="questionText">{{ t('search.corpusQuestion') }}</p>
             <div class="choiceGrid">
               {% for item in corpus_options %}
                 <label class="choiceButton">
-                  <input type="radio" name="corpus_type" value="{{ item.value }}" required />
+                  <input type="radio" name="corpus_type" value="{{ item.value }}" required {% if item.value == 'all' %}checked{% endif %} />
                   <span>{{ item.label }}</span>
                   <small>{{ item.description }}</small>
                 </label>
@@ -50,11 +60,11 @@
           </div>
 
           <div class="stepBlock" id="pitakaBlock">
-            <p class="questionText">Bạn muốn tìm kiếm ở trong Tạng nào?</p>
-            <div class="choiceGrid three">
+            <p class="questionText">{{ t('search.pitakaQuestion') }}</p>
+            <div class="choiceGrid">
               {% for item in pitaka_options %}
                 <label class="choiceButton">
-                  <input type="radio" name="pitaka_type" value="{{ item.value }}" />
+                  <input type="radio" name="pitaka_type" value="{{ item.value }}" {% if item.value == 'all' %}checked{% endif %} />
                   <span>{{ item.label }}</span>
                   <small>{{ item.description }}</small>
                 </label>
@@ -63,8 +73,8 @@
           </div>
 
           <div class="controls">
-            <span class="notice" id="selectedNotice">Hãy chọn phần dữ liệu và Tạng cần tìm.</span>
-            <button class="button" type="submit">🔎 Tìm kiếm</button>
+            <span class="notice" id="selectedNotice">{{ t('search.noticeReady') }}</span>
+            <button class="button" type="submit">{{ t('search.submit') }}</button>
           </div>
         </form>
       </section>
@@ -72,27 +82,57 @@
       <section id="resultsWrap"></section>
     </main>
 
+    {% if notice %}
+      <div class="modalOverlay noticeOverlay hidden" id="noticeModal" role="dialog" aria-modal="true" aria-labelledby="noticeModalTitle" data-notice-version="{{ notice.version }}">
+        <div class="modalPanel noticePanel">
+          <div class="modalTopbar">
+            <h2 id="noticeModalTitle">{{ notice.title or t('notice.title') }}</h2>
+          </div>
+          <div class="modalBody noticeBody">{{ notice.body }}</div>
+          <div class="noticeActions">
+            <button class="button" type="button" id="noticeClose">{{ t('notice.close') }}</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
     <div class="modalOverlay hidden" id="sectionModal" role="dialog" aria-modal="true" aria-labelledby="sectionModalTitle">
       <div class="modalPanel">
         <div class="modalTopbar">
           <div>
-            <p class="eyebrow modalEyebrow">Toàn bộ bài kinh</p>
-            <h2 id="sectionModalTitle">Đối chiếu Pali - Việt</h2>
+            <p class="eyebrow modalEyebrow">{{ t('section.allTitle') }}</p>
+            <h2 id="sectionModalTitle">{{ t('section.compareTitle') }}</h2>
           </div>
-          <button class="modalClose" type="button" id="sectionModalClose" aria-label="Đóng popup">×</button>
+          <button class="modalClose" type="button" id="sectionModalClose" aria-label="{{ t('notice.close') }}">×</button>
         </div>
         <div class="modalBody" id="sectionModalBody"></div>
       </div>
     </div>
 
+    <script id="uiStrings" type="application/json">{{ strings | tojson }}</script>
     <script>
+      const S = JSON.parse(document.getElementById("uiStrings").textContent);
+      const LANG = {{ lang | tojson }};
+
+      function tr(key, values) {
+        let template = S[key] || key;
+        if (values) {
+          Object.keys(values).forEach((name) => {
+            template = template.split(`{${name}}`).join(values[name]);
+          });
+        }
+        return template;
+      }
+
       const form = document.getElementById("searchForm");
       const resultsWrap = document.getElementById("resultsWrap");
       const selectedNotice = document.getElementById("selectedNotice");
       const pitakaBlock = document.getElementById("pitakaBlock");
+      const languageSelect = document.getElementById("languageSelect");
       const sectionModal = document.getElementById("sectionModal");
       const sectionModalBody = document.getElementById("sectionModalBody");
       const sectionModalClose = document.getElementById("sectionModalClose");
+      const noticeModal = document.getElementById("noticeModal");
       const sectionHtmlCache = new Map();
       const sectionLoadingSet = new Set();
       let activeSectionId = null;
@@ -102,23 +142,25 @@
         const pitaka = form.querySelector("input[name='pitaka_type']:checked");
 
         if (!corpus) {
-          selectedNotice.textContent = "Hãy chọn phần dữ liệu và Tạng cần tìm.";
+          selectedNotice.textContent = tr("search.noticeChoose");
           return;
         }
 
+        // Ngoại điển không thuộc Tạng nào nên ẩn hẳn phần chọn Tạng.
         if (corpus.value === "nrf") {
           pitakaBlock.style.display = "none";
           form.querySelectorAll("input[name='pitaka_type']").forEach((item) => {
             item.checked = false;
           });
-          selectedNotice.textContent = "Đã chọn: Ngoại điển.";
+          const label = corpus.parentElement.querySelector("span")?.textContent || corpus.value;
+          selectedNotice.textContent = tr("search.noticeNoPitaka", { label });
           return;
         }
 
         pitakaBlock.style.display = "block";
         selectedNotice.textContent = pitaka
-          ? "Đã chọn xong, có thể tìm kiếm."
-          : "Hãy chọn Tạng cần tìm.";
+          ? tr("search.noticeReady")
+          : tr("search.noticeChoosePitaka");
       }
 
       function openModal(content) {
@@ -144,11 +186,12 @@
       }
 
       function renderTranslation(card, translation) {
-        if (translation && translation.vi) {
-          card.innerHTML = `<div class="translation">${escapeHtml(translation.vi)}</div>`;
+        const text = translation && (translation.text || translation.vi);
+        if (text) {
+          card.innerHTML = `<div class="translation">${escapeHtml(text)}</div>`;
           return;
         }
-        const message = translation?.error || "Chưa dịch được đoạn này. Vui lòng thử lại sau.";
+        const message = translation?.error || tr("translation.failed");
         card.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
       }
 
@@ -172,6 +215,7 @@
               passageId,
               paliText,
               usePassageCache: card.dataset.usePassageCache === "true",
+              language: LANG,
             }),
           });
           const payload = await res.json();
@@ -207,7 +251,8 @@
         if (!mount || !output) return;
 
         const translation = payload?.translation || {};
-        if (translation.vi) {
+        const text = translation.text || translation.vi;
+        if (text) {
           let body = output.querySelector(".readerBody");
           let translatedText = output.querySelector(".translation");
           if (!body || !translatedText) {
@@ -219,7 +264,7 @@
             body = output.querySelector(".readerBody");
             translatedText = output.querySelector(".translation");
           }
-          translatedText.innerHTML += `${translatedText.innerHTML ? "\n\n" : ""}${escapeHtml(translation.vi)}`;
+          translatedText.innerHTML += `${translatedText.innerHTML ? "\n\n" : ""}${escapeHtml(text)}`;
           if (toggle) toggle.classList.remove("hidden");
         } else if (translation.error) {
           output.insertAdjacentHTML(
@@ -234,13 +279,13 @@
             const total = Number(payload.totalChunks || current);
             progress.innerHTML = `
               <button class="button secondary compact" type="button" data-translate-next-section>
-                Dịch tiếp phần ${current}/${total}
+                ${escapeHtml(tr("section.translateNext", { current, total }))}
               </button>
-              <span>Các phần đã dịch được hiển thị ở trên. Bấm để dịch tiếp khi cần đọc thêm.</span>
+              <span>${escapeHtml(tr("section.translateNextHint"))}</span>
             `;
             progress.classList.remove("translationDone");
           } else {
-            progress.innerHTML = `<span>Đã dịch xong toàn bộ mục này.</span>`;
+            progress.innerHTML = `<span>${escapeHtml(tr("section.translateDone"))}</span>`;
             progress.classList.add("translationDone");
           }
         }
@@ -257,16 +302,19 @@
         try {
           const progress = viewer.querySelector("[data-section-translation-progress]");
           if (progress) {
-            const label = chunk === 0 ? "Đang dịch phần đầu tiên..." : `Đang dịch phần ${chunk + 1}...`;
+            const label = chunk === 0
+              ? tr("section.translationLoadingFirst")
+              : tr("section.translatingPart", { part: chunk + 1 });
             progress.innerHTML = `
               <span class="miniSpinner" aria-hidden="true"></span>
-              <span>${label}</span>
+              <span>${escapeHtml(label)}</span>
             `;
             progress.classList.remove("translationDone");
           }
-          const res = await fetch(`/api/sections/${viewer.dataset.sectionId}/translate-chunk?chunk=${chunk}`);
+          const params = new URLSearchParams({ chunk: String(chunk), lang: LANG });
+          const res = await fetch(`/api/sections/${viewer.dataset.sectionId}/translate-chunk?${params}`);
           const payload = await res.json();
-          if (!res.ok) throw new Error(payload.error || "Không tải được phần dịch tiếp theo.");
+          if (!res.ok) throw new Error(payload.error || tr("search.loadMoreFailed"));
           appendSectionTranslationChunk(viewer, payload);
           chunk += 1;
           mount.dataset.nextChunk = String(chunk);
@@ -294,16 +342,17 @@
 
         if (!corpus) return;
         if (corpus !== "nrf" && !pitaka) {
-          selectedNotice.textContent = "Vui lòng chọn Tạng trước khi tìm.";
+          selectedNotice.textContent = tr("search.noticePitakaRequired");
           return;
         }
+        data.set("lang", LANG);
 
         resultsWrap.innerHTML = `
           <div class="loading searchLoading" role="status" aria-live="polite">
             <div class="spinner" aria-hidden="true"></div>
             <div>
-              <div class="loadingTitle">Đang tìm kiếm</div>
-              <div class="loadingText">Đang tìm kiếm, vui lòng chờ trong ít phút.</div>
+              <div class="loadingTitle">${escapeHtml(tr("search.loadingTitle"))}</div>
+              <div class="loadingText">${escapeHtml(tr("search.loadingText"))}</div>
             </div>
           </div>
         `;
@@ -316,7 +365,7 @@
           resultsWrap.innerHTML = await res.text();
           hydrateLazyTranslations(resultsWrap);
         } catch (error) {
-          resultsWrap.innerHTML = `<div class="error">${error.message}</div>`;
+          resultsWrap.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
         }
       }
 
@@ -324,75 +373,76 @@
         const button = loadMoreForm.querySelector("button");
         if (button) {
           button.disabled = true;
-          button.textContent = "Đang tải và dịch thêm...";
+          button.textContent = tr("search.loadingMore");
         }
 
         try {
-          const res = await fetch("/search-page", {
-            method: "POST",
-            body: new FormData(loadMoreForm),
-          });
+          const body = new FormData(loadMoreForm);
+          body.set("lang", LANG);
+          const res = await fetch("/search-page", { method: "POST", body });
           const html = await res.text();
-          if (!res.ok) throw new Error("Không tải được kết quả tiếp theo.");
+          if (!res.ok) throw new Error(tr("search.loadMoreFailed"));
           loadMoreForm.insertAdjacentHTML("beforebegin", html);
           hydrateLazyTranslations(resultsWrap);
           loadMoreForm.remove();
         } catch (error) {
           if (button) {
             button.disabled = false;
-            button.textContent = "Hiển thị thêm 5 kết quả";
+            button.textContent = tr("search.loadMore");
           }
-          loadMoreForm.insertAdjacentHTML("beforebegin", `<div class="error">${error.message}</div>`);
+          loadMoreForm.insertAdjacentHTML("beforebegin", `<div class="error">${escapeHtml(error.message)}</div>`);
         }
       }
 
-      async function openSection(sectionId, button) {
+      async function openSection(sectionId, button, source = "ai") {
         if (!sectionId) return;
-        const originalText = button?.textContent || "Bạn có muốn xem toàn bộ bài kinh này?";
-        if (activeSectionId === sectionId && !sectionModal.classList.contains("hidden")) {
+        const key = `${sectionId}::${source}`;
+        const originalText = button?.textContent || tr("results.openSection");
+        if (activeSectionId === key && !sectionModal.classList.contains("hidden")) {
           return;
         }
-        if (sectionHtmlCache.has(sectionId)) {
-          activeSectionId = sectionId;
-          openModal(sectionHtmlCache.get(sectionId));
+        if (sectionHtmlCache.has(key)) {
+          activeSectionId = key;
+          openModal(sectionHtmlCache.get(key));
           hydrateSectionTranslation(sectionModalBody);
           return;
         }
-        if (sectionLoadingSet.has(sectionId)) {
+        if (sectionLoadingSet.has(key)) {
           sectionModal.classList.remove("hidden");
           document.body.classList.add("modalOpen");
           return;
         }
-        sectionLoadingSet.add(sectionId);
-        activeSectionId = sectionId;
+        sectionLoadingSet.add(key);
+        activeSectionId = key;
         if (button) {
           button.disabled = true;
-          button.textContent = "Đang tải toàn bộ bài kinh...";
+          button.textContent = tr("results.openSectionLoading");
         }
         openModal(`
           <div class="loading searchLoading" role="status" aria-live="polite">
             <div class="spinner" aria-hidden="true"></div>
             <div>
-              <div class="loadingTitle">Đang tải toàn bộ bài kinh</div>
-              <div class="loadingText">Đang tải bản gốc và bản dịch, vui lòng chờ trong ít phút.</div>
+              <div class="loadingTitle">${escapeHtml(tr("section.loadingTitle"))}</div>
+              <div class="loadingText">${escapeHtml(tr("section.loadingText"))}</div>
             </div>
           </div>
         `);
 
         try {
-          const res = await fetch(`/section-page/${sectionId}`);
+          const params = new URLSearchParams({ lang: LANG, source });
+          const res = await fetch(`/section-page/${sectionId}?${params}`);
           const html = await res.text();
-          if (!res.ok) throw new Error("Không tải được bài kinh này.");
-          sectionHtmlCache.set(sectionId, html);
+          if (!res.ok) throw new Error(tr("section.loadFailed"));
+          sectionHtmlCache.set(key, html);
           sectionModalBody.innerHTML = html;
           hydrateSectionTranslation(sectionModalBody);
         } catch (error) {
-          sectionModalBody.innerHTML = `<div class="error">${error.message}</div>`;
+          sectionModalBody.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
         } finally {
-          sectionLoadingSet.delete(sectionId);
+          sectionLoadingSet.delete(key);
           if (button) {
             button.disabled = false;
-            button.textContent = originalText.trim() || "Bạn có muốn xem toàn bộ bài kinh này?";
+            button.textContent = originalText.trim() || tr("results.openSection");
           }
         }
       }
@@ -403,7 +453,39 @@
         if (!body) return;
 
         const isCollapsed = body.classList.toggle("collapsed");
-        button.textContent = isCollapsed ? "Mở rộng" : "Thu gọn";
+        button.textContent = isCollapsed ? tr("reader.expand") : tr("reader.collapse");
+      }
+
+      // Chỉ hiện lại bảng thông báo khi nội dung đổi (version tăng), không hiện mỗi lần vào.
+      function setupNotice() {
+        if (!noticeModal) return;
+        const version = noticeModal.dataset.noticeVersion || "1";
+        const storageKey = "tipitaka.noticeSeen";
+        let seen = null;
+        try {
+          seen = window.localStorage.getItem(storageKey);
+        } catch (_error) {
+          seen = null;
+        }
+        if (seen === version) return;
+
+        noticeModal.classList.remove("hidden");
+        document.body.classList.add("modalOpen");
+
+        const dismiss = () => {
+          noticeModal.classList.add("hidden");
+          document.body.classList.remove("modalOpen");
+          try {
+            window.localStorage.setItem(storageKey, version);
+          } catch (_error) {
+            /* chế độ riêng tư chặn localStorage thì cứ hiện lại lần sau */
+          }
+        };
+
+        document.getElementById("noticeClose")?.addEventListener("click", dismiss);
+        noticeModal.addEventListener("click", (event) => {
+          if (event.target === noticeModal) dismiss();
+        });
       }
 
       window.loadMoreResults = loadMoreResults;
@@ -422,6 +504,10 @@
         }
       });
 
+      languageSelect?.addEventListener("change", () => {
+        window.location.href = `/?lang=${encodeURIComponent(languageSelect.value)}`;
+      });
+
       resultsWrap.addEventListener("submit", (event) => {
         const loadMoreForm = event.target.closest(".loadMoreForm");
         if (!loadMoreForm) return;
@@ -435,10 +521,24 @@
         if (!sectionButton) return;
         event.preventDefault();
         event.stopPropagation();
-        window.openSectionModal(sectionButton.dataset.sectionId, sectionButton);
+        window.openSectionModal(
+          sectionButton.dataset.sectionId,
+          sectionButton,
+          sectionButton.dataset.sectionSource || "ai",
+        );
       });
 
       sectionModalBody.addEventListener("click", (event) => {
+        const tab = event.target.closest("[data-section-tab]");
+        if (tab) {
+          event.preventDefault();
+          const viewer = sectionModalBody.querySelector("[data-section-viewer]");
+          if (viewer && tab.dataset.sectionTab !== viewer.dataset.sectionSource) {
+            openSection(viewer.dataset.sectionId, null, tab.dataset.sectionTab);
+          }
+          return;
+        }
+
         const translateNextButton = event.target.closest("[data-translate-next-section]");
         if (translateNextButton) {
           event.preventDefault();
@@ -451,6 +551,9 @@
         event.preventDefault();
         toggleReader(readerButton);
       });
+
+      updateNotice();
+      setupNotice();
     </script>
   </body>
 </html>

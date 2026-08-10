@@ -1,23 +1,25 @@
-<section class="sectionViewer sectionViewerModal" data-section-viewer data-section-id="{{ section.sectionId }}">
+<section class="sectionViewer sectionViewerModal"
+         data-section-viewer
+         data-section-id="{{ section.sectionId }}"
+         data-section-source="{{ section.selectedSource }}">
   <div class="sectionHeader">
     <div>
-      <div class="resultTitle">Toàn bộ bài kinh này</div>
+      <div class="resultTitle">{{ t('section.thisSutta') }}</div>
       <h2>{{ section.title }}</h2>
       <p class="source">{{ section.sourcePath }}</p>
-      <p class="meta">
-        {{ section.passageCount }} đoạn trong mục này · Bản gốc Pali hiển thị trước, bản dịch AI được tải sau để không làm chậm popup.
-      </p>
+      <p class="meta">{{ t('section.passageCount', count=section.passageCount) }}</p>
     </div>
   </div>
 
+  {# Bố cục theo đúng ý khách: Pali bên trái, bản dịch bên phải, chuyển dịch giả bằng tab. #}
   <div class="sectionColumns">
     <article class="sectionPassage readerBlock">
       <div class="readerHeader">
         <div>
-          <div class="resultTitle">Bản gốc Pali</div>
-          <p class="meta">Văn bản Pali gốc của toàn bộ mục.</p>
+          <div class="resultTitle">{{ t('section.paliTitle') }}</div>
+          <p class="meta">{{ t('section.paliHint') }}</p>
         </div>
-        <button class="button secondary compact" type="button" data-toggle-reader>Mở rộng</button>
+        <button class="button secondary compact" type="button" data-toggle-reader>{{ t('reader.expand') }}</button>
       </div>
       <div class="readerBody collapsed">
         <p class="pali">{{ section.paliText }}</p>
@@ -25,23 +27,50 @@
     </article>
 
     <article class="sectionPassage readerBlock">
-      <div class="readerHeader">
-        <div>
-          <div class="resultTitle">Bản dịch tiếng Việt</div>
-          <p class="meta">Dịch bằng AI, các bài dài được chia theo đoạn/câu rồi ghép lại.</p>
-        </div>
-        <button class="button secondary compact hidden" type="button" data-toggle-reader data-section-translation-toggle>Mở rộng</button>
+      <div class="sourceTabs">
+        {# Hiện đủ mọi dịch giả. Nguồn chưa có bản dịch cho mục này vẫn có tab và vẫn bấm
+           được - bấm vào thì phần dưới báo "Hiện không có bản dịch chính thức nào", đúng
+           yêu cầu của khách là luôn liệt kê đủ nguồn thay vì ẩn đi. #}
+        {% for entry in section.availableSources %}
+          <button
+            class="sourceTab {% if entry.source == section.selectedSource %}active{% endif %}{% if not entry.available %} unavailable{% endif %}"
+            type="button"
+            data-section-tab="{{ entry.source }}"
+            {% if not entry.available %}title="{{ t('translation.noOfficial') }}"{% endif %}
+          >{{ entry.label }}{% if not entry.available %}<span class="officialHint">{{ t('translation.noData') }}</span>{% endif %}</button>
+        {% endfor %}
       </div>
 
-      <div class="sectionTranslationMount" data-section-translation data-loaded="false">
-        <div data-section-translation-output></div>
-        <div class="translationLoading" data-section-translation-progress role="status" aria-live="polite">
-          <span class="miniSpinner" aria-hidden="true"></span>
-          <span>Đang dịch phần đầu tiên. Bạn có thể đọc bản Pali trước trong khi chờ.</span>
+      {% if section.selectedSource == 'ai' %}
+        <div class="readerHeader">
+          <div>
+            <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
+            <p class="meta">{{ t('section.translationHint') }}</p>
+          </div>
+          <button class="button secondary compact hidden" type="button" data-toggle-reader data-section-translation-toggle>{{ t('reader.expand') }}</button>
         </div>
-      </div>
+        <div class="sectionTranslationMount" data-section-translation data-loaded="false">
+          <div data-section-translation-output></div>
+          <div class="translationLoading" data-section-translation-progress role="status" aria-live="polite">
+            <span class="miniSpinner" aria-hidden="true"></span>
+            <span>{{ t('section.translationLoadingFirst') }}</span>
+          </div>
+        </div>
+        <p class="notice aiWarning">{{ section.warning }}</p>
+      {% elif section.selectedTranslation %}
+        <div class="readerHeader">
+          <div>
+            <div class="resultTitle">{{ section.selectedTranslation.label }}</div>
+            <p class="meta">{{ t('section.officialHint') }}</p>
+          </div>
+          <button class="button secondary compact" type="button" data-toggle-reader>{{ t('reader.expand') }}</button>
+        </div>
+        <div class="readerBody collapsed">
+          <div class="translation">{{ section.selectedTranslation.text }}</div>
+        </div>
+      {% else %}
+        <p class="notice officialMissing">{{ t('translation.noOfficial') }}</p>
+      {% endif %}
     </article>
   </div>
-
-  <p class="notice aiWarning">{{ section.warning }}</p>
 </section>

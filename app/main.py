@@ -10,7 +10,28 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .db import execute, fetch_all, fetch_one
-from .search_engine import search_passages, _display_source
+from .i18n import (
+    DEFAULT_LANGUAGE,
+    LANGUAGES,
+    corpus_options,
+    language_options,
+    normalize_language,
+    pitaka_options,
+    t,
+    ui_strings,
+)
+from .notice import get_notice, get_notice_config, save_notice
+from .search_engine import resolve_corpus_types, resolve_pitaka_type, search_passages, _display_source
+from .translation_sources import (
+    AI_SOURCE,
+    SOURCE_ORDER,
+    normalize_source,
+    official_translations_merged,
+    source_label,
+    sources_for_sections,
+    resolve_human_translation,
+    unavailable_translation,
+)
 from .translator import public_translation_error, translate_passage, translate_text, translate_text_cached
 
 
@@ -25,47 +46,102 @@ app.add_middleware(SessionMiddleware, secret_key=settings().get("secret_key", "d
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
-CORPUS_OPTIONS = [
-    {"value": "mul", "label": "Tam Tạng", "description": "Tipiṭaka Mūla, gồm Tam tạng gốc"},
-    {"value": "att", "label": "Chú giải", "description": "Aṭṭhakathā"},
-    {"value": "tik", "label": "Phụ chú giải", "description": "Ṭīkā"},
-    {"value": "nrf", "label": "Ngoại điển", "description": "Añña"},
-]
-PITAKA_OPTIONS = [
-    {"value": "vinaya", "label": "Tạng Luật", "description": "Vinayapiṭaka"},
-    {"value": "sutta", "label": "Tạng Kinh", "description": "Suttapiṭaka"},
-    {"value": "abhidhamma", "label": "Tạng Vi Diệu Pháp", "description": "Abhidhammapiṭaka"},
-]
-AI_TRANSLATION_WARNING = "Đây là bản dịch của AI, chưa có sự kiểm chứng."
 GATHA_RENDS = {"gatha1", "gatha2", "gatha3", "gathalast"}
+LANGUAGE_COOKIE = "lang"
+LANGUAGE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+# Do dai cua so trich cua ban dich cap bai kinh trong the ket qua. Cua so nay TRUOT toi
+# vi tri tuong doi cua doan dang xem (xem `_excerpt`), khong phai cat tu dau bai.
+# Do tren cac moc kiem chung duoc, ti le trung khuc dich dung: 1.000 chu -> 31%,
+# 2.000 -> 40%, 3.000 -> 56%, 5.000 -> 65%. Chon 2.000: gap doi muc cu theo yeu cau,
+# van chua lap mat phan Pali. Khong co muc nao dat do tin cay that su - muon chinh xac
+# thi phai ghep duoc cap doan, xem `align_minhchau.py`.
+WHOLE_SUTTA_EXCERPT_CHARS = 2000
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "corpus_options": CORPUS_OPTIONS,
-            "pitaka_options": PITAKA_OPTIONS,
-            "default_query": "",
-            "ga_measurement_id": settings().get("ga_measurement_id", ""),
-        },
+def _language_from_header(header: str) -> str | None:
+    for part in header.split(","):
+        code = part.split(";")[0].strip().lower()[:2]
+        if code in LANGUAGES:
+            return code
+    return None
+
+
+def request_language(request: Request, override: str | None = None) -> str:
+    """Ngôn ngữ giao diện: tham số của request > cookie > Accept-Language > tiếng Việt."""
+    if override and str(override).strip().lower()[:2] in LANGUAGES:
+        return normalize_language(override)
+    cookie = request.cookies.get(LANGUAGE_COOKIE)
+    if cookie and str(cookie).strip().lower()[:2] in LANGUAGES:
+        return normalize_language(cookie)
+    return _language_from_header(request.headers.get("accept-language", "")) or DEFAULT_LANGUAGE
+
+
+def _template_context(request: Request, language: str, **extra: object) -> dict:
+    context = {
+        "request": request,
+        "lang": language,
+        "t": lambda key, **kwargs: t(language, key, **kwargs),
+    }
+    context.update(extra)
+    return context
+
+
+def _admin_filter_labels() -> tuple[dict[str, str], dict[str, str]]:
+    """Nhãn bộ lọc cho trang admin, luôn dùng tiếng Việt."""
+    return (
+        {item["value"]: item["label"] for item in corpus_options(DEFAULT_LANGUAGE)},
+        {item["value"]: item["label"] for item in pitaka_options(DEFAULT_LANGUAGE)},
     )
 
 
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, lang: str | None = Query(None)):
+    language = request_language(request, lang)
+    response = templates.TemplateResponse(
+        "index.html",
+        _template_context(
+            request,
+            language,
+            strings=ui_strings(language),
+            corpus_options=corpus_options(language),
+            pitaka_options=pitaka_options(language),
+            language_options=language_options(),
+            notice=get_notice(language),
+            default_query="",
+            ga_measurement_id=settings().get("ga_measurement_id", ""),
+        ),
+    )
+    response.set_cookie(
+        LANGUAGE_COOKIE,
+        language,
+        max_age=LANGUAGE_COOKIE_MAX_AGE,
+        samesite="lax",
+        httponly=False,
+    )
+    return response
+
+
 @app.post("/search")
-def search_api(payload: dict):
+def search_api(payload: dict, request: Request):
     query = str(payload.get("query", "")).strip()
     filters = payload.get("filters") or {}
-    corpus_types = filters.get("corpusType") or ["mul"]
-    pitaka_type = filters.get("pitakaType")
+    corpus_types = resolve_corpus_types(filters.get("corpusType"))
+    pitaka_type = resolve_pitaka_type(filters.get("pitakaType"))
     page = int(payload.get("page") or 1)
     page_size = min(20, int(payload.get("pageSize") or 5))
     if not query:
         raise HTTPException(status_code=400, detail="Missing query.")
     include_translations = bool(payload.get("includeTranslations", True))
-    return search_passages(query, corpus_types, pitaka_type, page, page_size, include_translations=include_translations)
+    language = request_language(request, payload.get("language"))
+    return search_passages(
+        query,
+        corpus_types,
+        pitaka_type,
+        page,
+        page_size,
+        include_translations=include_translations,
+        language=language,
+    )
 
 
 @app.post("/search-page", response_class=HTMLResponse)
@@ -75,58 +151,130 @@ def search_page(
     corpus_type: str = Form(...),
     pitaka_type: str | None = Form(None),
     page: int = Form(1),
+    lang: str | None = Form(None),
 ):
-    result = search_passages(query, [corpus_type], pitaka_type or None, page, 5, include_translations=False)
+    language = request_language(request, lang)
+    result = search_passages(
+        query,
+        resolve_corpus_types(corpus_type),
+        resolve_pitaka_type(pitaka_type),
+        page,
+        5,
+        include_translations=False,
+        language=language,
+    )
+    # Bản dịch của dịch giả đọc thẳng từ DB nên hiển thị được ngay cùng kết quả,
+    # không phải chờ tải sau như bản dịch AI.
+    # Phải lấy theo TẤT CẢ các đoạn đang hiển thị: đoạn trích hay được mở rộng ngữ cảnh,
+    # chỉ lấy đoạn neo thì phần dịch không phủ hết phần Pali, nhìn vào tưởng ghép lệch.
+    # Lấy cả bản cấp bài kinh (Minh Châu) theo yêu cầu của khách - hiện đủ ba dịch giả
+    # ngay tại kết quả. Bản cấp bài kinh chỉ in đoạn đầu; muốn đọc trọn thì đã có nút
+    # "Xem toàn bộ bài kinh" ngay dưới thẻ, mở trang đọc với đủ nguyên văn.
+    results = result.get("results") or []
+    for item in results:
+        passage_ids = [part["id"] for part in (item.get("snippetParagraphs") or [])] or [item["id"]]
+        item["officialTranslations"] = official_translations_merged(
+            passage_ids, language, whole_sutta_excerpt_chars=WHOLE_SUTTA_EXCERPT_CHARS
+        )
+        # Nguon nao khong co ban dich cho dung doan nay thi noi thang ra, thay vi im lang
+        # bo qua - im lang khien nguoi doc tuong nguon do khong ton tai.
+        present = {str(entry["source"]) for entry in item["officialTranslations"]}
+        item["missingTranslations"] = [
+            source_label(source_id, language)
+            for source_id in SOURCE_ORDER
+            if source_id != AI_SOURCE and source_id not in present
+        ]
+
+    # Liet ke DU moi dich gia, dung nhu khach yeu cau: nguon nao khong co ban dich cho
+    # bai kinh nay thi van hien ten, chi bao ro la chua co. Truoc day chi hien nguon co
+    # du lieu nen Indacanda bien mat hoan toan o nhung bo kinh chua nap, nhin vao khong
+    # biet la chua nap hay la hong.
+    section_sources = sources_for_sections([item.get("sectionId") for item in results], language)
+    for item in results:
+        with_data = {
+            str(entry["source"]) for entry in section_sources.get(str(item.get("sectionId")), [])
+        }
+        # Khoi "Ban dich chinh thuc" tra theo DOAN, nut nay tra theo CA BAI, nen chuyen
+        # "tren bao khong co ma duoi van bam duoc" la binh thuong - Indacanda phu trung
+        # binh 27% so doan trong nhung muc no co mat, tuc phan lon doan roi vao canh do.
+        # Khong noi ro pham vi thi doc vao tuong giao dien mau thuan.
+        here = {str(entry["source"]) for entry in item["officialTranslations"]}
+        item["sectionSources"] = [
+            {
+                "source": source_id,
+                "label": source_label(source_id, language),
+                "available": source_id == AI_SOURCE or source_id in with_data,
+                "elsewhereOnly": source_id != AI_SOURCE and source_id in with_data and source_id not in here,
+            }
+            for source_id in SOURCE_ORDER
+        ]
+
     return templates.TemplateResponse(
         "results.html",
-        {
-            "request": request,
-            "result": result,
-            "query": query,
-            "corpus_type": corpus_type,
-            "pitaka_type": pitaka_type,
-            "append_mode": page > 1,
-        },
+        _template_context(
+            request,
+            language,
+            result=result,
+            query=query,
+            corpus_type=corpus_type,
+            pitaka_type=pitaka_type,
+            append_mode=page > 1,
+        ),
     )
 
 
-def _translation_or_error(passage_id: str) -> dict:
+def _translation_or_error(passage_id: str, language: str = DEFAULT_LANGUAGE) -> dict:
     try:
-        return translate_passage(passage_id)
+        return translate_passage(passage_id, language)
     except Exception:
         return {
             "vi": None,
+            "text": None,
             "fromCache": False,
             "error": public_translation_error(),
         }
 
 
 @app.post("/api/translate-result")
-def translate_result_api(payload: dict):
+def translate_result_api(payload: dict, request: Request):
     passage_id = str(payload.get("passageId") or "").strip()
     pali_text = str(payload.get("paliText") or "").strip()
     use_passage_cache = bool(payload.get("usePassageCache"))
+    language = request_language(request, payload.get("language"))
+    source = normalize_source(payload.get("source"))
 
     if not passage_id and not pali_text:
         raise HTTPException(status_code=400, detail="Missing passageId or paliText.")
 
+    warning = t(language, "translation.aiWarning")
+
+    if source != AI_SOURCE:
+        # Bản dịch của dịch giả thật: có dữ liệu thì trả về, chưa có thì báo rõ
+        # thay vì lặng lẽ chuyển sang bản dịch AI.
+        human = resolve_human_translation(source, passage_id or None, pali_text, language)
+        if human:
+            return {"ok": True, "translation": human, "warning": None, "source": source}
+        return {"ok": False, "translation": unavailable_translation(language), "warning": None, "source": source}
+
     try:
         if use_passage_cache and passage_id:
-            translation = translate_passage(passage_id)
+            translation = translate_passage(passage_id, language)
         elif pali_text:
-            translation = translate_text_cached(pali_text)
+            translation = translate_text_cached(pali_text, language)
         else:
-            translation = translate_passage(passage_id)
-        return {"ok": True, "translation": translation, "warning": AI_TRANSLATION_WARNING}
+            translation = translate_passage(passage_id, language)
+        return {"ok": True, "translation": translation, "warning": warning, "source": source}
     except Exception:
         return {
             "ok": False,
             "translation": {
                 "vi": None,
+                "text": None,
                 "fromCache": False,
                 "error": public_translation_error(),
             },
-            "warning": AI_TRANSLATION_WARNING,
+            "warning": warning,
+            "source": source,
         }
 
 
@@ -205,14 +353,14 @@ def _chunk_section_text(pali_text: str, max_chars: int = SECTION_TRANSLATION_CHU
     return chunks
 
 
-def _translate_section_text(pali_text: str) -> tuple[dict, bool]:
+def _translate_section_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> tuple[dict, bool]:
     chunks = _chunk_section_text(pali_text)
     if not chunks:
-        return {"vi": "", "notes": None, "model": None, "fromCache": False}, False
+        return {"vi": "", "text": "", "notes": None, "model": None, "fromCache": False}, False
 
     try:
         if len(chunks) == 1 and len(pali_text) <= SECTION_TRANSLATION_MAX_CHARS:
-            return translate_text_cached(pali_text), True
+            return translate_text_cached(pali_text, language), True
 
         translated_parts: list[str] = []
         failed_parts: list[int] = []
@@ -220,7 +368,7 @@ def _translate_section_text(pali_text: str) -> tuple[dict, bool]:
 
         for index, chunk in enumerate(chunks, start=1):
             try:
-                translated = translate_text_cached(chunk)
+                translated = translate_text_cached(chunk, language)
                 text = str(translated.get("vi") or "").strip()
                 if text:
                     translated_parts.append(text)
@@ -247,9 +395,11 @@ def _translate_section_text(pali_text: str) -> tuple[dict, bool]:
         if failed_parts:
             notes += f" Một số phần chưa dịch được: {', '.join(map(str, failed_parts))}."
 
+        joined = "\n\n".join(translated_parts)
         return (
             {
-                "vi": "\n\n".join(translated_parts),
+                "vi": joined,
+                "text": joined,
                 "notes": notes,
                 "model": ", ".join(models) if models else None,
                 "fromCache": False,
@@ -308,7 +458,12 @@ def _join_section_passages(rows: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def _section_payload(section_id: str, include_translation: bool = True) -> dict:
+def _section_payload(
+    section_id: str,
+    include_translation: bool = True,
+    language: str = DEFAULT_LANGUAGE,
+    source: str = AI_SOURCE,
+) -> dict:
     section = fetch_one(
         """
         select id, title, source_path
@@ -336,30 +491,55 @@ def _section_payload(section_id: str, include_translation: bool = True) -> dict:
     )
     pali_text = _join_section_passages(rows)
     if include_translation:
-        translation, attempted_translation = _translate_section_text(pali_text)
+        translation, attempted_translation = _translate_section_text(pali_text, language)
     else:
-        translation, attempted_translation = {"vi": None, "fromCache": False, "pending": True}, False
+        translation, attempted_translation = {"vi": None, "text": None, "fromCache": False, "pending": True}, False
     source_path = section.get("source_path") or []
+    # Bản dịch của dịch giả cho cả mục, ghép theo đúng thứ tự đoạn.
+    official_list = official_translations_merged([str(row["id"]) for row in rows], language)
+    selected = normalize_source(source)
+    # Liet ke DU moi dich gia chu khong chi nguon co du lieu, dung nhu khach yeu cau:
+    # nguon nao chua co ban dich cho muc nay van hien tab, bam vao thi bao "Hien khong co
+    # ban dich chinh thuc nao". Truoc day chi dung tab tu `official_list` nen tab
+    # Indacanda bien mat o moi bo kinh chua nap - giong het loi ben trang ket qua.
+    with_data = {str(item["source"]) for item in official_list}
+    available = [
+        {
+            "source": source_id,
+            "label": source_label(source_id, language),
+            "available": source_id == AI_SOURCE or source_id in with_data,
+        }
+        for source_id in SOURCE_ORDER
+    ]
+    if selected not in {item["source"] for item in available}:
+        selected = AI_SOURCE
+    chosen = next((item for item in official_list if item["source"] == selected), None)
+
     return {
         "sectionId": str(section["id"]),
+        "officialTranslations": official_list,
+        "availableSources": available,
+        "selectedSource": selected,
+        "selectedTranslation": chosen,
         "title": section["title"],
         "sourcePath": " -> ".join(source_path) if isinstance(source_path, list) else "",
         "passageCount": len(rows),
         "paliText": pali_text,
         "translation": translation,
         "attemptedTranslation": attempted_translation,
-        "warning": AI_TRANSLATION_WARNING,
+        "warning": t(language, "translation.aiWarning"),
     }
 
 
 @app.get("/api/sections/{section_id}")
-def section_api(section_id: str):
-    return _section_payload(section_id, include_translation=False)
+def section_api(section_id: str, request: Request, lang: str | None = Query(None)):
+    return _section_payload(section_id, include_translation=False, language=request_language(request, lang))
 
 
 @app.get("/api/sections/{section_id}/translate")
-def section_translate_api(section_id: str):
-    section = _section_payload(section_id, include_translation=True)
+def section_translate_api(section_id: str, request: Request, lang: str | None = Query(None)):
+    language = request_language(request, lang)
+    section = _section_payload(section_id, include_translation=True, language=language)
     return {
         "ok": bool(section.get("translation", {}).get("vi")),
         "sectionId": section["sectionId"],
@@ -369,8 +549,16 @@ def section_translate_api(section_id: str):
 
 
 @app.get("/api/sections/{section_id}/translate-chunk")
-def section_translate_chunk_api(section_id: str, chunk: int = Query(0, ge=0)):
-    section = _section_payload(section_id, include_translation=False)
+def section_translate_chunk_api(
+    section_id: str,
+    request: Request,
+    chunk: int = Query(0, ge=0),
+    lang: str | None = Query(None),
+    source: str | None = Query(None),
+):
+    language = request_language(request, lang)
+    section = _section_payload(section_id, include_translation=False, language=language)
+    translation_source = normalize_source(source)
     chunks = _chunk_section_text(
         str(section.get("paliText") or ""),
         max_chars=SECTION_TRANSLATION_STREAM_CHUNK_CHARS,
@@ -383,18 +571,31 @@ def section_translate_chunk_api(section_id: str, chunk: int = Query(0, ge=0)):
             "chunkIndex": 0,
             "totalChunks": 0,
             "hasMore": False,
-            "translation": {"vi": "", "fromCache": False},
+            "translation": {"vi": "", "text": "", "fromCache": False},
             "warning": section["warning"],
         }
     if chunk >= total_chunks:
         raise HTTPException(status_code=404, detail="Translation chunk not found.")
 
+    if translation_source != AI_SOURCE:
+        human = resolve_human_translation(translation_source, None, chunks[chunk], language)
+        return {
+            "ok": bool(human),
+            "sectionId": section["sectionId"],
+            "chunkIndex": chunk,
+            "totalChunks": total_chunks,
+            "hasMore": False,
+            "translation": human or unavailable_translation(language),
+            "warning": None,
+        }
+
     try:
-        translation = translate_text_cached(chunks[chunk])
+        translation = translate_text_cached(chunks[chunk], language)
         ok = bool(translation.get("vi"))
     except Exception:
         translation = {
             "vi": None,
+            "text": None,
             "fromCache": False,
             "error": public_translation_error(),
         }
@@ -412,19 +613,22 @@ def section_translate_chunk_api(section_id: str, chunk: int = Query(0, ge=0)):
 
 
 @app.get("/section-page/{section_id}", response_class=HTMLResponse)
-def section_page(request: Request, section_id: str):
-    section = _section_payload(section_id, include_translation=False)
+def section_page(
+    request: Request,
+    section_id: str,
+    lang: str | None = Query(None),
+    source: str | None = Query(None),
+):
+    language = request_language(request, lang)
+    section = _section_payload(section_id, include_translation=False, language=language, source=source or AI_SOURCE)
     return templates.TemplateResponse(
         "section.html",
-        {
-            "request": request,
-            "section": section,
-        },
+        _template_context(request, language, section=section),
     )
 
 
 @app.get("/api/passages/{passage_id}")
-def passage_api(passage_id: str):
+def passage_api(passage_id: str, request: Request):
     row = fetch_one(
         "select id, document_id, sort_order, paragraph_no, pali_text, hierarchy from passages where id = %s",
         [passage_id],
@@ -447,7 +651,7 @@ def passage_api(passage_id: str):
         "sourcePath": " -> ".join(source_path) if isinstance(source_path, list) else "",
         "paragraphNo": row["paragraph_no"],
         "paliText": row["pali_text"],
-        "translation": _translation_or_error(passage_id),
+        "translation": _translation_or_error(passage_id, request_language(request)),
         "nearbyPassages": nearby,
     }
 
@@ -500,26 +704,75 @@ def admin_logout(request: Request):
     return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
 
 
-@app.get("/admin/history", response_class=HTMLResponse)
-def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=200), _: str = Depends(get_current_admin)):
-    offset = (page - 1) * limit
-    logs = fetch_all(
-        """
-        select 
-            id,
-            query,
-            filters,
-            array_length(result_passage_ids, 1) as result_count,
-            created_at
+# Không còn trần: cuộn tới đâu tải tới đó, mỗi lượt một mẻ nhỏ. Trước đây phải chọn số
+# dòng mỗi trang rồi bấm chuyển trang; khách muốn xem hết nên bỏ hẳn phân trang.
+ADMIN_HISTORY_BATCH = 20
+# Chặn trên cho tham số của client, đề phòng ai đó gọi thẳng API xin vài trăm nghìn dòng.
+ADMIN_HISTORY_MAX_BATCH = 100
+
+
+def _admin_history_where(keyword: str, only_empty: bool) -> tuple[str, list[object]]:
+    conditions: list[str] = []
+    params: list[object] = []
+    if keyword:
+        conditions.append("query ilike %s")
+        params.append(f"%{keyword}%")
+    if only_empty:
+        # Đúng các lượt tìm không ra kết quả nào - chính là nhóm khách muốn soi.
+        conditions.append("coalesce(array_length(result_passage_ids, 1), 0) = 0")
+    return (("where " + " and ".join(conditions)) if conditions else ""), params
+
+
+def _admin_history_rows(keyword: str, only_empty: bool, limit: int,
+                        before_time: str | None, before_id: str | None) -> list[dict]:
+    """Một mẻ lịch sử, cũ dần kể từ mốc `before`.
+
+    Phân trang theo CON TRỎ chứ không theo `offset`: `search_logs` được ghi thêm sau mỗi
+    lượt tìm kiếm, nên trong lúc người dùng cuộn thì offset bị đẩy lệch - dòng đã xem lại
+    hiện lại, dòng chưa xem thì trượt mất. Mốc `(created_at, id)` không bị ảnh hưởng.
+    """
+    where_sql, params = _admin_history_where(keyword, only_empty)
+    if before_time and before_id:
+        cursor_sql = "(created_at, id) < (%s::timestamptz, %s::uuid)"
+        where_sql = f"{where_sql} and {cursor_sql}" if where_sql else f"where {cursor_sql}"
+        params = [*params, before_time, before_id]
+    return fetch_all(
+        f"""
+        select id, query, filters,
+               coalesce(array_length(result_passage_ids, 1), 0) as result_count,
+               created_at
         from search_logs
-        order by created_at desc
-        limit %s offset %s
+        {where_sql}
+        order by created_at desc, id desc
+        limit %s
         """,
-        [limit, offset],
+        [*params, limit],
     )
 
-    total_row = fetch_one("select count(*) as cnt from search_logs")
+
+@app.get("/admin/history", response_class=HTMLResponse)
+def admin_history(
+    request: Request,
+    q: str = Query(""),
+    only_empty: bool = Query(False),
+    _: str = Depends(get_current_admin),
+):
+    keyword = q.strip()
+    where_sql, params = _admin_history_where(keyword, only_empty)
+
+    # Chỉ mẻ đầu; phần còn lại do trình duyệt xin thêm khi cuộn tới đáy.
+    logs = _admin_history_rows(keyword, only_empty, ADMIN_HISTORY_BATCH, None, None)
+
+    total_row = fetch_one(f"select count(*) as cnt from search_logs {where_sql}", params)
     total_logs = total_row["cnt"] if total_row else 0
+
+    all_row = fetch_one("select count(*) as cnt from search_logs")
+    all_logs = all_row["cnt"] if all_row else 0
+
+    empty_row = fetch_one(
+        "select count(*) as cnt from search_logs where coalesce(array_length(result_passage_ids, 1), 0) = 0"
+    )
+    empty_logs = empty_row["cnt"] if empty_row else 0
 
     top_queries = fetch_all(
         """
@@ -531,20 +784,97 @@ def admin_history(request: Request, page: int = Query(1, ge=1), limit: int = Que
         """
     )
 
+    corpus_labels, pitaka_labels = _admin_filter_labels()
+
     return templates.TemplateResponse(
         "admin_history.html",
         {
             "request": request,
             "logs": logs,
             "total_logs": total_logs,
-            "corpus_options": {item["value"]: item["label"] for item in CORPUS_OPTIONS},
-            "pitaka_options": {item["value"]: item["label"] for item in PITAKA_OPTIONS},
+            "all_logs": all_logs,
+            "empty_logs": empty_logs,
+            "corpus_options": corpus_labels,
+            "pitaka_options": pitaka_labels,
             "top_queries": top_queries,
-            "page": page,
-            "limit": limit,
+            "batch": ADMIN_HISTORY_BATCH,
+            "q": keyword,
+            "only_empty": only_empty,
             "ga_measurement_id": settings().get("ga_measurement_id", ""),
         },
     )
+
+
+@app.get("/api/admin/history/rows")
+def api_admin_history_rows(
+    q: str = Query(""),
+    only_empty: bool = Query(False),
+    limit: int = Query(ADMIN_HISTORY_BATCH, ge=1, le=ADMIN_HISTORY_MAX_BATCH),
+    before_time: str = Query(""),
+    before_id: str = Query(""),
+    _: str = Depends(get_current_admin),
+):
+    """Mẻ lịch sử tiếp theo cho việc cuộn vô hạn ở `/admin/history`.
+
+    Xin dư MỘT dòng rồi cắt bỏ, để biết còn dữ liệu phía sau hay không mà không phải chạy
+    thêm một câu `count(*)` cho mỗi lần cuộn.
+    """
+    corpus_labels, pitaka_labels = _admin_filter_labels()
+    rows = _admin_history_rows(
+        q.strip(), only_empty, limit + 1, before_time or None, before_id or None
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    payload = []
+    for row in rows:
+        filters = row.get("filters") or {}
+        badges = [corpus_labels.get(c, c) for c in (filters.get("corpusType") or [])]
+        pitaka = filters.get("pitakaType")
+        if pitaka:
+            badges.append(pitaka_labels.get(pitaka, pitaka))
+        created = row.get("created_at")
+        payload.append(
+            {
+                "id": str(row["id"]),
+                "time": created.strftime("%H:%M:%S %d/%m/%Y") if created else "N/A",
+                "createdAt": created.isoformat() if created else None,
+                "query": row.get("query") or "",
+                "badges": badges,
+                "resultCount": int(row.get("result_count") or 0),
+            }
+        )
+    return {"rows": payload, "hasMore": has_more}
+
+
+@app.get("/admin/notice", response_class=HTMLResponse)
+def admin_notice_page(request: Request, saved: bool = Query(False), _: str = Depends(get_current_admin)):
+    return templates.TemplateResponse(
+        "admin_notice.html",
+        {
+            "request": request,
+            "notice": get_notice_config(),
+            "languages": LANGUAGES,
+            "language_options": language_options(),
+            "saved": saved,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
+@app.post("/admin/notice")
+async def admin_notice_save(request: Request, _: str = Depends(get_current_admin)):
+    form = await request.form()
+    enabled = str(form.get("enabled") or "").strip() in {"1", "on", "true"}
+    content = {
+        code: {
+            "title": str(form.get(f"title_{code}") or ""),
+            "body": str(form.get(f"body_{code}") or ""),
+        }
+        for code in LANGUAGES
+    }
+    save_notice(enabled, content)
+    return RedirectResponse(url="/admin/notice?saved=1", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/api/admin/history/{log_id}")

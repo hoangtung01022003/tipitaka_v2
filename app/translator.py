@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from .config import settings
 from .db import execute, fetch_one
+from .i18n import DEFAULT_LANGUAGE, TRANSLATION_TARGETS, normalize_language
 
 
 PROMPT_VERSION = "python-pali-vi-contextual-v5"
@@ -68,60 +69,61 @@ def public_translation_error() -> str:
     return PUBLIC_TRANSLATION_ERROR
 
 
-def translate_passage(passage_id: str) -> dict:
+def _translation_payload(text: str | None, notes: str | None, model: str | None, language: str, from_cache: bool) -> dict:
+    # Khoá "vi" là tên cũ, giữ lại để template và JS hiện có không phải đổi;
+    # "text" là tên trung lập dùng cho mọi ngôn ngữ.
+    return {
+        "vi": text,
+        "text": text,
+        "language": language,
+        "notes": notes,
+        "model": model,
+        "fromCache": from_cache,
+    }
+
+
+def translate_passage(passage_id: str, language: str = DEFAULT_LANGUAGE) -> dict:
+    language = normalize_language(language)
     active_models = _models()
     cached = fetch_one(
         """
         select translated_text, notes, model
         from translations
         where passage_id = %s
-          and language = 'vi'
+          and language = %s
           and model = any(%s)
           and prompt_version = %s
         order by created_at desc
         limit 1
         """,
-        [passage_id, active_models, PROMPT_VERSION],
+        [passage_id, language, active_models, PROMPT_VERSION],
     )
     if cached:
-        return {
-            "vi": cached["translated_text"],
-            "notes": cached["notes"],
-            "model": cached["model"],
-            "fromCache": True,
-        }
+        return _translation_payload(cached["translated_text"], cached["notes"], cached["model"], language, True)
 
     passage = fetch_one("select pali_text from passages where id = %s", [passage_id])
     if not passage:
         raise RuntimeError("Passage not found.")
 
-    translated = _translate_text_resilient(passage["pali_text"])
+    translated = _translate_text_resilient(passage["pali_text"], language)
     model = translated.model or active_models[0]
     execute(
         """
         insert into translations (passage_id, language, model, prompt_version, translated_text, notes)
-        values (%s, 'vi', %s, %s, %s, %s)
+        values (%s, %s, %s, %s, %s, %s)
         on conflict (passage_id, language, model, prompt_version)
         do update set translated_text = excluded.translated_text, notes = excluded.notes, created_at = now()
         """,
-        [passage_id, model, PROMPT_VERSION, translated.translatedText, translated.notes],
+        [passage_id, language, model, PROMPT_VERSION, translated.translatedText, translated.notes],
     )
-    return {
-        "vi": translated.translatedText,
-        "notes": translated.notes,
-        "model": model,
-        "fromCache": False,
-    }
+    return _translation_payload(translated.translatedText, translated.notes, model, language, False)
 
 
-def translate_text(pali_text: str) -> dict:
-    translated = _translate_text_resilient(pali_text)
-    return {
-        "vi": translated.translatedText,
-        "notes": translated.notes,
-        "model": translated.model or (_models()[0] if _models() else None),
-        "fromCache": False,
-    }
+def translate_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> dict:
+    language = normalize_language(language)
+    translated = _translate_text_resilient(pali_text, language)
+    model = translated.model or (_models()[0] if _models() else None)
+    return _translation_payload(translated.translatedText, translated.notes, model, language, False)
 
 
 def _text_hash(text: str) -> str:
@@ -129,7 +131,8 @@ def _text_hash(text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def translate_text_cached(pali_text: str) -> dict:
+def translate_text_cached(pali_text: str, language: str = DEFAULT_LANGUAGE) -> dict:
+    language = normalize_language(language)
     active_models = _models()
     text_hash = _text_hash(pali_text)
     cached = fetch_one(
@@ -137,41 +140,33 @@ def translate_text_cached(pali_text: str) -> dict:
         select translated_text, notes, model
         from text_translations
         where text_hash = %s
-          and language = 'vi'
+          and language = %s
           and model = any(%s)
           and prompt_version = %s
         order by created_at desc
         limit 1
         """,
-        [text_hash, active_models, PROMPT_VERSION],
+        [text_hash, language, active_models, PROMPT_VERSION],
     )
     if cached:
-        return {
-            "vi": cached["translated_text"],
-            "notes": cached["notes"],
-            "model": cached["model"],
-            "fromCache": True,
-            "textHash": text_hash,
-        }
+        payload = _translation_payload(cached["translated_text"], cached["notes"], cached["model"], language, True)
+        payload["textHash"] = text_hash
+        return payload
 
-    translated = _translate_text_resilient(pali_text)
+    translated = _translate_text_resilient(pali_text, language)
     model = translated.model or active_models[0]
     execute(
         """
         insert into text_translations (text_hash, language, model, prompt_version, source_text, translated_text, notes)
-        values (%s, 'vi', %s, %s, %s, %s, %s)
+        values (%s, %s, %s, %s, %s, %s, %s)
         on conflict (text_hash, language, model, prompt_version)
         do update set translated_text = excluded.translated_text, notes = excluded.notes, source_text = excluded.source_text, created_at = now()
         """,
-        [text_hash, model, PROMPT_VERSION, pali_text, translated.translatedText, translated.notes],
+        [text_hash, language, model, PROMPT_VERSION, pali_text, translated.translatedText, translated.notes],
     )
-    return {
-        "vi": translated.translatedText,
-        "notes": translated.notes,
-        "model": model,
-        "fromCache": False,
-        "textHash": text_hash,
-    }
+    payload = _translation_payload(translated.translatedText, translated.notes, model, language, False)
+    payload["textHash"] = text_hash
+    return payload
 
 
 def _strip_code_fence(text: str) -> str:
@@ -227,27 +222,29 @@ def _parse_translation_response(raw_text: str, model: str) -> Translation:
     raise ValueError("Gemini translation response was not usable JSON.")
 
 
-def _translation_prompt(pali_text: str, json_mode: bool) -> str:
+def _translation_prompt(pali_text: str, json_mode: bool, language: str = DEFAULT_LANGUAGE) -> str:
+    target = TRANSLATION_TARGETS.get(normalize_language(language), TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
     lines = [
-        "Bạn là trợ lý dịch thuật Pali sang tiếng Việt cho văn bản kinh điển Phật giáo Theravāda.",
-        "Nhiệm vụ: dịch văn bản Pali sang tiếng Việt tự nhiên, rõ nghĩa, trang nghiêm và chính xác.",
+        f"Bạn là trợ lý dịch thuật Pali sang {target} cho văn bản kinh điển Phật giáo Theravāda.",
+        f"Nhiệm vụ: dịch văn bản Pali sang {target} tự nhiên, rõ nghĩa, trang nghiêm và chính xác.",
+        f"BẮT BUỘC: toàn bộ bản dịch phải viết bằng {target}, không được dùng ngôn ngữ khác.",
         "Không dịch máy móc từng chữ. Hãy ưu tiên truyền đạt đúng ý nghĩa của câu Pali bằng tiếng Việt dễ hiểu.",
         "Giữ đầy đủ nội dung của văn bản gốc; không tóm tắt, không bỏ ý, không thêm ý giáo lý ngoài văn bản.",
-        "Nếu câu Pali rất dài, được phép tách thành vài câu tiếng Việt ngắn hơn để dễ đọc, miễn không đổi nghĩa.",
+        f"Nếu câu Pali rất dài, được phép tách thành vài câu {target} ngắn hơn để dễ đọc, miễn không đổi nghĩa.",
         "Nếu văn bản thuộc dạng vấn đáp, tranh luận, phân tích pháp số hoặc định nghĩa Abhidhamma, hãy dịch theo đúng văn thể đó.",
-        "Không dịch kiểu chú giải từng cụm trong ngoặc. Không chèn từ Pali sau mỗi cụm tiếng Việt.",
+        f"Không dịch kiểu chú giải từng cụm trong ngoặc. Không chèn từ Pali sau mỗi cụm {target}.",
         "Chỉ giữ thuật ngữ Pali trong ngoặc khi thuật ngữ đó quan trọng, khó dịch hết nghĩa, hoặc cần đối chiếu học thuật.",
-        "Dùng thuật ngữ Phật học tiếng Việt nhất quán, quen thuộc với truyền thống Theravāda.",
+        f"Dùng thuật ngữ Phật học {target} nhất quán, quen thuộc với truyền thống Theravāda.",
         "Với các thuật ngữ có nhiều cách dịch, hãy chọn cách dịch phù hợp nhất theo văn cảnh.",
         "Không áp dụng máy móc một bảng thuật ngữ cố định; luôn xét nghĩa theo văn cảnh Pali cụ thể.",
         "Với các đoạn lặp công thức hoặc ký hiệu lược như ...pe..., hãy dịch gọn theo đúng ý lược, không tự thêm nội dung không có trong văn bản.",
-        "Văn phong nên trong sáng, mạch lạc, không quá Hán-Việt nếu có thể nói tự nhiên hơn.",
+        "Văn phong nên trong sáng, mạch lạc, tự nhiên với người đọc bản ngữ.",
         "Nếu đoạn dài, vẫn dịch đủ toàn bộ, không tóm tắt.",
     ]
     if json_mode:
         lines.append('Trả JSON thuần, đúng một object: {"translatedText":"...","notes":"..."}')
     else:
-        lines.append("Chỉ trả bản dịch tiếng Việt thuần, không bọc JSON, không markdown, không giải thích thêm.")
+        lines.append(f"Chỉ trả bản dịch {target} thuần, không bọc JSON, không markdown, không giải thích thêm.")
     lines.extend(["", "Pali:", pali_text])
     return "\n".join(lines)
 
@@ -305,9 +302,9 @@ def _split_text_for_translation(text: str, max_chars: int = TRANSLATION_FALLBACK
     return chunks
 
 
-def _translate_text_resilient(pali_text: str) -> Translation:
+def _translate_text_resilient(pali_text: str, language: str = DEFAULT_LANGUAGE) -> Translation:
     try:
-        return _translate_text(pali_text)
+        return _translate_text(pali_text, language)
     except Exception as first_error:
         chunks = _split_text_for_translation(pali_text, max_chars=TRANSLATION_RESCUE_CHUNK_CHARS)
         if len(chunks) <= 1:
@@ -318,7 +315,7 @@ def _translate_text_resilient(pali_text: str) -> Translation:
         failed_chunks: list[int] = []
         for index, chunk in enumerate(chunks, start=1):
             try:
-                translated = _translate_text(chunk)
+                translated = _translate_text(chunk, language)
                 translated_parts.append(translated.translatedText.strip())
                 if translated.model and translated.model not in models:
                     models.append(translated.model)
@@ -339,11 +336,11 @@ def _translate_text_resilient(pali_text: str) -> Translation:
         )
 
 
-def _translate_text(pali_text: str) -> Translation:
+def _translate_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> Translation:
     client = _client()
     errors: list[str] = []
-    prompt = _translation_prompt(pali_text, json_mode=True)
-    plain_prompt = _translation_prompt(pali_text, json_mode=False)
+    prompt = _translation_prompt(pali_text, json_mode=True, language=language)
+    plain_prompt = _translation_prompt(pali_text, json_mode=False, language=language)
 
     for model in _models_for_call():
         try:

@@ -5,6 +5,7 @@ venv/
 env/
 
 # Environment files / secrets
+# .env chứa GEMINI_API_KEY và ADMIN_PASSWORD - tuyệt đối không đẩy lên.
 .env
 .env.*
 !.env.example
@@ -20,9 +21,12 @@ __pycache__/
 htmlcov/
 
 # Logs
+# Gồm cả uvicorn_8001.log và các log nạp dữ liệu sinh ra khi chạy import_*.py
 *.log
 
 # Database Dumps and Large Archives
+# Luật này cũng chặn luôn export_data.sql (65 MB) - bản xuất dữ liệu để đẩy sang VPS,
+# chuyển bằng tay chứ không đi qua kho mã nguồn.
 *.sql
 *.dump
 *.dump.*
@@ -35,12 +39,33 @@ htmlcov/
 *.tar
 *.gz
 *.7z
+# 001_init.sql là bản chụp lược đồ, đã được theo dõi từ trước nên luật trên không ảnh
+# hưởng. Ghi lại ở đây để sau này khỏi tưởng nó bị bỏ sót.
+
+# Dữ liệu tải về / sinh ra khi chạy, đều lấy lại được
+# 121 MB PDF tải từ tamtangpaliviet.net, import_indacanda.py tự tải lại nếu thiếu.
+.indacanda_pdf/
+# Đệm vector khi nhúng đoạn kinh.
+.embed_cache/
+# PDF khác lỡ để trong thư mục làm việc.
+*.pdf
+
+# Nội dung bảng thông báo do quản trị viên sửa lúc chạy.
+# VPS deploy bằng `git pull`; theo dõi file này thì mỗi lần khách đổi thông báo trên
+# /admin/notice là lần pull sau bị xung đột. `app/notice.py` có DEFAULT_NOTICE nên
+# thiếu file vẫn chạy đúng.
+app/data/notice.json
+
+# win-acme tải về khi chạy setup_ssl.bat
+wacs/
+*.pfx
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+.claude/settings.local.json
 
 # Temporary QA / local artifacts
 tmp/

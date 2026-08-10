@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bảng thông báo - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader {
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        border-bottom: 1px solid #374151;
+        text-align: center;
+      }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem {
+        display: block;
+        padding: 0.75rem 1.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: #ef4444;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader { margin-bottom: 1.5rem; }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .card h2 { margin: 0 0 0.25rem; font-size: 1.1rem; color: #111827; }
+      .card .hint { margin: 0 0 1rem; color: #6b7280; font-size: 0.9rem; }
+      .field { margin-bottom: 1rem; }
+      .field label {
+        display: block;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.35rem;
+        font-size: 0.9rem;
+      }
+      .field input[type="text"],
+      .field textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.6rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        font-family: inherit;
+        line-height: 1.55;
+      }
+      .field textarea { min-height: 150px; resize: vertical; }
+      .toggleRow {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: #374151;
+        font-weight: 600;
+      }
+      .saveBar { display: flex; gap: 0.75rem; align-items: center; }
+      .primaryButton {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 0.65rem 1.4rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+      }
+      .savedFlag {
+        background: #dcfce7;
+        color: #166534;
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        margin-bottom: 1.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="sidebar">
+      <div class="sidebarHeader">Tipiṭaka Admin</div>
+      <div class="sidebarMenu">
+        <a href="/admin/history" class="menuItem">📜 Lịch sử tìm kiếm</a>
+        <a href="/admin/notice" class="menuItem active">📢 Bảng thông báo</a>
+        <a href="/" class="menuItem" target="_blank">🌐 Về trang chủ</a>
+      </div>
+      <div class="sidebarFooter">
+        <a href="/admin/logout" class="logoutBtn">Đăng xuất</a>
+      </div>
+    </nav>
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <h1>Bảng thông báo khi vào web</h1>
+        <p style="color:#6b7280; margin-top:0.25rem;">
+          Thông báo hiện một lần cho mỗi người đọc. Khi bạn sửa nội dung, hệ thống tự tăng phiên bản
+          (hiện tại: <strong>v{{ notice.version }}</strong>) nên người đã đóng thông báo cũ sẽ thấy lại thông báo mới.
+        </p>
+      </header>
+
+      {% if saved %}
+        <div class="savedFlag">Đã lưu bảng thông báo.</div>
+      {% endif %}
+
+      <form method="post" action="/admin/notice">
+        <div class="card">
+          <label class="toggleRow">
+            <input type="checkbox" name="enabled" value="1" {% if notice.enabled %}checked{% endif %} />
+            Bật bảng thông báo
+          </label>
+          <p class="hint" style="margin-top:0.6rem;">
+            Bỏ chọn để tắt hẳn thông báo mà không mất nội dung đã soạn.
+            Ngôn ngữ nào để trống phần nội dung thì người đọc ở ngôn ngữ đó sẽ không thấy thông báo.
+          </p>
+        </div>
+
+        {% for item in language_options %}
+          <div class="card">
+            <h2>{{ item.label }}</h2>
+            <p class="hint">Nội dung hiển thị cho người đọc chọn ngôn ngữ này.</p>
+            <div class="field">
+              <label for="title_{{ item.value }}">Tiêu đề</label>
+              <input type="text" id="title_{{ item.value }}" name="title_{{ item.value }}" value="{{ notice.content[item.value].title }}" />
+            </div>
+            <div class="field">
+              <label for="body_{{ item.value }}">Nội dung</label>
+              <textarea id="body_{{ item.value }}" name="body_{{ item.value }}">{{ notice.content[item.value].body }}</textarea>
+            </div>
+          </div>
+        {% endfor %}
+
+        <div class="saveBar">
+          <button class="primaryButton" type="submit">Lưu thông báo</button>
+          <a href="/" target="_blank" style="color:#2563eb;">Xem thử trang chủ</a>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

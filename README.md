@@ -15,6 +15,7 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 uvicorn app.main:app --reload --port 8001
+.venv\Scripts\python.exe import_minhchau.py iti snp ud && .venv\Scripts\python.exe import_indacanda.py --all > import_all.log 2>&1
 ```
 .\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8002 --reload
 Mở:
