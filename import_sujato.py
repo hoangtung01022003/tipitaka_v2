@@ -398,31 +398,156 @@ def _clean(text: str) -> str:
     return re.sub(r"[ \t]+", " ", _HTML_TAG.sub("", str(text or ""))).strip()
 
 
+# Đoạn CST bị rút gọn: chỉ ghi mấy chữ đầu rồi bỏ lửng bằng "…pe…" hoặc "…".
+# Ví dụ trong Mahāpadānasutta, mỗi tướng của bậc Đại Nhân chỉ còn một mẩu 32-40 ký tự
+# ("‘Ayañhi, deva, kumāro dīghaṅgulī…"), trong khi bản bilara chép đủ cả câu.
+_ELIDED = re.compile(r"(?:…\s*pe\s*…|…|\.\.\.)\s*[’'‘\"]*\s*$")
+# Số từ đầu tối thiểu phải trùng thì mới coi là cùng một câu. Ít hơn thì "Ayañhi deva
+# kumāro" - mở đầu chung của cả 32 tướng - sẽ khớp bừa vào tướng bất kỳ.
+ELIDED_MIN_WORDS = 4
+
+
+def _elided_prefix(raw_text: str) -> str:
+    """Phần chữ thật của một đoạn bị rút gọn, đã chuẩn hoá. Rỗng nếu đoạn không bị rút gọn.
+
+    Phải dò trên văn bản GỐC: `normalize_pali` xoá sạch dấu "…" nên nhìn vào bản chuẩn hoá
+    thì không còn phân biệt được đoạn rút gọn với đoạn viết đủ.
+    """
+    if not _ELIDED.search(str(raw_text or "").strip()):
+        return ""
+    body = normalize_pali(_ELIDED.sub("", str(raw_text)).strip())
+    # Bỏ đuôi "pe" mà normalize_pali để lại từ "…pe…".
+    body = re.sub(r"\bpe$", "", body).strip()
+    return body if len(body.split()) >= ELIDED_MIN_WORDS else ""
+
+
+class _MaxTree:
+    """Cây Fenwick giữ giá trị lớn nhất trên tiền tố, kèm vị trí đạt giá trị đó."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self.best = [(0.0, -1)] * (size + 1)
+
+    def update(self, index: int, value: float, tag: int) -> None:
+        index += 1
+        while index <= self.size:
+            if value > self.best[index][0]:
+                self.best[index] = (value, tag)
+            index += index & -index
+
+    def query(self, index: int) -> tuple[float, int]:
+        """Giá trị lớn nhất trong khoảng [0, index]."""
+        index += 1
+        found = (0.0, -1)
+        while index > 0:
+            if self.best[index][0] > found[0]:
+                found = self.best[index]
+            index -= index & -index
+        return found
+
+
+def align_globally(
+    candidates: list[list[tuple[int, float]]], allow_same_position: bool = False
+) -> dict[int, int]:
+    """Chọn cách ghép cho TỔNG độ khớp cao nhất, với ràng buộc không đảo thứ tự.
+
+    Đây là chỗ khác hẳn ba cách đã thất bại trước đó. Cả ba đều quyết định từng cặp một
+    rồi đi tiếp, nên một lần chọn sai kéo hỏng cả dây phía sau. Ở đây cả tập được xét
+    cùng lúc: một công thức lặp ba lần trong tập, xét riêng thì không phân biệt nổi,
+    nhưng xét cả dây thì HÀNG XÓM GHIM NÓ LẠI - cặp trước đã ở đoạn 200, cặp sau ở đoạn
+    205, vậy cặp giữa chỉ có thể nằm trong 201-204.
+
+    `candidates[i]` là danh sách (vị trí đoạn, độ giống) của cặp thứ i, cặp xếp theo thứ
+    tự đọc. Trả về {chỉ số cặp: vị trí đoạn}.
+
+    Cài bằng quy hoạch động kiểu dãy con tăng có trọng số, dùng cây Fenwick nên chạy
+    O(số ứng viên × log số đoạn) thay vì bảng vuông - Bổn Sanh có 20.000 đoạn, bảng vuông
+    thì không kham nổi.
+    """
+    total_passages = max((position for row in candidates for position, _ in row), default=-1) + 1
+    if total_passages <= 0:
+        return {}
+
+    tree = _MaxTree(total_passages)
+    # parent[(i, j)] = ô đứng trước trong chuỗi tối ưu, để lần ngược lại lúc cuối.
+    parent: dict[tuple[int, int], tuple[int, int] | None] = {}
+    score: dict[tuple[int, int], float] = {}
+    best_end: tuple[float, tuple[int, int] | None] = (0.0, None)
+
+    for pair_index, row in enumerate(candidates):
+        # Tính hết cho cặp này TRƯỚC khi nạp vào cây, để một cặp không tự nối vào chính nó.
+        pending = []
+        for position, weight in row:
+            # `allow_same_position`: cho phép nhiều mục cùng gắn vào MỘT đoạn. Bản Sujato
+            # cần điều này - một đoạn CST thường chứa vài ba segment của bilara; bắt mỗi
+            # đoạn chỉ nhận một segment thì mất 60% nội dung. Bản Indacanda thì không, một
+            # mục trong sách đã trùm sẵn cả đoạn.
+            limit = position if allow_same_position else position - 1
+            previous_value, previous_tag = tree.query(limit) if limit >= 0 else (0.0, -1)
+            value = previous_value + weight
+            pending.append((position, value, previous_tag))
+            score[(pair_index, position)] = value
+            parent[(pair_index, position)] = previous_tag if previous_tag != -1 else None
+            if value > best_end[0]:
+                best_end = (value, (pair_index, position))
+        for position, value, _ in pending:
+            # tag gói (cặp, đoạn) vào một số nguyên để cây chỉ phải giữ một con số.
+            tree.update(position, value, pair_index * total_passages + position)
+
+    # Lần ngược chuỗi tối ưu.
+    chosen: dict[int, int] = {}
+    node = best_end[1]
+    while node is not None:
+        pair_index, position = node
+        chosen[pair_index] = position
+        tag = parent.get(node)
+        node = (tag // total_passages, tag % total_passages) if isinstance(tag, int) else None
+    return chosen
+
+
 def align(root: dict, translation: dict, passages: list[dict]) -> tuple[dict[int, list[str]], int, int]:
-    """Gán từng segment vào dòng passage chứa nó, quét một chiều từ đầu bài."""
+    """Gán từng segment vào dòng passage chứa nó, quét một chiều từ đầu bài.
+
+    Có HAI cách khớp, vì hai bên rút gọn khác nhau:
+
+    1. Segment nằm trọn trong đoạn - trường hợp thường gặp.
+    2. Đoạn CST bị rút gọn bằng "…pe…" còn bilara chép đủ: khi ấy cách 1 luôn trượt vì
+       đoạn CST quá ngắn để chứa cả câu. Đảo lại, lấy phần chữ thật của đoạn CST xem có
+       phải là phần MỞ ĐẦU của segment không. Đo trên mục Dvattiṃsamahāpurisalakkhaṇā
+       (32 tướng của bậc Đại Nhân, Mahāpadānasutta): chỉ 3/35 đoạn khớp được bằng cách 1,
+       vì 32 đoạn còn lại chỉ dài 32-90 ký tự.
+    """
     segments = [
         (key, normalize_pali(value))
         for key, value in root.items()
         if normalize_pali(value) and not re.match(r"^[a-z]+[\d.]*:0\.", key)
     ]
+    prefixes = [_elided_prefix(row.get("pali_text", "")) for row in passages]
+
+    # Ứng viên của mỗi segment, rồi để `align_globally` chọn bộ ăn khớp nhất.
+    # ĐÃ THỬ con trỏ tiến-một-chiều (chỉ lấy đoạn đầu tiên chứa segment): một segment
+    # khớp nhầm vào công thức lặp nằm xa phía sau là con trỏ vọt lên và chặn sạch phần
+    # còn lại. Đo trên Mahāpadānasutta: tới lượt segment `dn14:1.32.10` thì con trỏ đã ở
+    # sort_order 86, trong khi đoạn đúng của nó nằm ở 57 - cả mục "32 tướng của bậc Đại
+    # Nhân" mất trắng, đúng chỗ khách báo thiếu.
+    candidates: list[list[tuple[int, float]]] = []
+    for _key, normalized in segments:
+        row = []
+        for offset, passage in enumerate(passages):
+            if normalized in passage["normalized_pali"] or (
+                prefixes[offset] and normalized.startswith(prefixes[offset])
+            ):
+                row.append((offset, min(3.0, len(normalized) / 60)))
+        candidates.append(row)
+
+    chosen = align_globally(candidates, allow_same_position=True)
     assignment: dict[int, list[str]] = {}
-    matched = 0
-    cursor = 0
-
-    for key, normalized in segments:
-        target = None
-        for offset in range(cursor, len(passages)):
-            if normalized in passages[offset]["normalized_pali"]:
-                target = offset
-                break
-        if target is None:
-            continue
-        cursor = target
-        matched += 1
+    for index in sorted(chosen):
+        key = segments[index][0]
         if translation.get(key, "").strip():
-            assignment.setdefault(target, []).append(key)
+            assignment.setdefault(chosen[index], []).append(key)
 
-    return assignment, matched, len(segments)
+    return assignment, len(chosen), len(segments)
 
 
 def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict:
@@ -455,7 +580,7 @@ def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict
 
         passages = fetch_all(
             """
-            select id, sort_order, normalized_pali
+            select id, sort_order, normalized_pali, pali_text
             from passages
             where document_id = %s and sort_order between %s and %s
             order by sort_order

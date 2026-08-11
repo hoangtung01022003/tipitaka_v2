@@ -11,10 +11,13 @@ TRẠNG THÁI DỮ LIỆU
 - `indacanda` : nạp từ tamtangpaliviet.net bằng `import_indacanda.py` (hiện mới có
                 Kinh Tập; các tập còn lại đã cấu hình sẵn nhưng chưa chạy).
 - `minh_chau` : nạp từ SuttaCentral, gắn theo CẢ BÀI KINH.
+- `brahmali`  : nạp từ bilara-data bằng `import_brahmali.py`. CHỈ có Tạng Luật, và đây
+                là bản tiếng Anh DUY NHẤT của Tạng Luật - Ngài Sujato không dịch Luật,
+                nên ngoài Luật ra nguồn này không trả về gì là đúng, không phải lỗi.
 
 HAI KIỂU GẮN BẢN DỊCH - quyết định phải dùng hàm đọc nào
 ---------------------------------------------------------
-- CẤP ĐOẠN (`sujato`, `indacanda`): mỗi bản ghi ứng đúng một `passage_id`, ba cột
+- CẤP ĐOẠN (`sujato`, `indacanda`, `brahmali`): mỗi bản ghi ứng đúng một `passage_id`, ba cột
   `document_id/start_sort_order/end_sort_order` bỏ trống. Đọc bằng
   `_fetch_from_human_translations`.
 - CẤP BÀI KINH (`minh_chau`): các vị chia đoạn khác bản gốc nên một bản ghi phủ cả
@@ -57,6 +60,13 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
         "en": "English translation by Bhikkhu Sujato",
         "my": "ဘိက္ခု သုဇာတ ၏ အင်္ဂလိပ်ဘာသာပြန်",
     },
+    # Nhãn có nói rõ "Tạng Luật": đây là nguồn duy nhất chỉ phủ một tạng, mà Ngài
+    # Sujato lại không dịch Luật nên không có nguồn nào khác lấp vào chỗ đó.
+    "brahmali": {
+        "vi": "Bản dịch Tạng Luật Tiếng Anh của Bhikkhu Brahmali",
+        "en": "English translation of the Vinaya by Bhikkhu Brahmali",
+        "my": "ဘိက္ခု ဗြဟ္မာလိ ၏ ဝိနည်း အင်္ဂလိပ်ဘာသာပြန်",
+    },
 }
 
 # Ngôn ngữ mà mỗi bản dịch của người dịch được viết ra.
@@ -64,9 +74,10 @@ SOURCE_LANGUAGE = {
     "minh_chau": "vi",
     "indacanda": "vi",
     "sujato": "en",
+    "brahmali": "en",
 }
 
-SOURCE_ORDER = (AI_SOURCE, "minh_chau", "indacanda", "sujato")
+SOURCE_ORDER = (AI_SOURCE, "minh_chau", "indacanda", "sujato", "brahmali")
 
 
 def source_label(source_id: str, language: str) -> str:
@@ -427,6 +438,7 @@ def _fetch_whole_sutta_translation(source_id: str):
 HUMAN_TRANSLATION_FETCHERS: dict[str, Callable[[str | None, str, str], dict | None]] = {
     "sujato": _fetch_from_human_translations("sujato"),
     "indacanda": _fetch_from_human_translations("indacanda"),
+    "brahmali": _fetch_from_human_translations("brahmali"),
     "minh_chau": _fetch_whole_sutta_translation("minh_chau"),
 }
 

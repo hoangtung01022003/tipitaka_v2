@@ -55,19 +55,27 @@ def verify_human_alignment(sample_size: int) -> None:
     print("Tải lại file gốc trên SuttaCentral, kiểm tra từng segment đã ghi có thật sự\n"
           "nằm trong đoạn Pali của dòng đó không. Đây là kiểm tra độc lập với importer.\n")
 
+    # Mọi nguồn ghi kèm `segment_ids` đều kiểm được bằng cách này. Trước đây chỉ chạy
+    # cho `sujato`, nên bản Brahmali - nguồn duy nhất của Tạng Luật, và là nguồn phải
+    # tự dò tập chứ không neo theo bài kinh - hoàn toàn không có cổng kiểm định nào.
+    for source in ("sujato", "brahmali"):
+        _verify_alignment_of(source, sample_size)
+
+
+def _verify_alignment_of(source: str, sample_size: int) -> None:
     rows = fetch_all(
         """
         select h.source_ref, h.segment_ids, p.normalized_pali, p.pali_text
         from human_translations h
         join passages p on p.id = h.passage_id
-        where h.source = 'sujato' and array_length(h.segment_ids, 1) > 0
+        where h.source = %s and array_length(h.segment_ids, 1) > 0
         order by random()
         limit %s
         """,
-        [sample_size],
+        [source, sample_size],
     )
     if not rows:
-        check("có dữ liệu để kiểm tra", False, "bảng human_translations rỗng")
+        check(f"[{source}] có dữ liệu để kiểm tra", False, "chưa nạp nguồn này")
         return
 
     # Gom theo bài kinh để mỗi bài chỉ tải một lần.
@@ -102,7 +110,7 @@ def verify_human_alignment(sample_size: int) -> None:
 
     rate = 100 * (total_segments - bad_segments) // max(1, total_segments)
     check(
-        f"{checked_refs} bài kinh · {total_segments} segment kiểm tra",
+        f"[{source}] {checked_refs} file · {total_segments} segment kiểm tra",
         bad_segments == 0,
         f"{bad_segments} segment ghép sai ({rate}% đúng)",
     )
@@ -127,7 +135,10 @@ def _bilara_tree() -> dict[str, str]:
     prefix = "root/pli/ms/"
     for item in (data or {}).get("tree", []):
         path = str(item.get("path") or "")
-        if path.startswith(prefix + "sutta/") and path.endswith(suffix):
+        # Cả `sutta/` lẫn `vinaya/`: bản Brahmali là Tạng Luật, nếu chỉ lấy `sutta/`
+        # thì mọi `source_ref` của nguồn ấy tra không ra và phần kiểm tra lặng lẽ
+        # bỏ trắng thay vì báo sai.
+        if path.startswith((prefix + "sutta/", prefix + "vinaya/")) and path.endswith(suffix):
             _TREE[path.rsplit("/", 1)[-1][: -len(suffix)]] = path[len(prefix) : -len(suffix)]
     return _TREE
 
