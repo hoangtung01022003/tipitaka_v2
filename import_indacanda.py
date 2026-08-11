@@ -256,6 +256,92 @@ def build_probes(pali: str) -> list[str]:
     return probes
 
 
+# Nguong nhan mot doan lam UNG VIEN o che do can chinh toan cuc. Thap hon nguong ghep
+# truc tiep, vi o day khong quyet dinh gi ca - chi thu thap ung vien roi de buoc can
+# chinh chon, va viec chon co ca day lam chung cu chu khong xet rieng tung cap.
+GLOBAL_CANDIDATE_MIN = 0.35
+GLOBAL_CANDIDATE_LIMIT = 10
+# Diem tong toi thieu de giu mot cap sau khi can chinh.
+GLOBAL_ACCEPT_MIN = 0.45
+
+
+class _MaxTree:
+    """Cây Fenwick giữ giá trị lớn nhất trên tiền tố, kèm vị trí đạt giá trị đó."""
+
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self.best = [(0.0, -1)] * (size + 1)
+
+    def update(self, index: int, value: float, tag: int) -> None:
+        index += 1
+        while index <= self.size:
+            if value > self.best[index][0]:
+                self.best[index] = (value, tag)
+            index += index & -index
+
+    def query(self, index: int) -> tuple[float, int]:
+        """Giá trị lớn nhất trong khoảng [0, index]."""
+        index += 1
+        found = (0.0, -1)
+        while index > 0:
+            if self.best[index][0] > found[0]:
+                found = self.best[index]
+            index -= index & -index
+        return found
+
+
+def align_globally(candidates: list[list[tuple[int, float]]]) -> dict[int, int]:
+    """Chọn cách ghép cho TỔNG độ khớp cao nhất, với ràng buộc không đảo thứ tự.
+
+    Đây là chỗ khác hẳn ba cách đã thất bại trước đó. Cả ba đều quyết định từng cặp một
+    rồi đi tiếp, nên một lần chọn sai kéo hỏng cả dây phía sau. Ở đây cả tập được xét
+    cùng lúc: một công thức lặp ba lần trong tập, xét riêng thì không phân biệt nổi,
+    nhưng xét cả dây thì HÀNG XÓM GHIM NÓ LẠI - cặp trước đã ở đoạn 200, cặp sau ở đoạn
+    205, vậy cặp giữa chỉ có thể nằm trong 201-204.
+
+    `candidates[i]` là danh sách (vị trí đoạn, độ giống) của cặp thứ i, cặp xếp theo thứ
+    tự đọc. Trả về {chỉ số cặp: vị trí đoạn}.
+
+    Cài bằng quy hoạch động kiểu dãy con tăng có trọng số, dùng cây Fenwick nên chạy
+    O(số ứng viên × log số đoạn) thay vì bảng vuông - Bổn Sanh có 20.000 đoạn, bảng vuông
+    thì không kham nổi.
+    """
+    total_passages = max((position for row in candidates for position, _ in row), default=-1) + 1
+    if total_passages <= 0:
+        return {}
+
+    tree = _MaxTree(total_passages)
+    # parent[(i, j)] = ô đứng trước trong chuỗi tối ưu, để lần ngược lại lúc cuối.
+    parent: dict[tuple[int, int], tuple[int, int] | None] = {}
+    score: dict[tuple[int, int], float] = {}
+    best_end: tuple[float, tuple[int, int] | None] = (0.0, None)
+
+    for pair_index, row in enumerate(candidates):
+        # Tính hết cho cặp này TRƯỚC khi nạp vào cây, để một cặp không tự nối vào chính nó.
+        pending = []
+        for position, weight in row:
+            previous_value, previous_tag = tree.query(position - 1) if position > 0 else (0.0, -1)
+            value = previous_value + weight
+            pending.append((position, value, previous_tag))
+            score[(pair_index, position)] = value
+            parent[(pair_index, position)] = previous_tag if previous_tag != -1 else None
+            if value > best_end[0]:
+                best_end = (value, (pair_index, position))
+        for position, value, _ in pending:
+            # tag gói (cặp, đoạn) vào một số nguyên để cây chỉ phải giữ một con số.
+            tree.update(position, value, pair_index * total_passages + position)
+
+    # Lần ngược chuỗi tối ưu.
+    chosen: dict[int, int] = {}
+    node = best_end[1]
+    while node is not None:
+        pair_index, position = node
+        chosen[pair_index] = position
+        tag = parent.get(node)
+        node = (tag // total_passages, tag % total_passages) if isinstance(tag, int) else None
+    return chosen
+
+
 # ĐÃ THỬ VA ĐA BO (lan hai) - "lap giua hai moc neo": lay cac cap khop chac lam moc,
 # roi voi cac cap lot giua hai moc thi chon doan GIONG NHAT trong dung khoang do, con
 # tro tien mot chieu bi nhot trong khoang nen khong the vot ra ngoai. Do phu tang manh:
@@ -365,6 +451,9 @@ def main() -> None:
                         help="với --all: nạp đè cả những tập đã nạp rồi")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--global-align", action="store_true",
+                        help="căn chỉnh toàn cục: xét cả tập cùng lúc thay vì ghép từng cặp"
+                             " (xem align_globally)")
     args = parser.parse_args()
 
     if args.list:
@@ -437,6 +526,72 @@ def main() -> None:
 
         print(f"  {len(pages)} trang · ghép được {len(aligned)} cặp câu kệ Pali-Việt")
         grand["pairs"] += len(aligned)
+
+        if args.global_align:
+            passages = []
+            for document_id in doc_ids:
+                passages.extend(
+                    fetch_all(
+                        "select id from passages where document_id = %s order by sort_order",
+                        [document_id],
+                    )
+                )
+            position_of = {str(row["id"]): index for index, row in enumerate(passages)}
+
+            # Thu thap ung vien: nguong thap, KHONG doi bo xa ung vien nhi. O day chua
+            # quyet dinh gi - viec chon de buoc can chinh lam, va no chon dua vao ca day.
+            candidates: list[list[tuple[int, float]]] = []
+            for pali, _viet, _section in aligned:
+                best_by_position: dict[int, float] = {}
+                for probe in build_probes(pali):
+                    for row in fetch_all(
+                        """
+                        select id, similarity(normalized_pali, %s) as sim
+                        from passages
+                        where document_id = any(%s::uuid[]) and normalized_pali %% %s
+                        order by sim desc limit %s
+                        """,
+                        [probe, doc_ids, probe, GLOBAL_CANDIDATE_LIMIT],
+                    ):
+                        if row["sim"] < GLOBAL_CANDIDATE_MIN:
+                            continue
+                        position = position_of.get(str(row["id"]))
+                        if position is not None and row["sim"] > best_by_position.get(position, 0.0):
+                            best_by_position[position] = float(row["sim"])
+                candidates.append(sorted(best_by_position.items()))
+
+            chosen = align_globally(candidates)
+            written = 0
+            for pair_index in sorted(chosen):
+                pali, viet, _section = aligned[pair_index]
+                position = chosen[pair_index]
+                if dict(candidates[pair_index]).get(position, 0.0) < GLOBAL_ACCEPT_MIN:
+                    continue
+                if args.verbose and written < 4:
+                    print(f"     PALI: {pali[:74]}")
+                    print(f"     VIỆT: {viet[:74]}")
+                if not args.dry_run:
+                    execute(
+                        """
+                        insert into human_translations
+                          (passage_id, source, language, translated_text, source_ref, segment_ids)
+                        values (%s, %s, %s, %s, %s, %s)
+                        on conflict (passage_id, source) do update
+                          set translated_text = excluded.translated_text,
+                              source_ref = excluded.source_ref,
+                              updated_at = now()
+                        """,
+                        [str(passages[position]["id"]), SOURCE_ID, LANGUAGE, viet, key, []],
+                    )
+                written += 1
+
+            rate = 100 * written // max(1, len(aligned))
+            print(f"  căn chỉnh toàn cục: {written}/{len(aligned)} cặp ({rate}%)"
+                  f" · phủ {100 * written // max(1, len(passages))}% số đoạn · ghi {written}")
+            grand["matched"] += written
+            grand["written"] += written
+            print()
+            continue
 
         matched = written = 0
         by_section = 0
