@@ -26,6 +26,7 @@ Chạy:
 """
 
 import argparse
+from datetime import datetime
 import urllib.parse
 import logging
 import re
@@ -45,11 +46,62 @@ from pypdf import PdfReader
 
 from app.db import execute, fetch_all
 from app.normalize import normalize_pali
+# Quy hoạch động ghép theo thứ tự, dùng chung với hai importer kia. Chỉ nhánh
+# `--global-align` cần tới, nhưng import ở đây cho lỗi thiếu lộ ra ngay lúc nạp module
+# chứ không phải giữa chừng lần chạy vài tiếng.
+from import_sujato import align_globally
 
 BASE = "https://www.tamtangpaliviet.net/TTPV"
 CACHE = Path(__file__).resolve().parent / ".indacanda_pdf"
 SOURCE_ID = "indacanda"
 LANGUAGE = "vi"
+
+
+def write_translation(passage_id: str, source: str, text: str, ref: str, method: str,
+                      batch: str, score: float | None = None, document_id: str | None = None,
+                      start: int | None = None, end: int | None = None) -> bool:
+    """Ghi một dòng bản dịch, KHÔNG cho phương pháp yếu hơn đè lên phương pháp chắc hơn.
+
+    Trả về True nếu DB THẬT SỰ đổi. Phải trả về, không được đếm số lần gọi: đợt
+    `global_align` đầu tiên trên tập `net` gọi 338 lần mà bị chặn cả 338, log vẫn in
+    "ghi 338" trong khi không dòng nào đổi - con số đẹp che mất kết luận thật là
+    "đợt này không thêm được gì".
+
+    Đây là chỗ khác hẳn cách cũ. Trước đây mọi importer dùng `on conflict do update` không
+    điều kiện, nghĩa là đợt nạp SAU luôn thắng đợt trước bất kể ghép ẩu hơn - chạy strict
+    rồi chạy global-align là global-align xoá sạch phần strict, mất đúng phần chắc nhất.
+
+    Nhờ mệnh đề `where` ở cuối, nạp nhiều đợt trở thành cộng dồn: đợt sau chỉ lấp chỗ
+    trống và nâng cấp chỗ nào phương pháp của nó đáng tin hơn, còn lại giữ nguyên. Nhờ vậy
+    có thể chạy từng nhóm ca trong nhiều ngày mà không sợ hỏng phần đã xong.
+
+    Bảng xếp hạng nằm ở `human_translation_method_rank` trong migration 004.
+    """
+    return bool(fetch_all(
+        """
+        insert into human_translations
+          (passage_id, source, language, translated_text, source_ref, segment_ids,
+           document_id, start_sort_order, end_sort_order,
+           match_method, match_score, import_batch)
+        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        on conflict (passage_id, source) do update
+          set translated_text = excluded.translated_text,
+              source_ref = excluded.source_ref,
+              document_id = excluded.document_id,
+              start_sort_order = excluded.start_sort_order,
+              end_sort_order = excluded.end_sort_order,
+              match_method = excluded.match_method,
+              match_score = excluded.match_score,
+              import_batch = excluded.import_batch,
+              updated_at = now()
+          where human_translation_method_rank(excluded.match_method)
+                >= human_translation_method_rank(human_translations.match_method)
+        returning id
+        """,
+        [passage_id, source, LANGUAGE, text, ref, [], document_id, start, end,
+         method, score, batch],
+    ))
+
 
 VIETNAMESE_CHARS = set("àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ")
 
@@ -170,24 +222,47 @@ def split_verses(text: str) -> dict[str, str]:
 # tức không chứa nguyên âm nào. Nhờ ràng buộc đó mà "anh ấy" không bị nối thành "anhấy":
 # mẩu "anh" có nguyên âm nên không khớp. Đổi lại, "quy ến" cũng không sửa được - chấp
 # nhận bỏ sót còn hơn nối bừa làm hỏng chữ đúng.
+# NỐI CHỮ BỊ TÁCH - quyết bằng TỪ VỰNG, không đoán hình dạng vết cắt
+# --------------------------------------------------------------------
+# `pypdf` đọc chữ Việt có dấu chồng thì hay chèn dấu cách vào giữa từ: "thu ộc", "lo ại",
+# "xu ống". Bản trước bắt bằng hai regex mô tả hình dạng vết cắt (phụ âm đầu + cách +
+# nguyên âm có dấu; rồi thêm một regex nữa cho ệ/ể/ề/ặ). Cách ấy hụt theo thiết kế: mỗi
+# hình dạng chưa nghĩ tới lại phải thêm một luật. Đo trên dữ liệu đã nạp - 3.223/30.331
+# dòng còn dính lỗi, vì vết cắt rơi sau NGUYÊN ÂM ĐỆM ("thu-ộc", "lo-ại") thì không luật
+# nào với tới.
+#
+# Đổi hẳn cách hỏi. Không hỏi "vết cắt trông thế nào" mà hỏi "ghép lại có ra từ thật
+# không". Mảnh do PDF cắt ra không bao giờ là từ ("ộc", "ại", "ất"), còn cụm hợp lệ ghép
+# lại thì không thành từ ("do ý" -> "doý", "điều ấy" -> "điềuấy"), nên chính bộ từ vựng
+# đã phân loại giúp - không cần liệt kê hình dạng nào cả.
+#
+# Đo trên toàn bộ văn bản Việt đã nạp (4,3 triệu lượt từ), ngưỡng tần suất >= 5:
+#   10/10 ca phải nối  (thu+ộc, lo+ại, xu+ống, ngh+ĩa, th+ật, khu+ất...)
+#   10/10 ca phải giữ  (do+ý, điều+ấy, nghĩa+ấy, nói+ác, một+ít...)
+# Thêm điều kiện "phổ biến hơn mảnh sau" thì tụt còn 9/10 (mất "khuất"), nên không dùng.
 _VN_VOWEL = "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ"
-_ONSET = "ngh|ng|nh|ch|gh|gi|kh|ph|th|tr|qu|b|c|d|đ|g|h|k|l|m|n|p|q|r|s|t|v|x"
-_SPLIT_WORD = re.compile(rf"(?<!\w)({_ONSET}) ([{_VN_VOWEL}])", re.IGNORECASE)
+# Chỉ xét cặp mà mảnh SAU mở đầu bằng nguyên âm có dấu - đó chính là con chữ bị PDF tách
+# ra. Ràng buộc này không phải để phân loại, chỉ để khỏi phải thử mọi cặp từ liền nhau.
+_JOIN_CANDIDATE = re.compile(rf"([^\W\d_]+) ([{_VN_VOWEL}][^\W\d_]*)", re.UNICODE)
+_WORDS_FILE = Path(__file__).resolve().parent / "app" / "data" / "vi_words.txt"
+_VI_WORDS: set[str] | None = None
 
-# Mẩu trước CÓ nguyên âm nên luật trên không với tới: "vi ệc", "bi ết", "quy ến",
-# "thuy ết", "nhi ều", "ho ặc", "tu ệ".
-#
-# Phân biệt với chữ đúng bằng NGUYÊN ÂM ĐI SAU, không phải bằng mẩu đứng trước. Thống kê
-# trên chính dữ liệu này cho thấy hai nhóm tách bạch hẳn:
-#   đúng, phải giữ : "vị ấy" (889), "điều ấy" (326), "lợi ích" (169), "tham ái" (159),
-#                    "xuống ở", "này ông" - đi sau là ấ/í/á/ở/ô/ý, đều mở đầu từ thật.
-#   bị tách, phải nối: "vi ệc", "bi ết", "nhi ều", "ho ặc" - đi sau là ệ/ế/ề/ể/ặ, mà
-#                    tiếng Việt không có từ nào bắt đầu bằng những âm này.
-#
-# Riêng "ế" phải có thêm chữ theo sau mới được nối, vì nó là từ đứng một mình được
-# ("ế ẩm"): "bi ết" nối, còn "mua ế hàng" thì không. Bốn âm ệ/ể/ề/ặ không bao giờ đứng
-# một mình nên không cần ràng buộc đó - nhờ vậy "trí tu ệ" mới nối lại được thành "tuệ".
-_SPLIT_MEDIAL = re.compile(r"(?<!\w)(\w+) ((?:[ệểềặ]|ế\w))", re.IGNORECASE)
+
+def vi_words() -> set[str]:
+    """Từ vựng tiếng Việt dựng từ chính kho bản dịch (tần suất >= 5).
+
+    Để thành FILE chứ không đếm lại từ DB mỗi lần chạy: nạp lại phải cho ra đúng kết quả
+    cũ, mà đếm từ DB thì kết quả đổi theo việc lúc ấy đã nạp được bao nhiêu. Sinh lại bằng
+    `dev_make_vi_words.py` khi thêm nguồn tiếng Việt mới.
+    """
+    global _VI_WORDS
+    if _VI_WORDS is None:
+        _VI_WORDS = {
+            line.strip().lower()
+            for line in _WORDS_FILE.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+    return _VI_WORDS
 
 # "Bà -la-môn", "Sa- môn": dấu cách lọt vào cạnh gạch nối của từ ghép phiên âm. Hai vế
 # đều phải dính liền chữ, nên dấu gạch ngang thật sự (" - " có cách hai bên, như
@@ -225,12 +300,27 @@ def already_imported() -> set[str]:
     return {str(r["scope"]) for r in rows}
 
 
+def _join_if_word(match: re.Match) -> str:
+    """Nối hai mảnh khi và chỉ khi ghép lại ra một từ có thật."""
+    left, right = match.group(1), match.group(2)
+    joined = left + right
+    if joined.lower() in vi_words():
+        return joined
+    return match.group(0)
+
+
 def mend_spacing(text: str) -> str:
-    """Nối lại những chữ bị bóc PDF tách đôi. Chạy tới khi không còn đổi."""
+    """Nối lại những chữ bị bóc PDF tách đôi. Chạy tới khi không còn đổi.
+
+    Lặp vì một từ có thể bị tách hơn một lần ("th u ộc"), và vì nối xong mới lộ ra cặp
+    tiếp theo. `_JOIN_CANDIDATE` không dùng lookbehind chặn ranh giới từ, nên mỗi vòng
+    `re.sub` chỉ bắt các cặp không chồng nhau - vòng sau nhặt nốt phần còn lại.
+    """
     for _ in range(4):
-        fixed = _SPLIT_WORD.sub(r"\1\2", text)
-        fixed = _SPLIT_MEDIAL.sub(r"\1\2", fixed)
-        fixed = _SPLIT_HYPHEN.sub(lambda m: (m.group(1) or m.group(3)) + "-" + (m.group(2) or m.group(4)), fixed)
+        fixed = _JOIN_CANDIDATE.sub(_join_if_word, text)
+        fixed = _SPLIT_HYPHEN.sub(
+            lambda m: (m.group(1) or m.group(3)) + "-" + (m.group(2) or m.group(4)), fixed
+        )
         if fixed == text:
             break
         text = fixed
@@ -354,6 +444,183 @@ def tag_pages_with_sections(pages: list[str], sections: list[dict]) -> list[str 
     return tags
 
 
+# ── Bản CẢ BÀI KINH ──────────────────────────────────────────────────────────
+# Ghép cấp đoạn chỉ phủ 1-58% tuỳ tập (trung bình ~30%), nên bấm "xem toàn bộ bài kinh"
+# ra một bản lỗ chỗ - đúng chỗ khách phàn nàn. Nhưng bản in thì KHÔNG thiếu: chỗ trống
+# là do câu Pali bên cạnh không dò được về đúng đoạn trong DB, chứ không phải sách không
+# có chữ. Nên dựng thêm bản cả bài, lấy trọn phần tiếng Việt chứ không chỉ phần ghép được.
+#
+# NEO BẰNG CHÍNH CÁC CẶP ĐÃ KHỚP. Các cặp câu kệ nằm theo đúng thứ tự đọc của sách, nên
+# những cặp đã dò được về mục X khoanh ra một KHOẢNG trang; mọi cặp nằm giữa hai đầu
+# khoảng ấy cũng thuộc mục X, kể cả cặp không tự dò được. Đó là chỗ lấy lại phần thiếu.
+#
+# Không dùng `tag_pages_with_sections` được: Trường Bộ - đúng bộ khách nêu ví dụ
+# (Mahāpadānasutta) - PDF không in tiêu đề mục, dò được 1%.
+WHOLE_SOURCE_ID = "indacanda_full"
+
+# Hậu tố tiêu đề của một ĐƠN VỊ ĐỌC TRỌN VẸN, đếm từ tiêu đề THẬT trong DB chứ không
+# suy đoán. Lần đầu dùng `import_sujato._is_sutta_title` (đòi kết thúc bằng "sutta") thì
+# 24/30 tập ghi 0 mục - đúng những bộ ghép cấp đoạn TỐT NHẤT (82-93%) lại bị loại sạch,
+# vì Tiểu Bộ thơ kệ và Tạng Luật đặt tên hoàn toàn khác. Cấp mục cũng không đồng nhất
+# (Bổn Sanh ở L6, Ký Sự L5, Luật L4) nên phải nhận theo hậu tố, không theo cấp.
+WHOLE_UNIT_SUFFIXES = (
+    "sutta", "suttam",   # kinh
+    "jatakam",           # Bổn Sanh          · 418 mục
+    "apadanam",          # Thánh Nhân Ký Sự  · 423 + 181 mục
+    "gatha",             # Trưởng Lão (Ni) Kệ · 170 + 73 mục
+    "vatthu",            # Thiên Cung Sự, Ngạ Quỷ Sự · 86 + 51 mục
+    "cariya",            # Hạnh Tạng
+    "vamso",             # Phật Sử
+    "sikkhapadam",       # Tạng Luật, điều học · 45 + 213 mục
+    "parajikam",
+)
+# KHÔNG nhận `vaggo`, `nipato`, `kandam`, `khandhakam`, `bhanavaro`, `katha`, `vibhango`:
+# đều là CHƯƠNG chứa nhiều đơn vị. Nhận nhầm thì gộp cả chục bài thành một khối và bản
+# "cả bài" lại thành bản "cả chương" - sai còn nặng hơn thiếu.
+
+
+def _is_whole_unit_title(title: str) -> bool:
+    """Tiêu đề này có phải một đơn vị đọc trọn vẹn không (kinh, bổn sanh, kệ, điều học)."""
+    raw = str(title or "").strip()
+    if not re.match(r"^\(?\d", raw):
+        # Không đánh số thì gần như chắc là tiêu đề chương hoặc tên bộ.
+        return False
+    return normalize_pali(raw).strip().endswith(WHOLE_UNIT_SUFFIXES)
+# Dưới ngần này mốc neo thì khoảng trang đoán ra không đáng tin.
+WHOLE_MIN_ANCHORS = 3
+# Mốc neo đầu/cuối được phép cách mép bài bao nhiêu, tính theo tỉ lệ độ dài bài.
+WHOLE_EDGE_SLACK = 0.15
+
+
+def write_whole_suttas(placed: list[tuple[int, str]], aligned: list[tuple[str, str, str | None]],
+                       doc_ids: list[str], key: str, batch: str, dry_run: bool) -> tuple[int, int]:
+    """Ghi bản CẢ BÀI KINH, suy khoảng trang của mỗi mục từ các cặp đã khớp.
+
+    `placed` là (thứ tự cặp trong sách, passage_id) của những cặp đã ghi được ở cấp đoạn.
+    Trả về (số mục ghi, số mục bỏ vì khoảng trang chồng lấn).
+    """
+    if not placed:
+        return 0, 0
+
+    # Phải neo ở CẤP BÀI KINH, không phải `passages.section_id`. Cột ấy trỏ tới mục sâu
+    # nhất, nên lần đầu bản "cả bài" rơi vào các mục con BÊN TRONG Mahāpadānasutta
+    # (Pubbenivāsapaṭisaṃyuttakathā, Bodhisattadhammatā…) - vẫn là trích đoạn, đúng thứ
+    # khách muốn bỏ. Bản Minh Châu neo ở `1. Mahāpadānasuttaṃ` phủ 4-207; theo đúng vậy.
+    suttas = [
+        row
+        for row in fetch_all(
+            """
+            select s.id, s.document_id, s.title,
+                   s.start_sort_order as lo, s.end_sort_order as hi
+            from sections s
+            where s.document_id = any(%s::uuid[])
+            order by s.document_id, s.start_sort_order, s.level
+            """,
+            [doc_ids],
+        )
+        if _is_whole_unit_title(str(row["title"] or ""))
+    ]
+    if not suttas:
+        # Tập nào không có mục nào là đơn vị đọc trọn vẹn thì không dựng bản cả bài;
+        # cấp đoạn vẫn giữ nguyên.
+        return 0, 0
+
+    located = {
+        str(row["id"]): (str(row["document_id"]), row["sort_order"])
+        for row in fetch_all(
+            "select id, document_id, sort_order from passages where id = any(%s::uuid[])",
+            [[pid for _index, pid in placed]],
+        )
+    }
+
+    def sutta_of(passage_id: str) -> dict | None:
+        where = located.get(passage_id)
+        if not where:
+            return None
+        document_id, sort_order = where
+        for row in suttas:
+            if str(row["document_id"]) == document_id and row["lo"] <= sort_order <= row["hi"]:
+                return row
+        return None
+
+    ranges: dict[str, dict] = {}
+    # Mỗi bài kinh: khoảng thứ tự cặp trong sách, và đoạn neo đầu tiên.
+    spans: dict[str, dict] = {}
+    for pair_index, passage_id in placed:
+        sutta = sutta_of(passage_id)
+        if not sutta:
+            continue
+        section_id = str(sutta["id"])
+        ranges[section_id] = sutta
+        sort_order = located[passage_id][1]
+        span = spans.setdefault(section_id, {"lo": pair_index, "hi": pair_index,
+                                             "anchor": passage_id, "count": 0,
+                                             "first_sort": sort_order, "last_sort": sort_order})
+        span["lo"] = min(span["lo"], pair_index)
+        span["hi"] = max(span["hi"], pair_index)
+        span["first_sort"] = min(span["first_sort"], sort_order)
+        span["last_sort"] = max(span["last_sort"], sort_order)
+        span["count"] += 1
+
+    # Mốc neo phải ÔM TRỌN hai đầu bài kinh thì khoảng trang suy ra mới đáng tin. Không
+    # siết chỗ này thì ranh giới trôi và bài sau nuốt văn bài trước - đo trên Trường Bộ
+    # tập 2: `7. Mahāsamayasuttaṃ` mở đầu bằng văn của Mahāgovindasutta, tức nói với người
+    # đọc "đây là trọn bài" rồi đưa bài khác. Thà ghi ít bài mà đúng.
+    usable = []
+    for section_id, span in spans.items():
+        if span["count"] < WHOLE_MIN_ANCHORS:
+            continue
+        sutta = ranges[section_id]
+        length = max(1, sutta["hi"] - sutta["lo"])
+        if (span["first_sort"] - sutta["lo"]) / length > WHOLE_EDGE_SLACK:
+            continue
+        if (sutta["hi"] - span["last_sort"]) / length > WHOLE_EDGE_SLACK:
+            continue
+        usable.append((section_id, span))
+    # Xếp theo vị trí trong sách rồi loại mục nào có khoảng ĐÈ LÊN mục trước: chồng lấn
+    # nghĩa là mốc neo nhiễu, mà lấy nhầm khoảng thì bê nguyên văn bài khác sang.
+    usable.sort(key=lambda pair: (pair[1]["lo"], pair[1]["hi"]))
+    # Loại các bài có khoảng ĐÈ LÊN nhau trước, rồi mới chia ranh giới trên phần còn lại.
+    ordered: list[tuple[str, dict]] = []
+    skipped = 0
+    last_hi = -1
+    for section_id, span in usable:
+        if span["lo"] <= last_hi or section_id not in ranges:
+            skipped += 1
+            continue
+        ordered.append((section_id, span))
+        last_hi = span["hi"]
+
+    # CẮT ĐÚNG TRONG MỐC NEO, không nới mép. Đã thử hai cách nới và cả hai đều đưa văn
+    # bài khác vào: đẩy khoảng trống về bài sau thì Mahānidāna mở bằng đuôi Mahāpadāna;
+    # chia đôi khoảng trống thì Mahāsamaya mở bằng văn Mahāgovinda - vì Mahāgovinda bị
+    # loại ở guard trên, phần trang của nó thành vô chủ và rơi sang hàng xóm. Mọi cách
+    # nới đều hỏng khi hàng xóm có thể vắng mặt.
+    #
+    # Nên chấp nhận mất vài dòng đầu/cuối mỗi bài, đổi lấy bảo đảm: chữ trong bài nào
+    # đúng là của bài đó. Guard mép ở trên đã chặn phần mất không quá `WHOLE_EDGE_SLACK`.
+    written = 0
+    for section_id, span in ordered:
+        start, end = span["lo"], span["hi"]
+        section_range = ranges[section_id]
+        text = "\n\n".join(
+            aligned[i][1] for i in range(start, end + 1) if aligned[i][1].strip()
+        ).strip()
+        if not text:
+            continue
+        if dry_run:
+            written += 1
+            continue
+        if write_translation(
+            span["anchor"], WHOLE_SOURCE_ID, text, key,
+            method="whole_unit", batch=batch,
+            document_id=str(section_range["document_id"]),
+            start=section_range["lo"], end=section_range["hi"],
+        ):
+            written += 1
+    return written, skipped
+
+
 def strip_running_head(text: str) -> str:
     """Bỏ dòng tiêu đề chạy và số trang ở đầu mỗi trang."""
     lines = text.split("\n")
@@ -399,11 +666,17 @@ def main() -> None:
         parser.error("cần chỉ định tập, hoặc dùng --all / --list")
 
     if not args.dry_run:
-        migration = Path(__file__).resolve().parents[1] / "db" / "migrations" / "002_human_translations.sql"
-        execute(migration.read_text(encoding="utf-8"))
-        print(f"đã áp dụng {migration.name}\n")
+        migrations = Path(__file__).resolve().parents[1] / "db" / "migrations"
+        for name in ("002_human_translations.sql", "004_match_provenance.sql"):
+            execute((migrations / name).read_text(encoding="utf-8"))
+        print("đã áp dụng 002 + 004 (cột match_method)")
 
-    grand = {"pairs": 0, "matched": 0, "written": 0}
+    # Nhãn của đợt nạp này, để về sau truy được dòng nào do đợt nào ghi.
+    method = "global_align" if args.global_align else "strict_unique"
+    batch = f"{method}-{datetime.now():%Y%m%d-%H%M}"
+    print(f"đợt nạp: {batch}\n")
+
+    grand = {"pairs": 0, "matched": 0, "written": 0, "whole": 0}
 
     for key in args.volumes:
         volume = VOLUMES.get(key)
@@ -485,6 +758,7 @@ def main() -> None:
 
             chosen = align_globally(candidates)
             written = 0
+            placed: list[tuple[int, str]] = []
             for pair_index in sorted(chosen):
                 pali, viet, _section = aligned[pair_index]
                 position = chosen[pair_index]
@@ -494,32 +768,31 @@ def main() -> None:
                     print(f"     PALI: {pali[:74]}")
                     print(f"     VIỆT: {viet[:74]}")
                 if not args.dry_run:
-                    execute(
-                        """
-                        insert into human_translations
-                          (passage_id, source, language, translated_text, source_ref, segment_ids)
-                        values (%s, %s, %s, %s, %s, %s)
-                        on conflict (passage_id, source) do update
-                          set translated_text = excluded.translated_text,
-                              source_ref = excluded.source_ref,
-                              updated_at = now()
-                        """,
-                        [str(passages[position]["id"]), SOURCE_ID, LANGUAGE, viet, key, []],
-                    )
-                written += 1
+                    if write_translation(
+                        str(passages[position]["id"]), SOURCE_ID, viet, key,
+                        method="global_align", batch=batch,
+                        score=dict(candidates[pair_index]).get(position),
+                    ):
+                        written += 1
+                placed.append((pair_index, str(passages[position]["id"])))
 
             rate = 100 * written // max(1, len(aligned))
             print(f"  căn chỉnh toàn cục: {written}/{len(aligned)} cặp ({rate}%)"
                   f" · phủ {100 * written // max(1, len(passages))}% số đoạn · ghi {written}")
+            whole, overlap = write_whole_suttas(placed, aligned, doc_ids, key, batch, args.dry_run)
+            print(f"  bản cả bài kinh: ghi {whole} mục"
+                  f"{f' · bỏ {overlap} mục vì khoảng trang chồng lấn' if overlap else ''}")
             grand["matched"] += written
             grand["written"] += written
+            grand["whole"] += whole
             print()
             continue
 
         matched = written = 0
         by_section = 0
         seen: set[str] = set()
-        for pali, viet, section_id in aligned:
+        placed = []
+        for pair_index, (pali, viet, section_id) in enumerate(aligned):
             hit = None
             # ĐÃ THỬ VA ĐA BO (lan ba) - thu hep pham vi tim vao dung MUC ma trang PDF do
             # thuoc ve, giu nguyen luat chon. Do duoc muc cho 640/735 trang Parajika va
@@ -587,30 +860,26 @@ def main() -> None:
                 continue
             seen.add(passage_id)
             matched += 1
+            placed.append((pair_index, passage_id))
             if args.verbose and matched <= 4:
                 print(f"     PALI: {pali[:74]}")
                 print(f"     VIỆT: {viet[:74]}")
             if args.dry_run:
                 continue
-            execute(
-                """
-                insert into human_translations
-                  (passage_id, source, language, translated_text, source_ref, segment_ids)
-                values (%s, %s, %s, %s, %s, %s)
-                on conflict (passage_id, source) do update
-                  set translated_text = excluded.translated_text,
-                      source_ref = excluded.source_ref,
-                      updated_at = now()
-                """,
-                [passage_id, SOURCE_ID, LANGUAGE, viet, key, []],
-            )
-            written += 1
+            if write_translation(passage_id, SOURCE_ID, viet, key,
+                                 method="strict_unique", batch=batch,
+                                 score=float(hit["sim"])):
+                written += 1
 
         rate = 100 * matched // max(1, len(aligned))
         print(f"  tìm được đúng một chỗ trong DB: {matched}/{len(aligned)} ({rate}%) · ghi {written}"
               f"  [dò được mục cho {tagged_pages}/{len(pages)} trang · {by_section} cặp khớp nhờ giới hạn trong mục]")
+        whole, overlap = write_whole_suttas(placed, aligned, doc_ids, key, batch, args.dry_run)
+        print(f"  bản cả bài kinh: ghi {whole} mục"
+              f"{f' · bỏ {overlap} mục vì khoảng trang chồng lấn' if overlap else ''}")
         grand["matched"] += matched
         grand["written"] += written
+        grand["whole"] += whole
 
         if not args.dry_run and matched:
             execute(

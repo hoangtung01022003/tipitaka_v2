@@ -43,10 +43,11 @@ python dev_fallback_check.py   :: kiểm tra bậc rút gọn từ khóa (không
 python dev_http_check.py       :: kiểm tra qua HTTP; cần uvicorn đang chạy ở :8010
 python dev_verify.py           :: kiểm định chất lượng, xem bên dưới
 python dev_coverage.py         :: báo cáo độ phủ bản dịch theo bộ kinh
+python dev_make_vi_words.py    :: sinh lại app/data/vi_words.txt (từ vựng nối chữ PDF)
 ```
 
 `dev_verify.py` is the quality gate, and each part answers a different question:
-- **A** re-downloads the bilara source and checks every stored `segment_ids` entry really is a substring of the passage it was written to — independent of the importer's own logic, so an importer bug cannot mark itself correct.
+- **A** re-downloads the bilara source and checks every stored `segment_ids` entry really corresponds to the passage it was written to — independent of the importer's own logic, so an importer bug cannot mark itself correct. Runs for **both** `sujato` and `brahmali`; `_bilara_tree()` indexes `vinaya/` as well as `sutta/`, without which every Brahmali ref silently resolves to nothing and the check reports a blank pass. It accepts the **three** match shapes `import_sujato.align` is allowed to produce (segment inside passage / elided-prefix / passage inside segment) — a verifier that only models the first raises false alarms on the other two.
 - **D** is a known-answer search suite: each query has an expected sutta that must appear within top-N. This is what catches ranking regressions; both the provenance-dedup and verbatim-retrieval bugs above surfaced here.
 - **B** checks AI output is in the requested language, not truncated, and free of JSON/markdown leakage.
 - **C** asks Gemini to score AI Vietnamese against Sujato's English for the same passage (`--skip-judge` to skip; it costs many API calls).
@@ -72,9 +73,19 @@ Key env vars (see `.env.example`):
 
 - `config.py` — env loading, `settings()`.
 - `i18n.py` — UI string catalog for **vi / en / my**, plus the localized corpus/pitaka option lists (including the `all` = "search everything" entries) and `TRANSLATION_TARGETS` (the target-language name injected into the Gemini translation prompt). `t(language, key, **kwargs)` is the accessor; `ui_strings(language)` dumps the whole catalog into the page for the client-side JS.
-- `translation_sources.py` — the "which translation" selector. All four sources now return real data: `ai` (Gemini), `sujato`, `indacanda` (Kinh Tập only so far) and `minh_chau`. `source_options()` marks availability from `sources_with_data()`, a plain (deliberately **un**cached) `select distinct source from human_translations`, so a source appears as soon as its importer finishes — no restart needed.
+- `translation_sources.py` — the "which translation" selector. Six sources, all with real data: `ai` (Gemini), `minh_chau`, `indacanda`, `indacanda_full`, `sujato`, `brahmali`. `source_options()` marks availability from `sources_with_data()`, a plain (deliberately **un**cached) `select distinct source from human_translations`, so a source appears as soon as its importer finishes — no restart needed.
 
-  **Two attachment shapes, and picking the wrong reader silently returns nothing.** `sujato`/`indacanda` are *passage-level*: one row per `passage_id`, the `document_id`/`start_sort_order`/`end_sort_order` columns left null — read with `_fetch_from_human_translations`. `minh_chau` is *sutta-level*: the translator divides the text differently, so one row covers a whole discourse plus the `sort_order` range it spans. Its `passage_id` is only an anchor, **not** the sole passage covered — reading it by `passage_id` makes every other passage in the discourse miss, which is why it needs `_fetch_whole_sutta_translation` (a range lookup). Register each source under the right reader in `HUMAN_TRANSLATION_FETCHERS`; a source that is imported but not registered there stays invisible behind "Hiện không có bản dịch chính thức nào" even though the rows exist.
+  | source | rows | shape | scope |
+  |---|---|---|---|
+  | `sujato` | 31,229 | passage | four nikāyas + verse books, English |
+  | `indacanda` | 30,331 | passage | Vinaya + Khuddaka + Dīgha, Vietnamese |
+  | `brahmali` | 9,639 | passage | **Vinaya only**, English — the sole English Vinaya |
+  | `minh_chau` | 3,073 | whole-sutta | DN/MN/SN/AN + Iti/Ud/Snp, Vietnamese |
+  | `indacanda_full` | 208 | whole-sutta | same text as `indacanda`, assembled per discourse |
+
+  **Two attachment shapes, and picking the wrong reader silently returns nothing.** `sujato`/`indacanda`/`brahmali` are *passage-level*: one row per `passage_id`, the `document_id`/`start_sort_order`/`end_sort_order` columns left null — read with `_fetch_from_human_translations`. `minh_chau`/`indacanda_full` are *sutta-level*: the translator divides the text differently, so one row covers a whole discourse plus the `sort_order` range it spans. Its `passage_id` is only an anchor, **not** the sole passage covered — reading it by `passage_id` makes every other passage in the discourse miss, which is why it needs `_fetch_whole_sutta_translation` (a range lookup). Register each source under the right reader in `HUMAN_TRANSLATION_FETCHERS`; a source that is imported but not registered there stays invisible behind "Hiện không có bản dịch chính thức nào" even though the rows exist. This has already bitten once: 9,639 Brahmali rows sat in the DB invisible until the source was registered.
+
+  `indacanda` and `indacanda_full` are the **same translation in two shapes**, deliberately kept as two sources because `human_translations` is keyed `(passage_id, source)` and one source cannot hold both shapes. Passage-level gives the correct excerpt under a search result; whole-sutta gives a continuous read. Do not "clean up" by deleting one.
 
   Sutta-level rows carry `wholeSutta: True` out of `official_translations_merged`. The Minh Châu texts average 3.4k characters and reach ~147k, so the **search results page** passes `whole_sutta_excerpt_chars=WHOLE_SUTTA_EXCERPT_CHARS` (500) and only the opening excerpt is rendered, flagged `truncated: True`; readers get the full text from the "Xem toàn bộ bài kinh · <translator>" button already under every result card, which opens `section.html`. The trim happens in `official_translations_merged`, not the template, so the HTML never carries text nobody reads — and the section page calls the same function **without** that argument, so it still receives the whole discourse.
 - `notice.py` — the startup notice banner, stored in `app/data/notice.json` (not the DB, since the schema is owned by the parent Next.js repo). Editing it bumps `version`, and the browser only re-shows the banner when the version changes.
@@ -141,6 +152,26 @@ Translation payloads carry both `text` (language-neutral) and `vi` (the original
 
 `human_translations` (`../db/migrations/002_human_translations.sql`) stores translations by a **named translator**, keyed `(passage_id, source)` — as opposed to `translations`, which only models AI output keyed by `(passage_id, language, model, prompt_version)`. `human_translation_imports` logs each run so you can see coverage.
 
+#### Multi-pass importing and match provenance (`004_match_provenance.sql`)
+
+**Never write with a bare `on conflict do update`.** Every importer used to, which meant the *last* run won regardless of how well it matched — running the strict pass and then the global-alignment pass wiped exactly the most reliable rows. `004_match_provenance.sql` adds `match_method` / `match_score` / `import_batch` plus `human_translation_method_rank()`:
+
+```
+manual 50 > strict_unique 40 > global_align 30 > whole_unit 20 > heuristic 10 > null 0
+```
+
+`import_indacanda.write_translation()` is the reference implementation: its upsert ends with `where rank(excluded.match_method) >= rank(human_translations.match_method)`, so a weaker pass can fill a gap but can never overwrite a stronger one. Verified in both directions — strict blocks global, manual upgrades strict, strict cannot then overwrite manual.
+
+That makes importing **cumulative across passes** instead of "whatever the last run produced". The evidence this was already happening informally: the table held 30,331 Indacanda rows while a full re-run reproduced only 18,238 — the rest were survivors of earlier runs under different rules.
+
+Two consequences to respect:
+- **`--force` must never mean "delete then rebuild".** In `import_indacanda` it only bypasses the already-imported skip. Deleting first would have cost 12,093 rows that the current rules cannot reproduce.
+- **Rows written before this column existed must be backfilled**, otherwise `match_method is null` ranks 0 and any pass overwrites them. Done once for `indacanda` (→ `strict_unique`) and `indacanda_full` (→ `whole_unit`).
+
+`export_data.py` carries migration 004 *and* the three columns. Omitting either makes the VPS copy rank-less, so the next import there would flatten it.
+
+Only `import_indacanda` uses this so far. `import_sujato`, `import_brahmali`, `import_minhchau` still upsert unconditionally — harmless while each owns its own `source`, but they should be converted before any of them gains a second pass.
+
 Note: the parent repo's `.gitignore` has a blanket `*.sql` rule for data dumps, which silently swallowed the migration. There is now a `!db/migrations/*.sql` negation — keep it, or new migrations will never reach the VPS.
 
 `import_sujato.py` pulls from SuttaCentral's [bilara-data](https://github.com/suttacentral/bilara-data) (CC0), where the Pali root and Sujato's English share segment keys (`mn10:1.2`) and are therefore already aligned sentence-by-sentence. The hard part is mapping those segments onto **this** DB's `passages` rows.
@@ -185,6 +216,64 @@ Lookup is by `passage_id` only. A search result whose snippet was expanded acros
 
 `translation_sources.sources_with_data()` is deliberately **not** cached, so a newly imported source shows up without restarting the app. What still has to be done by hand after an import is registering the source in `HUMAN_TRANSLATION_FETCHERS` with the reader matching its attachment shape (see the `translation_sources.py` entry in the module map).
 
+### `import_brahmali.py` — the only English Vinaya
+
+Bhikkhu Sujato did not translate the Vinaya and neither did Minh Châu, so before this the Vinaya had **no** English at all. Source is bilara-data, same repo as Sujato, so Pali and English already share segment keys.
+
+The Nikāyas anchor on suttas; the Vinaya has none — bilara splits by training rule (`pli-tv-bu-vb-pj1`) and CST splits by volume (`vin01m` … `vin02m4`). So each bilara file's target volume is **detected**, then `align_globally` places its segments.
+
+**Score the whole file, never a head sample.** An earlier version probed the first 12 segments and got 5 files wrong, two of them silently:
+- `pli-tv-bu-vb-pc8` scored **12/12** on `vin01m` — perfectly confident and wrong. Pācittiya 8 shares its origin story with Pārājika 4, which lives in `vin01m`. Whole-file: `vin02m1` 114/160 vs `vin01m` 64/160.
+- `pli-tv-bu-pm` landed in `vin02m2` because the Pātimokkha opens with the uposatha recitation formula, which really is in the Mahāvagga. Whole file: `vin02m1` 180, `vin01m` 162, `vin02m2` **9**.
+
+Openings are the most misleading part of the file: origin stories and ceremonial formulas are reused verbatim across volumes. Confidence at the head means nothing.
+
+Don't set an absolute hit floor either — `pli-tv-bi-vb-as1-7` has exactly 2 usable segments. One hit is trusted when no other volume contains it.
+
+One file to one volume, even though `pli-tv-bu-pm` genuinely spans two. Measured the second/best hit ratio across all 421 files: it spreads smoothly 0.1–0.5 with no valley separating "really spans" from "stock-formula bleed", so any threshold would be invented. And there is nothing to gain — the `vin01m` passages the Pātimokkha matches are already covered by each rule's own Vibhaṅga file, with a better `source_ref`.
+
+`pli-tv-bi-vb-pj1-4` is skipped forever and correctly: bilara ships 4 header lines and `~`. Brahmali's own English says the rules "are not found in any manuscript".
+
+Coverage is **74% of the 12,957 Vinaya root passages, and that is near the ceiling.** Of the 3,318 uncovered, 3,097 (94%) do not exist anywhere in bilara's 422 Vinaya files — mostly **uddāna**, the rhymed mnemonic verses listing rule names, which SuttaCentral does not translate because they are an index, not prose. Only 185 are recoverable, so perfect matching would reach 76%. Treat "74%" as *CST-paragraph coverage*, not translation completeness.
+
+### `import_indacanda.py` — PDF source, three things that bite
+
+**Word-splitting from PDF extraction.** `pypdf` inserts a space inside Vietnamese words with stacked diacritics: `thu ộc`, `lo ại`, `xu ống`. This was originally patched with regexes describing the *shape* of the break, which fails by construction — every unanticipated shape needs another rule, and 3,223/30,331 rows were still broken. `mend_spacing()` now asks the only question that generalizes: **does joining the two fragments produce a real word?** A PDF fragment never is one (`ộc`, `ại`); a legitimate pair never joins into one (`do ý` → `doý`). Vocabulary lives in `app/data/vi_words.txt` (5,390 forms, frequency ≥ 5), regenerated by `dev_make_vi_words.py`.
+
+Keep it a **file**, not a live DB count: a re-import must reproduce the previous result, and counting from the DB changes the answer depending on how much happened to be loaded. It is importer data — review `git diff` on it, a new word there changes behaviour. Threshold 5 was measured (N∈{3,5,10} × K∈{0,1,3}); adding "must be commoner than the right fragment" drops `khuất` and scores 9/10, so it is not used. Result: 20/20 must-join, 14/14 must-keep, and 7,672 defects cleared to zero.
+
+Note the repair had to be applied **in place** to 2,225 stale rows — a re-import only refreshes rows it re-matches, so leftovers from earlier passes keep their old text.
+
+**Whole-unit assembly (`indacanda_full`).** Passage-level covers only 1–58% per volume, so "xem toàn bộ bài kinh" showed fragments. The whole-unit pass reassembles the continuous Vietnamese from the PDF span bracketed by the pairs that *did* match, which recovers text that never aligned.
+
+Three attempts failed before the current one, each in a way worth remembering:
+1. Anchoring on `passages.section_id` landed on sub-sections *inside* Mahāpadānasutta — still excerpts. Anchor at **sutta level**, like `minh_chau` does (`1. Mahāpadānasuttaṃ`, 4–207).
+2. Extending the span left to the previous unit made Mahānidāna open with Mahāpadāna's tail.
+3. Splitting the gap down the middle made Mahāsamaya open with Mahāgovinda's text — because Mahāgovinda had been dropped by a guard, so its pages became ownerless. **Any span extension breaks when a neighbour can be absent.**
+
+So the span is cut strictly inside the anchors: a few lines are lost at each end, in exchange for the guarantee that text under a discourse's name belongs to it. `WHOLE_EDGE_SLACK` (0.15) bounds the loss, and overlapping spans are dropped rather than trimmed.
+
+`_is_whole_unit_title` is **local to this file** — do not reuse `import_sujato._is_sutta_title`, which demands a `sutta(ṃ)` ending and returned 0 units for 24 of 30 volumes, precisely the verse books whose passage-level alignment is best. Suffixes were counted from real DB titles, not guessed: `jatakam` (418), `apadanam` (423+181), `gatha` (170+73), `vatthu` (86+51), `sikkhapadam` (45+213), plus `cariya`, `vamso`, `parajikam`. Rejected: `vaggo`, `nipato`, `kandam`, `khandhakam`, `bhanavaro`, `katha`, `vibhango` — all *chapters*; admitting one turns a "whole discourse" into a whole chapter, which is worse than missing.
+
+**`--global-align` exists but has never been run.** It is the "previous verse → 1250, next → 1252, so this one is 1251" reasoning; the strict default instead demands a unique match that beats the runner-up by `SIMILARITY_MARGIN`. Narrowing the search to the detected section was tried and **rejected**: removing rivals from view manufactures false confidence — hand-checking 8 new rows gave 6 right, 1 off by a paragraph, 1 outright wrong.
+
+### Remaining work, with the pass/fail branch for each
+
+Ordered by expected value. Each is independent thanks to the provenance ranking — a failed pass writes nothing that outranks what is already there.
+
+1. **Run the `global_align` pass** (`--all --force --global-align`). Unmeasured; the strict pass leaves 49–60% unmatched on several volumes.
+   *Pass* — new rows land as `global_align`, strict rows untouched; keep and export.
+   *Fail* — if spot-checking shows wrong placements, delete by batch (`delete … where import_batch = '<label>'`); nothing else is affected.
+2. **Jātaka whole-unit is 0** despite the best passage-level rates (72–81%). Two causes known: `s0514m` has **no** jātaka-level sections at all (only nipāta), and `s0513m`'s 150 units are all dropped before the overlap check, so it is `WHOLE_MIN_ANCHORS` or `WHOLE_EDGE_SLACK` — the jātaka unit includes the prose frame story that the verse-only PDF never covers. *Unverified hypothesis.*
+   *Pass* — relax the edge guard for verse-only sources and re-run just `ja1 ja2 ja3`.
+   *Fail* — if openings start mid-story, leave it at 0; passage-level already serves those 7,000+ rows.
+3. **`pts2` extracts 0 pairs** from 318 pages — a parser failure, not a matching failure. Fix extraction first; matching cannot be judged until pairs exist.
+4. **`mv1` detects sections on 0/597 pages** while comparable volumes reach 400–780. Anomalous enough to have its own cause.
+5. **Low-rate volumes** (`pc2` 8%, `cv1` 8%, `bvcp` 10%). **Do not loosen similarity here.** Find out first whether CST and the printed edition divide the text differently; if they do, loosening produces a flattering number and wrong data — the same trap `pc8` sprang on the Sujato importer.
+6. **An `unresolved` store** for pairs that never matched, keeping top candidates, scores and neighbours, so a better algorithm can be run over just that set later.
+
+A useful target shape for this corpus: ~60% certain + ~20% inferred from context + ~20% deliberately left empty. Do not chase 100%.
+
 ### Data model (see `001_init.sql`, owned upstream by `../db/migrations/`)
 
 `documents` (one per source XML file, `corpus_type` ∈ mul/att/tik/nrf) → `sections` (hierarchical, `source_path text[]`) → `passages` (the actual searchable Pali text, `normalized_pali` for FTS/trgm, `hierarchy jsonb`, `embedding` for optional vector search). `translations` caches AI translations per `passage_id`; `text_translations` caches by content hash for text that isn't a single passage row. `search_logs` records every search query/filters/result set for the admin analytics view.
@@ -207,9 +296,10 @@ The requests live in `feat_new/Yêu cầu.docx` (feature list) and `feat_new/toi
 2. **English + Myanmar UI with a language switcher — DONE; all three named translators now return real data.** `i18n.py` carries the full vi/en/my catalog, the switcher is in the hero, and the chosen language becomes the Gemini translation target. All four translation options are always listed (as the client asked), and the search results card prints every source that covers the passage, one after another.
 
 **The PDFs under `feat_new/` turned out not to be the right source.** Machine-readable, already-aligned versions of all three translations exist publicly, which avoids OCR and manual alignment entirely:
-   - Sujato (English) — [bilara-data](https://github.com/suttacentral/bilara-data), CC0, aligned per sentence. **Imported** (24,723 rows), passage-level.
+   - Sujato (English) — [bilara-data](https://github.com/suttacentral/bilara-data), CC0, aligned per sentence. **Imported** (31,229 rows), passage-level.
    - Thích Minh Châu (Vietnamese) — on SuttaCentral as legacy texts (`suttacentral.net/mn10/vi/minh_chau`), aligned per sutta, not per sentence. **Imported** (3,073 rows), sutta-level: one row per discourse plus its `sort_order` range. DN/MN/SN/AN come from SuttaCentral; Itivuttaka, Udāna and Suttanipāta come from budsas.org because SuttaCentral has no Vietnamese for them (see "Human translations"), and bring those three books to 97-98% Vietnamese coverage by passage.
-   - Indacanda (Vietnamese) — [tamtangpaliviet.net](https://www.tamtangpaliviet.net/), published as a Pāli-Vietnamese bilingual edition; the client never supplied it. **Imported** by `import_indacanda.py`, passage-level, but so far **only Kinh Tập** (1,073 of 1,170 verse pairs matched, covering 1,073 of Suttanipāta's 3,892 passages). `VOLUMES` in that script already configures `kn1`, `thag`, `dn1`, `dn2`, `dn3` — those runs have not been done, so outside Kinh Tập Indacanda legitimately reports no translation.
+   - Indacanda (Vietnamese) — [tamtangpaliviet.net](https://www.tamtangpaliviet.net/), published as a Pāli-Vietnamese bilingual edition; the client never supplied it. **Imported** by `import_indacanda.py`, all 30 configured volumes: **30,331 passage-level rows** (Vinaya, Khuddaka, Dīgha) plus 208 whole-discourse rows as `indacanda_full`. Per-volume match rates run 8–93%.
+   - Brahmali (English, Vinaya) — bilara-data, **not in the client's list** but the only English Vinaya in existence for this corpus. **Imported** by `import_brahmali.py` (9,639 rows, 74% of the Vinaya root canon).
 3. **"Search all" option — DONE.** Both selectors gained an `all` entry and default to it, so a visitor can type and search without choosing anything. `resolve_corpus_types` / `resolve_pitaka_type` normalize it. Note this also required fixing `_display_source`, which labelled every row with `corpus_types[0]` and so tagged Ṭīkā results as "Tipiṭaka Mūla" once more than one corpus was in scope.
 4. **Raise the admin search-history cap — DONE.** 50/200 → default 200, max 5000, plus pagination, a page-size picker, a keyword filter and a zero-result filter.
 

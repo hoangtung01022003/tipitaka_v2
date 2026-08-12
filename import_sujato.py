@@ -421,6 +421,21 @@ def _elided_prefix(raw_text: str) -> str:
     return body if len(body.split()) >= ELIDED_MIN_WORDS else ""
 
 
+# Đoạn CST ngắn hơn thế này thì không đủ đặc trưng để đi tìm ngược trong segment bilara.
+REVERSE_MIN_CHARS = 40
+_LEAD_NUMBER = re.compile(r"^[\d\s.]+")
+
+
+def _passage_core(normalized: str) -> str:
+    """Chữ của đoạn CST sau khi bỏ số mục dẫn đầu.
+
+    CST đánh số từng mục ("35. Ayañhi…") còn bilara thì không, và `normalize_pali` giữ
+    nguyên con số ấy. Chiều xuôi (segment nằm trong đoạn) không vướng vì con số nằm ngoài
+    phần so khớp, nhưng chiều ngược thì con số làm hỏng phép so - phải bỏ đi trước.
+    """
+    return _LEAD_NUMBER.sub("", normalized or "").strip()
+
+
 class _MaxTree:
     """Cây Fenwick giữ giá trị lớn nhất trên tiền tố, kèm vị trí đạt giá trị đó."""
 
@@ -508,7 +523,7 @@ def align_globally(
 def align(root: dict, translation: dict, passages: list[dict]) -> tuple[dict[int, list[str]], int, int]:
     """Gán từng segment vào dòng passage chứa nó, quét một chiều từ đầu bài.
 
-    Có HAI cách khớp, vì hai bên rút gọn khác nhau:
+    Có BA cách khớp, vì hai bên rút gọn và chia đoạn khác nhau:
 
     1. Segment nằm trọn trong đoạn - trường hợp thường gặp.
     2. Đoạn CST bị rút gọn bằng "…pe…" còn bilara chép đủ: khi ấy cách 1 luôn trượt vì
@@ -516,6 +531,19 @@ def align(root: dict, translation: dict, passages: list[dict]) -> tuple[dict[int
        phải là phần MỞ ĐẦU của segment không. Đo trên mục Dvattiṃsamahāpurisalakkhaṇā
        (32 tướng của bậc Đại Nhân, Mahāpadānasutta): chỉ 3/35 đoạn khớp được bằng cách 1,
        vì 32 đoạn còn lại chỉ dài 32-90 ký tự.
+    3. bilara GỘP nhiều đoạn CST vào một segment - ngược hẳn với giả định của cách 1.
+       Đoạn 54 của Mahāpadānasutta (tướng tốt thứ nhất) là ca mẫu: bilara `dn14:1.32.7`
+       gói công thức "Sace kho pana agārasmā…" chung với tướng tốt ấy thành một segment
+       dài 222 ký tự, còn CST tách ra, đoạn 54 chỉ 140 ký tự. Cách 1 đòi segment nằm
+       trong đoạn nên không đường nào khớp; cách 2 cũng trượt vì đoạn 54 không bị rút gọn
+       và chữ của nó nằm ở CUỐI segment chứ không phải đầu. Nên xét thêm chiều ngược:
+       chữ của đoạn CST có nằm lọt trong segment không.
+
+       Chiều ngược là chiều nguy hiểm - một đoạn CST ngắn nằm lọt trong vô số segment
+       chứa công thức lặp - nên chặn hai lớp: đoạn phải dài từ `REVERSE_MIN_CHARS`, và
+       ràng buộc không đảo thứ tự của `align_globally` vẫn giữ nguyên. Đo trên 9 bài
+       (4.463 segment): thêm đúng 1 đoạn, và KHÔNG đoạn nào đang khớp đúng bị đổi chủ.
+       Lợi mỏng, nhưng đây đúng là chỗ khách báo thiếu và giá phải trả bằng không.
     """
     segments = [
         (key, normalize_pali(value))
@@ -523,6 +551,7 @@ def align(root: dict, translation: dict, passages: list[dict]) -> tuple[dict[int
         if normalize_pali(value) and not re.match(r"^[a-z]+[\d.]*:0\.", key)
     ]
     prefixes = [_elided_prefix(row.get("pali_text", "")) for row in passages]
+    cores = [_passage_core(row["normalized_pali"]) for row in passages]
 
     # Ứng viên của mỗi segment, rồi để `align_globally` chọn bộ ăn khớp nhất.
     # ĐÃ THỬ con trỏ tiến-một-chiều (chỉ lấy đoạn đầu tiên chứa segment): một segment
@@ -538,6 +567,9 @@ def align(root: dict, translation: dict, passages: list[dict]) -> tuple[dict[int
                 prefixes[offset] and normalized.startswith(prefixes[offset])
             ):
                 row.append((offset, min(3.0, len(normalized) / 60)))
+            elif len(cores[offset]) >= REVERSE_MIN_CHARS and cores[offset] in normalized:
+                # Cách 3: cân theo độ dài ĐOẠN, vì đoạn mới là phần thật sự khớp được.
+                row.append((offset, min(3.0, len(cores[offset]) / 60)))
         candidates.append(row)
 
     chosen = align_globally(candidates, allow_same_position=True)

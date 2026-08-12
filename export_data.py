@@ -63,7 +63,7 @@ lines: list[str] = [
     "",
     "-- ── PHẦN 1: tạo bảng và thêm cột nếu còn thiếu ─────────────────────────",
 ]
-for name in ("002_human_translations.sql", "003_query_cache.sql"):
+for name in ("002_human_translations.sql", "003_query_cache.sql", "004_match_provenance.sql"):
     path = MIGRATIONS / name
     lines += [f"-- nguồn: db/migrations/{name}", path.read_text(encoding="utf-8"), ""]
 
@@ -74,6 +74,7 @@ rows = fetch_all(
     """
     select d.file_name, p.sort_order, h.source, h.language, h.translated_text,
            h.source_ref, h.segment_ids, h.start_sort_order, h.end_sort_order,
+           h.match_method, h.match_score, h.import_batch,
            hd.file_name as range_file
     from human_translations h
     join passages p on p.id = h.passage_id
@@ -92,16 +93,20 @@ for row in rows:
     )
     lines.append(
         "insert into human_translations (passage_id, source, language, translated_text,"
-        " source_ref, segment_ids, document_id, start_sort_order, end_sort_order) select "
+        " source_ref, segment_ids, document_id, start_sort_order, end_sort_order,"
+        " match_method, match_score, import_batch) select "
         f"{passage_lookup(row['file_name'], row['sort_order'])}, {lit(row['source'])},"
         f" {lit(row['language'])}, {lit(row['translated_text'])}, {lit(row['source_ref'])},"
         f" {lit(row['segment_ids'])}, {document}, {lit(row['start_sort_order'])},"
-        f" {lit(row['end_sort_order'])}"
+        f" {lit(row['end_sort_order'])}, {lit(row['match_method'])},"
+        f" {lit(row['match_score'])}, {lit(row['import_batch'])}"
         f" where {passage_lookup(row['file_name'], row['sort_order'])} is not null"
         " on conflict (passage_id, source) do update set"
         " translated_text = excluded.translated_text, source_ref = excluded.source_ref,"
         " document_id = excluded.document_id, start_sort_order = excluded.start_sort_order,"
-        " end_sort_order = excluded.end_sort_order, updated_at = now();"
+        " end_sort_order = excluded.end_sort_order, match_method = excluded.match_method,"
+        " match_score = excluded.match_score, import_batch = excluded.import_batch,"
+        " updated_at = now();"
     )
 
 # translations: đệm bản dịch AI theo từng đoạn, cũng phải neo lại.

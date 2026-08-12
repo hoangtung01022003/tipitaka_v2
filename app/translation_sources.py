@@ -60,6 +60,13 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
         "en": "English translation by Bhikkhu Sujato",
         "my": "ဘိက္ခု သုဇာတ ၏ အင်္ဂလိပ်ဘာသာပြန်",
     },
+    # Cùng người dịch với `indacanda` nhưng gắn theo CẢ BÀI KINH, nên nhãn phải nói rõ
+    # để người đọc biết chọn cái nào - xem chú thích ở `HUMAN_TRANSLATION_FETCHERS`.
+    "indacanda_full": {
+        "vi": "Bản dịch của Tỳ Khưu Indacanda (trọn bài kinh)",
+        "en": "Translation by Bhikkhu Indacanda (whole discourse)",
+        "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန် (ဒေသနာတော် အပြည့်)",
+    },
     # Nhãn có nói rõ "Tạng Luật": đây là nguồn duy nhất chỉ phủ một tạng, mà Ngài
     # Sujato lại không dịch Luật nên không có nguồn nào khác lấp vào chỗ đó.
     "brahmali": {
@@ -73,11 +80,12 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
 SOURCE_LANGUAGE = {
     "minh_chau": "vi",
     "indacanda": "vi",
+    "indacanda_full": "vi",
     "sujato": "en",
     "brahmali": "en",
 }
 
-SOURCE_ORDER = (AI_SOURCE, "minh_chau", "indacanda", "sujato", "brahmali")
+SOURCE_ORDER = (AI_SOURCE, "minh_chau", "indacanda", "indacanda_full", "sujato", "brahmali")
 
 
 def source_label(source_id: str, language: str) -> str:
@@ -440,6 +448,10 @@ HUMAN_TRANSLATION_FETCHERS: dict[str, Callable[[str | None, str, str], dict | No
     "indacanda": _fetch_from_human_translations("indacanda"),
     "brahmali": _fetch_from_human_translations("brahmali"),
     "minh_chau": _fetch_whole_sutta_translation("minh_chau"),
+    # Cùng bản dịch, hai hình dạng, nên phải hai nguồn: khoá `(passage_id, source)` không
+    # cho một nguồn vừa cấp đoạn vừa cả bài. Giữ cả hai vì mỗi cái mạnh một chỗ - cấp đoạn
+    # cho trích dẫn đúng đoạn ở trang kết quả, cả bài cho người đọc hết một bài kinh.
+    "indacanda_full": _fetch_whole_sutta_translation("indacanda_full"),
 }
 
 

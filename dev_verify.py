@@ -22,6 +22,7 @@ from app.db import fetch_all, fetch_one
 from app.normalize import normalize_pali
 from app.search_engine import search_passages
 from app.translator import translate_passage
+from import_sujato import REVERSE_MIN_CHARS, _elided_prefix, _passage_core
 
 RAW_BASE = "https://raw.githubusercontent.com/suttacentral/bilara-data/published"
 
@@ -97,12 +98,22 @@ def _verify_alignment_of(source: str, sample_size: int) -> None:
             continue
         checked_refs += 1
         for row in group:
+            prefix = _elided_prefix(row.get("pali_text", ""))
+            core = _passage_core(row["normalized_pali"])
             for key in row["segment_ids"]:
                 pali = normalize_pali(str(root.get(key) or ""))
                 if not pali:
                     continue
                 total_segments += 1
-                if pali not in row["normalized_pali"]:
+                # Ba hình dạng khớp hợp lệ, đúng ba cách `import_sujato.align` dùng.
+                # Chỉ nhận chiều xuôi thì cách 2 và cách 3 đều bị báo động giả - cổng
+                # kiểm định phải mô tả đúng thứ importer được phép làm, không hơn.
+                ok = (
+                    pali in row["normalized_pali"]
+                    or (prefix and pali.startswith(prefix))
+                    or (len(core) >= REVERSE_MIN_CHARS and core in pali)
+                )
+                if not ok:
                     bad_segments += 1
                     if bad_segments <= 3:
                         print(f"     lệch ở {key}: {pali[:60]!r}")
