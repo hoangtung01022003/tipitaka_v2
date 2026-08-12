@@ -20,7 +20,6 @@ __pycache__/
 .coverage
 htmlcov/
 export_data.sql
-# Logs
 # Gồm cả uvicorn_8001.log và các log nạp dữ liệu sinh ra khi chạy import_*.py
 *.log
 
