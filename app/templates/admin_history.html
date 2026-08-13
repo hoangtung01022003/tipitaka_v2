@@ -320,8 +320,14 @@
     <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
   </head>
   <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
     <!-- Sidebar -->
-    <nav class="sidebar">
+    <nav class="sidebar" id="adminSidebar" aria-label="Điều hướng quản trị">
       <div class="sidebarHeader">
         Tipiṭaka Admin
       </div>
@@ -335,6 +341,7 @@
         <a href="/admin/logout" class="logoutBtn">Đăng xuất</a>
       </div>
     </nav>
+    <button class="adminSidebarBackdrop" type="button" data-admin-sidebar-close aria-label="Đóng menu quản trị"></button>
 
     <!-- Main Content -->
     <main class="mainContent">
@@ -666,5 +673,6 @@
         document.getElementById("detailModal").classList.remove("active");
       }
     </script>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
   </body>
 </html>

@@ -121,7 +121,13 @@
     <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
   </head>
   <body>
-    <nav class="sidebar">
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+    <nav class="sidebar" id="adminSidebar" aria-label="Điều hướng quản trị">
       <div class="sidebarHeader">Tipiṭaka Admin</div>
       <div class="sidebarMenu">
         <a href="/admin/history" class="menuItem">📜 Lịch sử tìm kiếm</a>
@@ -132,6 +138,7 @@
         <a href="/admin/logout" class="logoutBtn">Đăng xuất</a>
       </div>
     </nav>
+    <button class="adminSidebarBackdrop" type="button" data-admin-sidebar-close aria-label="Đóng menu quản trị"></button>
 
     <main class="mainContent">
       <header class="adminHeader">
@@ -179,5 +186,6 @@
         </div>
       </form>
     </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
   </body>
 </html>
