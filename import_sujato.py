@@ -33,11 +33,13 @@ Chạy:
 """
 
 import argparse
+import html
 import json
 import re
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # line_buffering: khong co no thi Python dem stdout khi chay nen/ghi ra file,
@@ -377,16 +379,17 @@ def bilara_tree() -> dict[str, str]:
     return _TREE_CACHE
 
 
-def sutta_files(nikaya: str, uid: str) -> tuple[dict | None, dict | None]:
+def sutta_files(nikaya: str, uid: str) -> tuple[dict | None, dict | None, dict]:
     del nikaya
     stem = bilara_tree().get(uid)
     if not stem:
-        return None, None
+        return None, None, {}
     root = fetch_json(f"{RAW_BASE}/root/pli/ms/{stem}{_ROOT_SUFFIX}")
     if root is None:
-        return None, None
+        return None, None, {}
     translation = fetch_json(f"{RAW_BASE}/translation/en/sujato/{stem}_translation-en-sujato.json")
-    return root, translation
+    comments = fetch_json(f"{RAW_BASE}/comment/en/sujato/{stem}_comment-en-sujato.json") or {}
+    return root, translation, comments
 
 
 # bilara nhúng thẻ định dạng (<em>, <j>, <i>) trong văn bản dịch. Giao diện hiển thị
@@ -395,7 +398,41 @@ _HTML_TAG = re.compile(r"<[^>]+>")
 
 
 def _clean(text: str) -> str:
-    return re.sub(r"[ \t]+", " ", _HTML_TAG.sub("", str(text or ""))).strip()
+    return re.sub(r"[ \t]+", " ", html.unescape(_HTML_TAG.sub("", str(text or "")))).strip()
+
+
+def merged_segment_text(keys: list[str], translation: dict, comments: dict | None = None) -> str:
+    """Ghép bản dịch và chữ nhỏ/chú giải Bilara theo đúng vị trí, không thêm nhãn."""
+    comments = comments or {}
+    parts: list[str] = []
+    for key in keys:
+        translated = _clean(translation.get(key, ""))
+        comment = _clean(comments.get(key, ""))
+        if translated:
+            parts.append(translated)
+        if comment:
+            parts.append(comment)
+    return "\n".join(parts)
+
+
+def stage_unresolved(scope: str, rows: list[dict], batch: str | None) -> None:
+    """Giữ lại ca chưa ghép để đợt sau xử lý, thay vì âm thầm bỏ mất."""
+    if not rows:
+        return
+    execute(
+        """
+        insert into human_translation_unresolved
+          (source, language, scope, source_ref, segment_id, raw_text,
+           normalized_text, reason, import_batch)
+        select %s, %s, %s, item.source_ref, item.segment_id, item.raw_text,
+               item.normalized_text, item.reason, %s
+        from jsonb_to_recordset(%s::jsonb) as item(
+          source_ref text, segment_id text, raw_text text, normalized_text text, reason text
+        )
+        on conflict do nothing
+        """,
+        [SOURCE_ID, LANGUAGE, scope, batch, json.dumps(rows, ensure_ascii=False)],
+    )
 
 
 # Đoạn CST bị rút gọn: chỉ ghi mấy chữ đầu rồi bỏ lửng bằng "…pe…" hoặc "…".
@@ -582,7 +619,14 @@ def align(root: dict, translation: dict, passages: list[dict]) -> tuple[dict[int
     return assignment, len(chosen), len(segments)
 
 
-def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict:
+def import_nikaya(
+    nikaya: str,
+    limit: int,
+    dry_run: bool,
+    verbose: bool,
+    include_comments: bool = True,
+    batch: str | None = None,
+) -> dict:
     targets = build_targets(nikaya)
     config = NIKAYA_CONFIG[nikaya]
     expect = config.get("expect")
@@ -595,19 +639,36 @@ def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict
     if limit:
         targets = targets[:limit]
 
-    stats = {"segments": 0, "matched": 0, "written": 0, "suttas": 0,
+    stats = {"segments": 0, "matched": 0, "written": 0, "comments": 0, "unresolved": 0, "suttas": 0,
              "missing": [], "title_mismatch": [], "skipped": False}
+    unresolved: list[dict] = []
 
     for target in targets:
-        root, translation = sutta_files(nikaya, target["uid"])
+        root, translation, comments = sutta_files(nikaya, target["uid"])
         if not root or not translation:
             stats["missing"].append(target["uid"])
+            unresolved.append({
+                "source_ref": target["uid"],
+                "segment_id": None,
+                "raw_text": target["db_title"],
+                "normalized_text": normalize_pali(target["db_title"]),
+                "reason": "missing_bilara_sutta",
+            })
             continue
+        if not include_comments:
+            comments = {}
 
         headers = bilara_header_titles(root, target["uid"])
         if headers and not titles_agree(headers, target["db_title"]):
             # Lệch tên nghĩa là số thứ tự đã trượt -> ghi vào sẽ sai hàng loạt.
             stats["title_mismatch"].append(f"{target['uid']} ({' / '.join(headers[1:3])} != {target['db_title']})")
+            unresolved.append({
+                "source_ref": target["uid"],
+                "segment_id": None,
+                "raw_text": " / ".join(headers),
+                "normalized_text": normalize_pali(target["db_title"]),
+                "reason": "title_mismatch",
+            })
             continue
 
         passages = fetch_all(
@@ -620,31 +681,63 @@ def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict
             [target["document_id"], target["start"], target["end"]],
         )
         assignment, matched, segment_count = align(root, translation, passages)
+        assigned_keys = {key for keys in assignment.values() for key in keys}
+        eligible_keys = {
+            key
+            for key, value in root.items()
+            if normalize_pali(value) and not re.match(r"^[a-z]+[\d.]*:0\.", key)
+        }
+        for key in sorted(eligible_keys - assigned_keys):
+            raw = merged_segment_text([key], translation, comments)
+            if not raw:
+                continue
+            unresolved.append({
+                "source_ref": target["uid"],
+                "segment_id": key,
+                "raw_text": raw,
+                "normalized_text": normalize_pali(root.get(key, "")),
+                "reason": "unmatched_segment",
+            })
         stats["segments"] += segment_count
         stats["matched"] += matched
         stats["suttas"] += 1
 
         written = 0
         for offset, keys in assignment.items():
-            text = "\n".join(_clean(translation[key]) for key in keys if _clean(translation.get(key, "")))
+            text = merged_segment_text(keys, translation, comments)
             if not text:
                 continue
-            written += 1
+            stats["comments"] += sum(1 for key in keys if _clean(comments.get(key, "")))
             if dry_run:
+                written += 1
                 continue
-            execute(
+            changed = fetch_all(
                 """
                 insert into human_translations
-                  (passage_id, source, language, translated_text, source_ref, segment_ids)
-                values (%s, %s, %s, %s, %s, %s)
+                  (passage_id, source, language, translated_text, source_ref, segment_ids,
+                   match_method, import_batch)
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict (passage_id, source) do update
                   set translated_text = excluded.translated_text,
                       source_ref = excluded.source_ref,
                       segment_ids = excluded.segment_ids,
+                      match_method = excluded.match_method,
+                      import_batch = excluded.import_batch,
                       updated_at = now()
+                  where human_translation_method_rank(excluded.match_method)
+                        > human_translation_method_rank(human_translations.match_method)
+                     or (
+                          human_translation_method_rank(excluded.match_method)
+                            = human_translation_method_rank(human_translations.match_method)
+                          and human_translations.translated_text is distinct from excluded.translated_text
+                        )
+                returning id
                 """,
-                [passages[offset]["id"], SOURCE_ID, LANGUAGE, text, target["uid"], keys],
+                [passages[offset]["id"], SOURCE_ID, LANGUAGE, text, target["uid"], keys,
+                 "strict_unique", batch],
             )
+            if changed:
+                written += 1
         stats["written"] += written
 
         if verbose:
@@ -652,7 +745,12 @@ def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict
             print(f"     {target['uid']:<10} {target['db_title'][:34]:<36} {matched:>4}/{segment_count:<4} ({rate:>3}%) -> {written}")
 
     rate = 100 * stats["matched"] // max(1, stats["segments"])
-    print(f"  {stats['suttas']} bài · {stats['matched']}/{stats['segments']} segment khớp ({rate}%) · ghi {stats['written']} đoạn")
+    stats["unresolved"] = len(unresolved)
+    if not dry_run:
+        stage_unresolved(nikaya, unresolved, batch)
+    print(f"  {stats['suttas']} bài · {stats['matched']}/{stats['segments']} segment khớp ({rate}%)"
+          f" · ghi {stats['written']} đoạn · ghép {stats['comments']} chữ nhỏ/chú giải"
+          f" · giữ {stats['unresolved']} ca chưa khớp")
     if stats["missing"]:
         print(f"  không có trên bilara: {len(stats['missing'])} bài ({', '.join(stats['missing'][:6])}{' ...' if len(stats['missing']) > 6 else ''})")
     if stats["title_mismatch"]:
@@ -664,11 +762,13 @@ def import_nikaya(nikaya: str, limit: int, dry_run: bool, verbose: bool) -> dict
         execute(
             """
             insert into human_translation_imports
-              (source, language, scope, segments_total, segments_matched, passages_written, notes)
-            values (%s, %s, %s, %s, %s, %s, %s)
+              (source, language, scope, segments_total, segments_matched, passages_written, notes,
+               import_batch)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [SOURCE_ID, LANGUAGE, nikaya, stats["segments"], stats["matched"], stats["written"],
-             f"thiếu {len(stats['missing'])}, lệch tên {len(stats['title_mismatch'])}"],
+             f"batch {batch}; comment {stats['comments']}; thiếu {len(stats['missing'])}, "
+             f"lệch tên {len(stats['title_mismatch'])}", batch],
         )
     print()
     return stats
@@ -682,6 +782,11 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="Chỉ nạp N bài đầu (để thử)")
     parser.add_argument("--dry-run", action="store_true", help="Chỉ đo độ khớp, không ghi DB")
     parser.add_argument("--verbose", action="store_true", help="In từng bài kinh")
+    parser.add_argument(
+        "--without-comments",
+        action="store_true",
+        help="Không ghép chữ nhỏ/chú giải Bilara (mặc định là có ghép, đúng như bản PDF)",
+    )
     args = parser.parse_args()
 
     nikayas = sorted(NIKAYA_CONFIG) if args.all else args.nikayas
@@ -692,20 +797,49 @@ def main() -> None:
         parser.error(f"không biết bộ kinh: {', '.join(unknown)}")
 
     if not args.dry_run:
-        migration = Path(__file__).resolve().parents[1] / "db" / "migrations" / "002_human_translations.sql"
-        execute(migration.read_text(encoding="utf-8"))
-        print(f"đã áp dụng {migration.name}\n")
+        migrations = Path(__file__).resolve().parents[1] / "db" / "migrations"
+        for name in ("002_human_translations.sql", "004_match_provenance.sql", "005_import_batches.sql"):
+            execute((migrations / name).read_text(encoding="utf-8"))
+        print("đã áp dụng 002 + 004 + 005\n")
 
-    grand = {"segments": 0, "matched": 0, "written": 0, "suttas": 0}
+    batch = f"sujato-comments-{datetime.now():%Y%m%d-%H%M%S}"
+    if not args.dry_run:
+        execute(
+            """
+            insert into human_translation_batches (import_batch, source, language, scope, notes)
+            values (%s, %s, %s, %s, %s)
+            on conflict (import_batch) do nothing
+            """,
+            [batch, SOURCE_ID, LANGUAGE, ",".join(nikayas), "Bilara translation + inline comments"],
+        )
+    grand = {"segments": 0, "matched": 0, "written": 0, "comments": 0, "unresolved": 0, "suttas": 0}
     for nikaya in nikayas:
-        stats = import_nikaya(nikaya, args.limit, args.dry_run, args.verbose)
+        stats = import_nikaya(
+            nikaya,
+            args.limit,
+            args.dry_run,
+            args.verbose,
+            include_comments=not args.without_comments,
+            batch=batch,
+        )
         if stats.get("skipped"):
             continue
         for key in grand:
             grand[key] += stats[key]
 
     rate = 100 * grand["matched"] // max(1, grand["segments"])
-    print(f"TỔNG: {grand['suttas']} bài kinh · {grand['matched']}/{grand['segments']} segment ({rate}%) · {grand['written']} đoạn được ghi")
+    print(f"TỔNG: {grand['suttas']} bài kinh · {grand['matched']}/{grand['segments']} segment ({rate}%)"
+          f" · {grand['written']} đoạn được ghi · {grand['comments']} chữ nhỏ/chú giải"
+          f" · {grand['unresolved']} ca giữ để xử lý tiếp")
+    if not args.dry_run:
+        execute(
+            """
+            update human_translation_batches
+            set status = 'completed', finished_at = now()
+            where import_batch = %s
+            """,
+            [batch],
+        )
 
 
 if __name__ == "__main__":

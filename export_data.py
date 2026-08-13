@@ -63,7 +63,12 @@ lines: list[str] = [
     "",
     "-- ── PHẦN 1: tạo bảng và thêm cột nếu còn thiếu ─────────────────────────",
 ]
-for name in ("002_human_translations.sql", "003_query_cache.sql", "004_match_provenance.sql"):
+for name in (
+    "002_human_translations.sql",
+    "003_query_cache.sql",
+    "004_match_provenance.sql",
+    "005_import_batches.sql",
+):
     path = MIGRATIONS / name
     lines += [f"-- nguồn: db/migrations/{name}", path.read_text(encoding="utf-8"), ""]
 
@@ -102,12 +107,24 @@ for row in rows:
         f" {lit(row['match_score'])}, {lit(row['import_batch'])}"
         f" where {passage_lookup(row['file_name'], row['sort_order'])} is not null"
         " on conflict (passage_id, source) do update set"
-        " translated_text = excluded.translated_text, source_ref = excluded.source_ref,"
+        " language = excluded.language, translated_text = excluded.translated_text,"
+        " source_ref = excluded.source_ref, segment_ids = excluded.segment_ids,"
         " document_id = excluded.document_id, start_sort_order = excluded.start_sort_order,"
         " end_sort_order = excluded.end_sort_order, match_method = excluded.match_method,"
         " match_score = excluded.match_score, import_batch = excluded.import_batch,"
         " updated_at = now();"
     )
+    if row["range_file"]:
+        # Khóa DB là (passage_id, source). Khi importer sửa được đoạn đầu của một bài,
+        # passage neo có thể đổi và bản cũ cùng khoảng sẽ không tự xung đột. Dọn nó cả
+        # trên VPS để export mới không để lại hai bản mà giao diện có thể chọn ngẫu nhiên.
+        lines.append(
+            "delete from human_translations where"
+            f" source = {lit(row['source'])} and document_id = {document}"
+            f" and start_sort_order = {lit(row['start_sort_order'])}"
+            f" and end_sort_order = {lit(row['end_sort_order'])}"
+            f" and passage_id <> {passage_lookup(row['file_name'], row['sort_order'])};"
+        )
 
 # translations: đệm bản dịch AI theo từng đoạn, cũng phải neo lại.
 rows = fetch_all(
@@ -133,13 +150,18 @@ for row in rows:
         " on conflict do nothing;"
     )
 
-# Ba bảng dưới không trỏ tới passages nên chép thẳng.
+# Các bảng dưới không trỏ tới passages nên chép thẳng.
 plain = {
     "text_translations": ["text_hash", "language", "model", "prompt_version",
                           "source_text", "translated_text", "notes"],
     "query_ai_cache": ["cache_key", "kind", "pipeline_version", "payload"],
     "human_translation_imports": ["source", "language", "scope", "segments_total",
-                                  "segments_matched", "passages_written", "notes"],
+                                  "segments_matched", "passages_written", "notes", "import_batch"],
+    "human_translation_batches": ["import_batch", "source", "language", "scope", "status",
+                                  "notes", "started_at", "finished_at"],
+    "human_translation_unresolved": ["source", "language", "scope", "source_ref", "segment_id",
+                                     "raw_text", "normalized_text", "candidate_score", "reason",
+                                     "import_batch", "resolved_at", "resolution"],
 }
 for table, columns in plain.items():
     rows = fetch_all(f"select {', '.join(columns)} from {table}")

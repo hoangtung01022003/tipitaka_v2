@@ -86,6 +86,7 @@ SOURCE_LANGUAGE = {
 }
 
 SOURCE_ORDER = (AI_SOURCE, "minh_chau", "indacanda", "indacanda_full", "sujato", "brahmali")
+WHOLE_SUTTA_SOURCES = frozenset({"minh_chau", "indacanda_full"})
 
 
 def source_label(source_id: str, language: str) -> str:

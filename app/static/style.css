@@ -762,3 +762,293 @@ body.modalOpen {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* ---- Mobile: chỉ thay đổi ở màn hình nhỏ, desktop giữ nguyên ---- */
+
+@media (max-width: 768px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .page {
+    width: 100%;
+    padding:
+      max(22px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(42px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+  }
+
+  .hero {
+    margin-bottom: 20px;
+  }
+
+  .heroTop {
+    display: block;
+  }
+
+  .hero h1 {
+    font-size: clamp(32px, 11vw, 42px);
+    line-height: 1.08;
+  }
+
+  .hero > p {
+    margin-bottom: 0;
+    line-height: 1.55;
+  }
+
+  .languageSwitch {
+    width: 100%;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 254, 250, 0.74);
+  }
+
+  .languageSwitch select,
+  .sourceSelect {
+    min-height: 44px;
+    max-width: 68%;
+    font-size: 16px;
+  }
+
+  .searchBox,
+  .result {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .queryInput {
+    min-height: 120px;
+    padding: 14px;
+    font-size: 16px;
+  }
+
+  .stepBlock {
+    margin-top: 18px;
+  }
+
+  .questionText {
+    font-size: 18px;
+    line-height: 1.35;
+  }
+
+  .choiceGrid,
+  .choiceGrid.three {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .choiceButton {
+    min-height: 0;
+    gap: 5px;
+    padding: 14px;
+  }
+
+  .choiceButton span {
+    font-size: 18px;
+  }
+
+  .choiceButton small {
+    font-size: 14px;
+  }
+
+  .controls {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .controls .button,
+  .loadMoreForm .button,
+  .noticeActions .button {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .resultTitle {
+    font-size: 17px;
+    line-height: 1.35;
+  }
+
+  .source,
+  .notice,
+  .meta,
+  .officialLabel,
+  .translation,
+  .pali {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .source {
+    font-size: 14px;
+  }
+
+  .pali {
+    font-size: 17px;
+    line-height: 1.62;
+  }
+
+  .translation,
+  .translationLoading {
+    padding: 12px 13px;
+    font-size: 16px;
+  }
+
+  .officialTranslation {
+    padding-left: 0.7rem;
+  }
+
+  .officialHint {
+    display: block;
+    margin: 4px 0 0;
+  }
+
+  .sectionActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sectionActions .button {
+    width: 100%;
+    min-height: 46px;
+    padding: 11px 14px;
+    white-space: normal;
+  }
+
+  .modalOverlay {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .modalPanel {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .modalTopbar {
+    position: relative;
+    flex: 0 0 auto;
+    align-items: center;
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      12px
+      max(14px, env(safe-area-inset-left));
+  }
+
+  .modalTopbar h2 {
+    font-size: 20px;
+  }
+
+  .modalClose {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+  }
+
+  .modalBody {
+    padding:
+      14px
+      max(14px, env(safe-area-inset-right))
+      max(24px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+    overscroll-behavior: contain;
+  }
+
+  .sectionHeader h2 {
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  .sectionColumns {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .sectionColumns .sectionPassage {
+    padding: 13px;
+    border-radius: 12px;
+  }
+
+  .readerHeader {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .button.compact {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .readerBody.collapsed {
+    max-height: 55dvh;
+  }
+
+  .sourceTabs {
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin: 0 -13px 12px;
+    padding: 4px 13px 8px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .sourceTabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sourceTab {
+    min-height: 42px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .sourceTab .officialHint {
+    display: inline;
+    margin-left: 4px;
+  }
+
+  .noticeOverlay {
+    align-items: center;
+    padding: 12px;
+  }
+
+  .noticeOverlay .modalPanel {
+    width: 100%;
+    height: auto;
+    max-height: calc(100dvh - 24px);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+  }
+
+  .noticeActions {
+    padding:
+      0 14px max(14px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 420px) {
+  .page {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .searchBox,
+  .result {
+    padding: 13px;
+  }
+
+  .sectionColumns .sectionPassage {
+    padding: 11px;
+  }
+}

@@ -27,6 +27,7 @@ Chạy:
 
 import argparse
 from datetime import datetime
+import json
 import urllib.parse
 import logging
 import re
@@ -95,11 +96,100 @@ def write_translation(passage_id: str, source: str, text: str, ref: str, method:
               import_batch = excluded.import_batch,
               updated_at = now()
           where human_translation_method_rank(excluded.match_method)
-                >= human_translation_method_rank(human_translations.match_method)
+                > human_translation_method_rank(human_translations.match_method)
+             or (
+                  human_translation_method_rank(excluded.match_method)
+                    = human_translation_method_rank(human_translations.match_method)
+                  and human_translations.translated_text is distinct from excluded.translated_text
+                )
         returning id
         """,
         [passage_id, source, LANGUAGE, text, ref, [], document_id, start, end,
          method, score, batch],
+    ))
+
+
+def stage_unresolved_pairs(
+    scope: str,
+    aligned: list[tuple[str, str, str | None]],
+    resolved_indexes: set[int],
+    batch: str,
+) -> int:
+    """Lưu các cặp PDF chưa ghép chắc chắn để đợt khác hoặc người duyệt xử lý."""
+    rows = [
+        {
+            "source_ref": scope,
+            "segment_id": f"pair-{index}",
+            "raw_text": viet,
+            "normalized_text": normalize_pali(pali),
+            "reason": "ambiguous_or_unmatched_pdf_pair",
+        }
+        for index, (pali, viet, _section_id) in enumerate(aligned)
+        if index not in resolved_indexes
+    ]
+    if not rows:
+        return 0
+    execute(
+        """
+        insert into human_translation_unresolved
+          (source, language, scope, source_ref, segment_id, raw_text,
+           normalized_text, reason, import_batch)
+        select %s, %s, %s, item.source_ref, item.segment_id, item.raw_text,
+               item.normalized_text, item.reason, %s
+        from jsonb_to_recordset(%s::jsonb) as item(
+          source_ref text, segment_id text, raw_text text, normalized_text text, reason text
+        )
+        on conflict do nothing
+        """,
+        [SOURCE_ID, LANGUAGE, scope, batch, json.dumps(rows, ensure_ascii=False)],
+    )
+    return len(rows)
+
+
+def remove_stale_whole_sutta_rows(
+    passage_id: str,
+    source: str,
+    document_id: str,
+    start: int,
+    end: int,
+    batch: str,
+) -> int:
+    """Một nguồn chỉ được có một bản cho cùng khoảng cả bài.
+
+    Khi sửa được đoạn mở đầu, neo của Mahāpadāna đổi từ passage 5 về passage 4.
+    Khóa `(passage_id, source)` không coi đó là xung đột, nên bản thiếu cũ còn nằm
+    chồng lên bản đủ mới. Lưu bản cũ vào lịch sử rồi mới xóa để trang đọc không
+    chọn ngẫu nhiên giữa hai phiên bản.
+    """
+    return len(fetch_all(
+        """
+        with stale as (
+          select *
+          from human_translations
+          where source = %s
+            and document_id = %s
+            and start_sort_order = %s
+            and end_sort_order = %s
+            and passage_id <> %s
+          for update
+        ), archived as (
+          insert into human_translation_history (
+            human_translation_id, passage_id, source, language, translated_text,
+            source_ref, segment_ids, document_id, start_sort_order, end_sort_order,
+            match_method, match_score, import_batch, replaced_by_batch
+          )
+          select id, passage_id, source, language, translated_text, source_ref,
+                 segment_ids, document_id, start_sort_order, end_sort_order,
+                 match_method, match_score, import_batch, %s
+          from stale
+          returning human_translation_id
+        )
+        delete from human_translations current
+        using archived
+        where current.id = archived.human_translation_id
+        returning current.id
+        """,
+        [source, document_id, start, end, passage_id, batch],
     ))
 
 
@@ -212,7 +302,26 @@ def split_verses(text: str) -> dict[str, str]:
     for index in range(1, len(parts) - 1, 2):
         number = parts[index]
         body = re.sub(r"\s+", " ", parts[index + 1]).strip()
-        if body and number not in verses:
+        if not body:
+            continue
+        if number not in verses:
+            verses[number] = body
+            continue
+
+        # PDF có thể đánh cùng số cho tiêu đề và đoạn văn đầu tiên, ví dụ:
+        #   1. MAHĀPADĀNASUTTAṂ
+        #   1. Evaṃ me sutaṃ ...
+        # Cách cũ giữ lần xuất hiện đầu nên làm mất hẳn đoạn 1. Chỉ thay một giá trị
+        # đã có khi nó rõ ràng là tiêu đề ngắn, viết hoa; không chọn chuỗi dài nhất
+        # vì chú thích cuối trang đôi lúc dài hơn nội dung chính.
+        previous = verses[number]
+        letters = [char for char in previous if char.isalpha()]
+        uppercase_ratio = (
+            sum(1 for char in letters if char.isupper()) / len(letters)
+            if letters
+            else 0.0
+        )
+        if len(previous) <= 100 and uppercase_ratio >= 0.8:
             verses[number] = body
     return verses
 
@@ -611,12 +720,21 @@ def write_whole_suttas(placed: list[tuple[int, str]], aligned: list[tuple[str, s
         if dry_run:
             written += 1
             continue
-        if write_translation(
+        changed = write_translation(
             span["anchor"], WHOLE_SOURCE_ID, text, key,
             method="whole_unit", batch=batch,
             document_id=str(section_range["document_id"]),
             start=section_range["lo"], end=section_range["hi"],
-        ):
+        )
+        remove_stale_whole_sutta_rows(
+            span["anchor"],
+            WHOLE_SOURCE_ID,
+            str(section_range["document_id"]),
+            section_range["lo"],
+            section_range["hi"],
+            batch,
+        )
+        if changed:
             written += 1
     return written, skipped
 
@@ -667,14 +785,23 @@ def main() -> None:
 
     if not args.dry_run:
         migrations = Path(__file__).resolve().parents[1] / "db" / "migrations"
-        for name in ("002_human_translations.sql", "004_match_provenance.sql"):
+        for name in ("002_human_translations.sql", "004_match_provenance.sql", "005_import_batches.sql"):
             execute((migrations / name).read_text(encoding="utf-8"))
-        print("đã áp dụng 002 + 004 (cột match_method)")
+        print("đã áp dụng 002 + 004 + 005 (xếp hạng, lịch sử và đợt nạp)")
 
     # Nhãn của đợt nạp này, để về sau truy được dòng nào do đợt nào ghi.
     method = "global_align" if args.global_align else "strict_unique"
-    batch = f"{method}-{datetime.now():%Y%m%d-%H%M}"
+    batch = f"{method}-{datetime.now():%Y%m%d-%H%M%S}"
     print(f"đợt nạp: {batch}\n")
+    if not args.dry_run:
+        execute(
+            """
+            insert into human_translation_batches (import_batch, source, language, scope, notes)
+            values (%s, %s, %s, %s, %s)
+            on conflict (import_batch) do nothing
+            """,
+            [batch, SOURCE_ID, LANGUAGE, ",".join(args.volumes), method],
+        )
 
     grand = {"pairs": 0, "matched": 0, "written": 0, "whole": 0}
 
@@ -757,13 +884,14 @@ def main() -> None:
                 candidates.append(sorted(best_by_position.items()))
 
             chosen = align_globally(candidates)
-            written = 0
+            accepted = written = 0
             placed: list[tuple[int, str]] = []
             for pair_index in sorted(chosen):
                 pali, viet, _section = aligned[pair_index]
                 position = chosen[pair_index]
                 if dict(candidates[pair_index]).get(position, 0.0) < GLOBAL_ACCEPT_MIN:
                     continue
+                accepted += 1
                 if args.verbose and written < 4:
                     print(f"     PALI: {pali[:74]}")
                     print(f"     VIỆT: {viet[:74]}")
@@ -776,13 +904,19 @@ def main() -> None:
                         written += 1
                 placed.append((pair_index, str(passages[position]["id"])))
 
-            rate = 100 * written // max(1, len(aligned))
-            print(f"  căn chỉnh toàn cục: {written}/{len(aligned)} cặp ({rate}%)"
-                  f" · phủ {100 * written // max(1, len(passages))}% số đoạn · ghi {written}")
+            unresolved_count = 0
+            if not args.dry_run:
+                unresolved_count = stage_unresolved_pairs(
+                    key, aligned, {pair_index for pair_index, _passage_id in placed}, batch
+                )
+            rate = 100 * accepted // max(1, len(aligned))
+            print(f"  căn chỉnh toàn cục: {accepted}/{len(aligned)} cặp ({rate}%)"
+                  f" · phủ {100 * accepted // max(1, len(passages))}% số đoạn · ghi {written}"
+                  f" · giữ {len(aligned) - accepted if args.dry_run else unresolved_count} ca chưa khớp")
             whole, overlap = write_whole_suttas(placed, aligned, doc_ids, key, batch, args.dry_run)
             print(f"  bản cả bài kinh: ghi {whole} mục"
                   f"{f' · bỏ {overlap} mục vì khoảng trang chồng lấn' if overlap else ''}")
-            grand["matched"] += written
+            grand["matched"] += accepted
             grand["written"] += written
             grand["whole"] += whole
             print()
@@ -872,7 +1006,13 @@ def main() -> None:
                 written += 1
 
         rate = 100 * matched // max(1, len(aligned))
+        unresolved_count = 0
+        if not args.dry_run:
+            unresolved_count = stage_unresolved_pairs(
+                key, aligned, {pair_index for pair_index, _passage_id in placed}, batch
+            )
         print(f"  tìm được đúng một chỗ trong DB: {matched}/{len(aligned)} ({rate}%) · ghi {written}"
+              f" · giữ {len(aligned) - matched if args.dry_run else unresolved_count} ca chưa khớp"
               f"  [dò được mục cho {tagged_pages}/{len(pages)} trang · {by_section} cặp khớp nhờ giới hạn trong mục]")
         whole, overlap = write_whole_suttas(placed, aligned, doc_ids, key, batch, args.dry_run)
         print(f"  bản cả bài kinh: ghi {whole} mục"
@@ -885,14 +1025,24 @@ def main() -> None:
             execute(
                 """
                 insert into human_translation_imports
-                  (source, language, scope, segments_total, segments_matched, passages_written, notes)
-                values (%s, %s, %s, %s, %s, %s, %s)
+                  (source, language, scope, segments_total, segments_matched, passages_written, notes,
+                   import_batch)
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                [SOURCE_ID, LANGUAGE, key, len(aligned), matched, written, volume["label"]],
+                [SOURCE_ID, LANGUAGE, key, len(aligned), matched, written, volume["label"], batch],
             )
         print()
 
     print(f"TỔNG: {grand['pairs']} cặp câu kệ · khớp DB {grand['matched']} · ghi {grand['written']}")
+    if not args.dry_run:
+        execute(
+            """
+            update human_translation_batches
+            set status = 'completed', finished_at = now()
+            where import_batch = %s
+            """,
+            [batch],
+        )
 
 
 if __name__ == "__main__":

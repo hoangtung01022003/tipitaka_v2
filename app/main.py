@@ -25,6 +25,7 @@ from .search_engine import resolve_corpus_types, resolve_pitaka_type, search_pas
 from .translation_sources import (
     AI_SOURCE,
     SOURCE_ORDER,
+    WHOLE_SUTTA_SOURCES,
     normalize_source,
     official_translations_merged,
     source_label,
@@ -426,14 +427,14 @@ def _passage_rend(row: dict) -> str:
     return ""
 
 
-def _paragraph_label(row: dict) -> str | None:
+def _paragraph_label(row: dict, language: str) -> str | None:
     paragraph_no = row.get("paragraph_no")
     if paragraph_no and row.get("xml_paragraph_no"):
-        return f"Đoạn {paragraph_no}"
+        return f"{t(language, 'results.paragraph')} {paragraph_no}"
     return None
 
 
-def _join_section_passages(rows: list[dict]) -> str:
+def _join_section_passages(rows: list[dict], language: str = DEFAULT_LANGUAGE) -> str:
     parts: list[str] = []
     previous_rend = ""
 
@@ -443,7 +444,7 @@ def _join_section_passages(rows: list[dict]) -> str:
             continue
 
         rend = _passage_rend(row)
-        label = _paragraph_label(row)
+        label = _paragraph_label(row, language)
         line = f"{label}\n{text}" if label else text
 
         if not parts:
@@ -464,9 +465,11 @@ def _section_payload(
     language: str = DEFAULT_LANGUAGE,
     source: str = AI_SOURCE,
 ) -> dict:
+    selected = normalize_source(source)
     section = fetch_one(
         """
-        select id, title, source_path
+        select id, document_id, title, source_path, start_sort_order,
+               coalesce(end_sort_order, start_sort_order) as end_sort_order
         from sections
         where id = %s
         """,
@@ -474,6 +477,37 @@ def _section_payload(
     )
     if not section:
         raise HTTPException(status_code=404, detail="Section not found.")
+
+    # Nguồn cấp cả bài (Minh Châu/Indacanda full) có thể được mở từ một mục con nơi
+    # kết quả tìm kiếm nằm. Đưa trang đọc lên đúng section cha có cùng khoảng với bản
+    # dịch; nếu không, tiêu đề và Pali chỉ hiện mục con dù phần dịch là cả bài.
+    if selected in WHOLE_SUTTA_SOURCES:
+        reader_section = fetch_one(
+            """
+            select s.id, s.document_id, s.title, s.source_path,
+                   s.start_sort_order,
+                   coalesce(s.end_sort_order, s.start_sort_order) as end_sort_order
+            from human_translations h
+            join sections s
+              on s.document_id = h.document_id
+             and s.start_sort_order = h.start_sort_order
+             and coalesce(s.end_sort_order, s.start_sort_order) = h.end_sort_order
+            where h.source = %s
+              and h.document_id = %s
+              and h.start_sort_order <= %s
+              and h.end_sort_order >= %s
+            order by h.end_sort_order - h.start_sort_order
+            limit 1
+            """,
+            [
+                selected,
+                section["document_id"],
+                section["start_sort_order"],
+                section["end_sort_order"],
+            ],
+        )
+        if reader_section:
+            section = reader_section
 
     rows = fetch_all(
         """
@@ -484,12 +518,13 @@ def _section_payload(
           pali_text,
           hierarchy
         from passages
-        where section_id = %s
+        where document_id = %s
+          and sort_order between %s and %s
         order by sort_order asc
         """,
-        [section_id],
+        [section["document_id"], section["start_sort_order"], section["end_sort_order"]],
     )
-    pali_text = _join_section_passages(rows)
+    pali_text = _join_section_passages(rows, language)
     if include_translation:
         translation, attempted_translation = _translate_section_text(pali_text, language)
     else:
@@ -497,7 +532,6 @@ def _section_payload(
     source_path = section.get("source_path") or []
     # Bản dịch của dịch giả cho cả mục, ghép theo đúng thứ tự đoạn.
     official_list = official_translations_merged([str(row["id"]) for row in rows], language)
-    selected = normalize_source(source)
     # Liet ke DU moi dich gia chu khong chi nguon co du lieu, dung nhu khach yeu cau:
     # nguon nao chua co ban dich cho muc nay van hien tab, bam vao thi bao "Hien khong co
     # ban dich chinh thuc nao". Truoc day chi dung tab tu `official_list` nen tab
