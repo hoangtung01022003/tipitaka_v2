@@ -36,7 +36,7 @@
             class="sourceTab {% if entry.source == section.selectedSource %}active{% endif %}{% if not entry.available %} unavailable{% endif %}"
             type="button"
             data-section-tab="{{ entry.source }}"
-            {% if not entry.available %}title="{{ t('translation.noOfficial') }}"{% endif %}
+            {% if not entry.available %}title="{{ entry.unavailableReason }}"{% endif %}
           >{{ entry.label }}{% if not entry.available %}<span class="officialHint">{{ t('translation.noData') }}</span>{% endif %}</button>
         {% endfor %}
       </div>
@@ -61,7 +61,11 @@
         <div class="readerHeader">
           <div>
             <div class="resultTitle">{{ section.selectedTranslation.label }}</div>
-            <p class="meta">{{ t('section.officialHint') }}</p>
+            {% if section.selectedTranslation.wholeSutta %}
+              <p class="meta">{{ t('section.wholeOfficialHint') }}</p>
+            {% else %}
+              <p class="meta">{{ t('section.passageOfficialHint', translated=section.selectedTranslation.coverageCount, total=section.selectedTranslation.coverageTotal, percent=section.selectedTranslation.coveragePercent) }}</p>
+            {% endif %}
           </div>
           <button class="button secondary compact" type="button" data-toggle-reader>{{ t('reader.expand') }}</button>
         </div>
@@ -69,7 +73,8 @@
           <div class="translation">{{ section.selectedTranslation.text }}</div>
         </div>
       {% else %}
-        <p class="notice officialMissing">{{ t('translation.noOfficial') }}</p>
+        {% set selected_option = section.availableSources | selectattr('source', 'equalto', section.selectedSource) | first %}
+        <p class="notice officialMissing">{{ selected_option.unavailableReason if selected_option else t('translation.noOfficial') }}</p>
       {% endif %}
     </article>
   </div>

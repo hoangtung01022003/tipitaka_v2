@@ -28,6 +28,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 from app.db import fetch_all
+from app.text_artifacts import unicode_artifacts
 
 OUT = Path(__file__).with_name("export_data.sql")
 MIGRATIONS = Path(__file__).resolve().parents[1] / "db" / "migrations"
@@ -44,7 +45,12 @@ def lit(value) -> str:
     if isinstance(value, list):
         inner = ",".join(str(x).replace("\\", "\\\\").replace('"', '\\"') for x in value)
         return "'{" + inner + "}'"
-    text = str(value).replace("\\", "\\\\").replace("'", "''")
+    raw_text = str(value)
+    artifacts = unicode_artifacts(raw_text)
+    if artifacts:
+        details = ", ".join(f"{label}: {count}" for label, count in artifacts.items())
+        raise ValueError(f"Không xuất chuỗi còn ký tự Unicode lỗi ({details}).")
+    text = raw_text.replace("\\", "\\\\").replace("'", "''")
     return "E'" + text.replace("\r", "\\r").replace("\n", "\\n") + "'"
 
 

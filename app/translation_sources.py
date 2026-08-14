@@ -51,9 +51,9 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
         "my": "အရှင် သစ်ချ် မင်းချောင် ၏ ဘာသာပြန်",
     },
     "indacanda": {
-        "vi": "Bản dịch của Tỳ Khưu Indacanda",
-        "en": "Translation by Bhikkhu Indacanda",
-        "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန်",
+        "vi": "Bản dịch của Tỳ Khưu Indacanda (trích đoạn ngắn)",
+        "en": "Translation by Bhikkhu Indacanda (short excerpt)",
+        "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန် (အပိုဒ်တို)",
     },
     "sujato": {
         "vi": "Bản dịch Tiếng Anh của Bhikkhu Sujato",
@@ -63,7 +63,7 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
     # Cùng người dịch với `indacanda` nhưng gắn theo CẢ BÀI KINH, nên nhãn phải nói rõ
     # để người đọc biết chọn cái nào - xem chú thích ở `HUMAN_TRANSLATION_FETCHERS`.
     "indacanda_full": {
-        "vi": "Bản dịch của Tỳ Khưu Indacanda (trọn bài kinh)",
+        "vi": "Bản dịch của Tỳ Khưu Indacanda (toàn bộ bài kinh)",
         "en": "Translation by Bhikkhu Indacanda (whole discourse)",
         "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန် (ဒေသနာတော် အပြည့်)",
     },
@@ -85,7 +85,10 @@ SOURCE_LANGUAGE = {
     "brahmali": "en",
 }
 
-SOURCE_ORDER = (AI_SOURCE, "minh_chau", "indacanda", "indacanda_full", "sujato", "brahmali")
+# Thứ tự hiển thị do khách chốt: các bản dịch chính thức trước, AI của riêng đoạn
+# kết quả ở cuối. `indacanda` và `indacanda_full` phải đứng cạnh nhau vì cùng một
+# dịch giả nhưng khác hình dạng dữ liệu.
+SOURCE_ORDER = ("indacanda", "indacanda_full", "minh_chau", "sujato", "brahmali", AI_SOURCE)
 WHOLE_SUTTA_SOURCES = frozenset({"minh_chau", "indacanda_full"})
 
 
@@ -273,11 +276,6 @@ def official_translations_merged(
         for entry in grouped.get(str(passage_id), []):
             if passage_level_only and not entry["passageLevel"]:
                 continue
-            if not entry["passageLevel"]:
-                # Ban dich ca bai kinh: chi lay MOT lan du doan trich trai qua nhieu doan.
-                if entry["source"] in seen_whole_sutta:
-                    continue
-                seen_whole_sutta.add(entry["source"])
             bucket = merged.setdefault(
                 entry["source"],
                 {
@@ -285,8 +283,16 @@ def official_translations_merged(
                     "parts": [],
                     "wholeSutta": not entry["passageLevel"],
                     "positions": [],
+                    "coveredPassages": set(),
                 },
             )
+            bucket["coveredPassages"].add(str(passage_id))
+            if not entry["passageLevel"]:
+                if entry["source"] in seen_whole_sutta:
+                    # Vẫn ghi nhận đoạn này được khoảng của bản toàn bài bao phủ,
+                    # nhưng không lặp nguyên văn bản dịch thêm một lần nữa.
+                    continue
+                seen_whole_sutta.add(entry["source"])
             bucket["parts"].append(entry["text"])
             if entry.get("position") is not None:
                 bucket["positions"].append(entry["position"])
@@ -301,6 +307,9 @@ def official_translations_merged(
             spots = value["positions"]
             centre = (min(spots) + max(spots)) / 2 if spots else None
             text, truncated, shifted = _excerpt(text, whole_sutta_excerpt_chars, centre)
+        coverage_count = len(value["coveredPassages"])
+        coverage_total = len(passage_ids)
+        coverage_percent = round(coverage_count * 100 / coverage_total) if coverage_total else 0
         items.append(
             {
                 "source": source,
@@ -309,6 +318,10 @@ def official_translations_merged(
                 "wholeSutta": value["wholeSutta"],
                 "truncated": truncated,
                 "shifted": shifted,
+                "coverageCount": coverage_count,
+                "coverageTotal": coverage_total,
+                "coveragePercent": coverage_percent,
+                "complete": coverage_count == coverage_total,
             }
         )
 
@@ -328,21 +341,27 @@ def sources_for_sections(section_ids: list[str], language: str) -> dict[str, lis
     rows = fetch_all(
         """
         with target as (
-          select distinct section_id, document_id, sort_order
-          from passages where section_id = any(%s::uuid[])
+          select id as section_id, document_id, start_sort_order,
+                 coalesce(end_sort_order, start_sort_order) as end_sort_order
+          from sections where id = any(%s::uuid[])
         )
         select distinct t.section_id, h.source
         from target t
         join human_translations h
           on h.document_id = t.document_id
-             and t.sort_order between h.start_sort_order and h.end_sort_order
+         and h.start_sort_order is not null
+         and h.end_sort_order is not null
+         and h.start_sort_order <= t.end_sort_order
+         and h.end_sort_order >= t.start_sort_order
         union
-        select distinct p.section_id, h.source
-        from human_translations h
-        join passages p on p.id = h.passage_id
-        where p.section_id = any(%s::uuid[])
+        select distinct t.section_id, h.source
+        from target t
+        join passages p
+          on p.document_id = t.document_id
+         and p.sort_order between t.start_sort_order and t.end_sort_order
+        join human_translations h on h.passage_id = p.id
         """,
-        [ids, ids],
+        [ids],
     )
     order = {source_id: index for index, source_id in enumerate(SOURCE_ORDER)}
     grouped: dict[str, list[dict]] = {}

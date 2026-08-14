@@ -48,6 +48,7 @@ sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 from app.db import execute, fetch_all, fetch_one
 from app.normalize import normalize_pali
+from app.text_artifacts import clean_unicode_artifacts
 
 RAW_BASE = "https://raw.githubusercontent.com/suttacentral/bilara-data/published"
 SOURCE_ID = "sujato"
@@ -398,7 +399,8 @@ _HTML_TAG = re.compile(r"<[^>]+>")
 
 
 def _clean(text: str) -> str:
-    return re.sub(r"[ \t]+", " ", html.unescape(_HTML_TAG.sub("", str(text or "")))).strip()
+    decoded = html.unescape(_HTML_TAG.sub("", str(text or "")))
+    return re.sub(r"[ \t]+", " ", clean_unicode_artifacts(decoded)).strip()
 
 
 def merged_segment_text(keys: list[str], translation: dict, comments: dict | None = None) -> str:

@@ -21,11 +21,11 @@ from .i18n import (
     ui_strings,
 )
 from .notice import get_notice, get_notice_config, save_notice
+from .normalize import normalize_pali
 from .search_engine import resolve_corpus_types, resolve_pitaka_type, search_passages, _display_source
 from .translation_sources import (
     AI_SOURCE,
     SOURCE_ORDER,
-    WHOLE_SUTTA_SOURCES,
     normalize_source,
     official_translations_merged,
     source_label,
@@ -57,6 +57,80 @@ LANGUAGE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 # van chua lap mat phan Pali. Khong co muc nao dat do tin cay that su - muon chinh xac
 # thi phai ghep duoc cap doan, xem `align_minhchau.py`.
 WHOLE_SUTTA_EXCERPT_CHARS = 2000
+
+# Đơn vị đọc hoàn chỉnh. Kinh dùng hậu tố sutta/suttanta; Tiểu Bộ và Luật dùng
+# những hậu tố khác. Khandhaka là đơn vị đọc hoàn chỉnh của phần Luật dạng chương;
+# không nhận vagga/nipata vì chúng thường chỉ là nhóm chứa nhiều bài độc lập.
+_READER_SUTTA_SUFFIXES = ("sutta", "suttam", "suttanta", "suttantam")
+_READER_NUMBERED_SUFFIXES = (
+    "jatakam",
+    "apadanam",
+    "gatha",
+    "vatthu",
+    "cariya",
+    "vamso",
+    "sikkhapadam",
+    "parajikam",
+    "khandhako",
+    "khandhakam",
+    "puccha",
+)
+
+
+def _is_reader_unit_title(title: str) -> bool:
+    raw = str(title or "").strip()
+    normalized = normalize_pali(raw).replace(" ", "")
+    if normalized.endswith(_READER_SUTTA_SUFFIXES):
+        return True
+    return bool(re.match(r"^\(?\d", raw)) and normalized.endswith(_READER_NUMBERED_SUFFIXES)
+
+
+def _source_path_is_prefix(candidate: object, selected: object) -> bool:
+    left = [str(item) for item in candidate] if isinstance(candidate, (list, tuple)) else []
+    right = [str(item) for item in selected] if isinstance(selected, (list, tuple)) else []
+    return bool(left and len(left) <= len(right) and right[: len(left)] == left)
+
+
+def _canonical_reader_section(section: dict) -> dict:
+    """Đưa một mục con lên đơn vị đọc hoàn chỉnh gần nhất trong cây section.
+
+    `passages.section_id` trỏ vào mục sâu nhất. Ví dụ đoạn 11 của DN 14 trỏ vào
+    `Pubbenivāsapaṭisaṃyuttakathā` (4-35), trong khi bài kinh thật là
+    `Mahāpadānasuttaṃ` (4-207). Dựa vào tiền tố `source_path` giúp loại các section
+    bao trùm do XML nhiễu nhưng không phải tổ tiên thật.
+    """
+    candidates = fetch_all(
+        """
+        select id, document_id, title, source_path, start_sort_order,
+               coalesce(end_sort_order, start_sort_order) as end_sort_order
+        from sections
+        where document_id = %s
+          and start_sort_order <= %s
+          and coalesce(end_sort_order, start_sort_order) >= %s
+        order by coalesce(end_sort_order, start_sort_order) - start_sort_order,
+                 cardinality(source_path) desc
+        """,
+        [section["document_id"], section["start_sort_order"], section["end_sort_order"]],
+    )
+    valid = [
+        row
+        for row in candidates
+        if _is_reader_unit_title(str(row.get("title") or ""))
+        and _source_path_is_prefix(row.get("source_path"), section.get("source_path"))
+    ]
+    return valid[0] if valid else section
+
+
+def _reader_section_by_id(section_id: str) -> dict | None:
+    section = fetch_one(
+        """
+        select id, document_id, title, source_path, start_sort_order,
+               coalesce(end_sort_order, start_sort_order) as end_sort_order
+        from sections where id = %s
+        """,
+        [section_id],
+    )
+    return _canonical_reader_section(section) if section else None
 
 
 def _language_from_header(header: str) -> str | None:
@@ -186,29 +260,48 @@ def search_page(
             if source_id != AI_SOURCE and source_id not in present
         ]
 
-    # Liet ke DU moi dich gia, dung nhu khach yeu cau: nguon nao khong co ban dich cho
-    # bai kinh nay thi van hien ten, chi bao ro la chua co. Truoc day chi hien nguon co
-    # du lieu nen Indacanda bien mat hoan toan o nhung bo kinh chua nap, nhin vao khong
-    # biet la chua nap hay la hong.
-    section_sources = sources_for_sections([item.get("sectionId") for item in results], language)
+        # Nút đọc toàn bài phải trỏ vào bài kinh cha, không phải mục con sâu nhất mà
+        # đoạn tìm kiếm đang nằm trong đó.
+        reader_section = _reader_section_by_id(str(item.get("sectionId"))) if item.get("sectionId") else None
+        item["readerSectionId"] = str(reader_section["id"]) if reader_section else item.get("sectionId")
+
+    # Tra độ phủ theo BÀI KINH CHA. `passages.section_id` thường là mục con, nên tra
+    # theo section cũ làm Sujato/Indacanda có ở phần khác của bài bị báo nhầm là trống.
+    section_sources = sources_for_sections([item.get("readerSectionId") for item in results], language)
     for item in results:
         with_data = {
-            str(entry["source"]) for entry in section_sources.get(str(item.get("sectionId")), [])
+            str(entry["source"])
+            for entry in section_sources.get(str(item.get("readerSectionId")), [])
         }
-        # Khoi "Ban dich chinh thuc" tra theo DOAN, nut nay tra theo CA BAI, nen chuyen
-        # "tren bao khong co ma duoi van bam duoc" la binh thuong - Indacanda phu trung
-        # binh 27% so doan trong nhung muc no co mat, tuc phan lon doan roi vao canh do.
-        # Khong noi ro pham vi thi doc vao tuong giao dien mau thuan.
         here = {str(entry["source"]) for entry in item["officialTranslations"]}
-        item["sectionSources"] = [
-            {
-                "source": source_id,
-                "label": source_label(source_id, language),
-                "available": source_id == AI_SOURCE or source_id in with_data,
-                "elsewhereOnly": source_id != AI_SOURCE and source_id in with_data and source_id not in here,
-            }
-            for source_id in SOURCE_ORDER
-        ]
+        translations_by_source = {
+            str(entry["source"]): entry for entry in item["officialTranslations"]
+        }
+        is_abhidhamma = "abhidhammapitaka" in normalize_pali(str(item.get("sourcePath") or ""))
+        entries = []
+        for source_id in SOURCE_ORDER:
+            if source_id == AI_SOURCE:
+                continue
+            if source_id == "brahmali" and source_id not in with_data:
+                unavailable_reason = t(language, "translation.brahmaliVinayaOnly")
+            elif is_abhidhamma and source_id not in with_data:
+                unavailable_reason = t(language, "translation.noAbhidhammaCoverage")
+            else:
+                unavailable_reason = t(language, "translation.noOfficial")
+            entries.append(
+                {
+                    "source": source_id,
+                    "label": source_label(source_id, language),
+                    "translation": translations_by_source.get(source_id),
+                    "available": source_id in with_data,
+                    "elsewhereOnly": source_id in with_data and source_id not in here,
+                    "unavailableReason": unavailable_reason,
+                }
+            )
+        item["translationEntries"] = entries
+        # Giữ field cũ cho các đoạn HTML/cache cũ đang mở trong trình duyệt; template
+        # mới dùng `translationEntries` để đặt nút ngay dưới đúng bản dịch.
+        item["sectionSources"] = entries
 
     return templates.TemplateResponse(
         "results.html",
@@ -478,36 +571,10 @@ def _section_payload(
     if not section:
         raise HTTPException(status_code=404, detail="Section not found.")
 
-    # Nguồn cấp cả bài (Minh Châu/Indacanda full) có thể được mở từ một mục con nơi
-    # kết quả tìm kiếm nằm. Đưa trang đọc lên đúng section cha có cùng khoảng với bản
-    # dịch; nếu không, tiêu đề và Pali chỉ hiện mục con dù phần dịch là cả bài.
-    if selected in WHOLE_SUTTA_SOURCES:
-        reader_section = fetch_one(
-            """
-            select s.id, s.document_id, s.title, s.source_path,
-                   s.start_sort_order,
-                   coalesce(s.end_sort_order, s.start_sort_order) as end_sort_order
-            from human_translations h
-            join sections s
-              on s.document_id = h.document_id
-             and s.start_sort_order = h.start_sort_order
-             and coalesce(s.end_sort_order, s.start_sort_order) = h.end_sort_order
-            where h.source = %s
-              and h.document_id = %s
-              and h.start_sort_order <= %s
-              and h.end_sort_order >= %s
-            order by h.end_sort_order - h.start_sort_order
-            limit 1
-            """,
-            [
-                selected,
-                section["document_id"],
-                section["start_sort_order"],
-                section["end_sort_order"],
-            ],
-        )
-        if reader_section:
-            section = reader_section
+    # Mọi nguồn của dịch giả đều dùng cùng một Pali trọn bài. Trước đây chỉ hai nguồn
+    # cấp bài được nâng lên section cha, còn Indacanda đoạn/Sujato vẫn mở mục con nên
+    # cùng một nút "toàn bộ bài kinh" cho ra ba phạm vi khác nhau.
+    section = _canonical_reader_section(section)
 
     rows = fetch_all(
         """
@@ -530,22 +597,33 @@ def _section_payload(
     else:
         translation, attempted_translation = {"vi": None, "text": None, "fromCache": False, "pending": True}, False
     source_path = section.get("source_path") or []
-    # Bản dịch của dịch giả cho cả mục, ghép theo đúng thứ tự đoạn.
+    # Bản dịch của dịch giả cho cả bài, ghép theo đúng thứ tự các đoạn đang có.
     official_list = official_translations_merged([str(row["id"]) for row in rows], language)
     # Liet ke DU moi dich gia chu khong chi nguon co du lieu, dung nhu khach yeu cau:
     # nguon nao chua co ban dich cho muc nay van hien tab, bam vao thi bao "Hien khong co
     # ban dich chinh thuc nao". Truoc day chi dung tab tu `official_list` nen tab
     # Indacanda bien mat o moi bo kinh chua nap - giong het loi ben trang ket qua.
     with_data = {str(item["source"]) for item in official_list}
-    available = [
-        {
-            "source": source_id,
-            "label": source_label(source_id, language),
-            "available": source_id == AI_SOURCE or source_id in with_data,
-        }
-        for source_id in SOURCE_ORDER
-    ]
-    if selected not in {item["source"] for item in available}:
+    is_abhidhamma = "abhidhammapitaka" in normalize_pali(" ".join(map(str, source_path)))
+    available = []
+    for source_id in SOURCE_ORDER:
+        if source_id == AI_SOURCE:
+            continue
+        if source_id == "brahmali" and source_id not in with_data:
+            unavailable_reason = t(language, "translation.brahmaliVinayaOnly")
+        elif is_abhidhamma and source_id not in with_data:
+            unavailable_reason = t(language, "translation.noAbhidhammaCoverage")
+        else:
+            unavailable_reason = t(language, "translation.noOfficial")
+        available.append(
+            {
+                "source": source_id,
+                "label": source_label(source_id, language),
+                "available": source_id in with_data,
+                "unavailableReason": unavailable_reason,
+            }
+        )
+    if selected != AI_SOURCE and selected not in {item["source"] for item in available}:
         selected = AI_SOURCE
     chosen = next((item for item in official_list if item["source"] == selected), None)
 

@@ -26,6 +26,8 @@ Chạy:
 """
 
 import argparse
+from bisect import bisect_right
+from collections import Counter, defaultdict
 from datetime import datetime
 import json
 import urllib.parse
@@ -47,6 +49,7 @@ from pypdf import PdfReader
 
 from app.db import execute, fetch_all
 from app.normalize import normalize_pali
+from app.text_artifacts import clean_unicode_artifacts
 # Quy hoạch động ghép theo thứ tự, dùng chung với hai importer kia. Chỉ nhánh
 # `--global-align` cần tới, nhưng import ở đây cho lỗi thiếu lộ ra ngay lúc nạp module
 # chứ không phải giữa chừng lần chạy vài tiếng.
@@ -126,6 +129,41 @@ def stage_unresolved_pairs(
         }
         for index, (pali, viet, _section_id) in enumerate(aligned)
         if index not in resolved_indexes
+    ]
+    if not rows:
+        return 0
+    execute(
+        """
+        insert into human_translation_unresolved
+          (source, language, scope, source_ref, segment_id, raw_text,
+           normalized_text, reason, import_batch)
+        select %s, %s, %s, item.source_ref, item.segment_id, item.raw_text,
+               item.normalized_text, item.reason, %s
+        from jsonb_to_recordset(%s::jsonb) as item(
+          source_ref text, segment_id text, raw_text text, normalized_text text, reason text
+        )
+        on conflict do nothing
+        """,
+        [SOURCE_ID, LANGUAGE, scope, batch, json.dumps(rows, ensure_ascii=False)],
+    )
+    return len(rows)
+
+
+def stage_unbalanced_indented_pages(
+    scope: str,
+    pages: list[dict],
+    batch: str,
+) -> int:
+    """Giữ nguyên cặp trang không cân đoạn để lần sau xử lý, không làm rơi dữ liệu."""
+    rows = [
+        {
+            "source_ref": scope,
+            "segment_id": f"pdf-pages-{page['pali_page']}-{page['viet_page']}",
+            "raw_text": page["viet_text"],
+            "normalized_text": normalize_pali(page["pali_text"]),
+            "reason": "unbalanced_indented_pdf_pages",
+        }
+        for page in pages
     ]
     if not rows:
         return 0
@@ -258,7 +296,17 @@ VOLUMES: dict[str, dict] = {
     "nidd1": {"file": "35_Nidd_I.pdf", "label": "Đại Nghĩa Tích", "docs": ["s0515m.mul.xml"]},
     "nidd2": {"file": "36_Nidd_II.pdf", "label": "Tiểu Nghĩa Tích", "docs": ["s0516m.mul.xml"]},
     "pts1": {"file": "ttpv_37_Pts_I.pdf", "label": "Phân Tích Đạo I", "docs": ["s0517m.mul.xml"]},
-    "pts2": {"file": "ttpv_38_Pts_II.pdf", "label": "Phân Tích Đạo II", "docs": ["s0517m.mul.xml"]},
+    # Tập II không đánh số từng đoạn như 29 PDF còn lại. Thay vì nới `_VERSE` rồi
+    # vô tình coi số TRANG là số đoạn, dùng bộ tách riêng dựa vào thụt đầu dòng của
+    # sách song ngữ. Giới hạn trang loại hẳn lời nói đầu, phụ chú và thư mục cuối sách.
+    "pts2": {
+        "file": "ttpv_38_Pts_II.pdf",
+        "label": "Phân Tích Đạo II",
+        "docs": ["s0517m.mul.xml"],
+        "parser": "paired_indented",
+        "pdf_start_page": 36,
+        "pdf_end_page": 303,
+    },
     "net": {"file": "43_Net.pdf", "label": "Chỉ Đạo (Nettippakaraṇa)", "docs": ["s0519m.mul.xml"]},
     "pet": {"file": "ttpv_44_Pet.pdf", "label": "Tạng Thích (Peṭakopadesa)", "docs": ["s0520m.nrf.xml"]},
     "mil": {"file": "45_Mil.pdf", "label": "Mi Tiên Vấn Đáp", "docs": ["s0518m.nrf.xml"]},
@@ -326,6 +374,215 @@ def split_verses(text: str) -> dict[str, str]:
     return verses
 
 
+# Phân Tích Đạo II (pts2) là ngoại lệ có chủ ý: phần thân sách không đánh số từng
+# đoạn, chỉ thụt dòng đầu đoạn khoảng 11-12 cột. Không được sửa `_VERSE` để nhận số
+# trần vì số trần trong PDF này là SỐ TRANG; làm vậy sẽ tạo ra một cặp khổng lồ mỗi
+# trang và gán sai dữ liệu.
+INDENTED_PARAGRAPH_MIN = 8
+INDENTED_PARAGRAPH_MAX = 16
+INDENTED_MATCH_MIN = 0.65
+INDENTED_QUERY_COVERAGE_MIN = 0.85
+INDENTED_MATCH_MARGIN = 0.10
+
+
+def _looks_like_centered_heading(text: str) -> bool:
+    letters = [char for char in text if char.isalpha()]
+    if not letters or len(text) >= 100:
+        return False
+    uppercase = sum(1 for char in letters if char.isupper()) / len(letters)
+    return uppercase >= 0.72
+
+
+def split_indented_paragraphs(layout_text: str) -> list[str]:
+    """Tách đoạn văn theo thụt đầu dòng trong kết quả ``extraction_mode='layout'``.
+
+    Pypdf giữ được cột bắt đầu của dòng dù đôi lúc chèn khoảng trắng rất dài giữa
+    các glyph. Ta chỉ dùng khoảng trắng đầu dòng làm tín hiệu, còn khoảng trắng bên
+    trong được thu gọn. Tiêu đề giữa trang, số trang và chú thích cuối trang bị loại.
+
+    Hàm này cố tình nghiêm: trang nào cho số đoạn Pāli và Việt khác nhau sẽ bị tầng
+    gọi bỏ cả cặp trang, chứ không ``zip`` rồi làm rơi âm thầm phần dư.
+    """
+    paragraphs: list[str] = []
+    current: list[str] = []
+    previous_was_blank = False
+
+    def flush() -> None:
+        nonlocal current
+        value = re.sub(r"\s+", " ", " ".join(current)).strip()
+        if len(value) >= MIN_PALI_CHARS and not _looks_like_centered_heading(value):
+            paragraphs.append(value)
+        current = []
+
+    for raw_line in layout_text.splitlines():
+        value = raw_line.strip()
+        indent = len(raw_line) - len(raw_line.lstrip())
+        if not value:
+            previous_was_blank = True
+            continue
+
+        # Layout đặt số trang ở một cột rất xa (thường >700). Một dòng chỉ có số
+        # cũng không bao giờ là nội dung ở parser này.
+        if indent > 100 or re.fullmatch(r"\d{1,4}", value):
+            previous_was_blank = False
+            continue
+
+        starts_paragraph = INDENTED_PARAGRAPH_MIN <= indent <= INDENTED_PARAGRAPH_MAX
+        if starts_paragraph:
+            flush()
+            current = [value]
+        elif indent == 0 and current:
+            # Chú thích nằm sau một dòng trắng, bắt đầu bằng 1, 2... hoặc [a]. Dừng
+            # ở đây để chú thích không bị nối vào đoạn văn cuối trang.
+            if previous_was_blank and re.match(r"^(?:\d+|\[[a-z]\])\s+", value, re.I):
+                flush()
+                break
+            current.append(value)
+        elif current and previous_was_blank:
+            # Tiêu đề căn giữa xuất hiện giữa hai phần: kết thúc đoạn cũ và bỏ tiêu đề.
+            flush()
+        previous_was_blank = False
+
+    flush()
+    return paragraphs
+
+
+def _compact_pali_for_pdf_match(text: str) -> str:
+    """Dạng dò khớp chịu được lỗi font PDF như ``suta ṃ`` và ``ā vuso``."""
+    normalized = normalize_pali(clean_unicode_artifacts(text))
+    return re.sub(r"[\W_\d]+", "", normalized, flags=re.UNICODE)
+
+
+def _char_trigrams(text: str) -> set[str]:
+    return {text[index : index + 3] for index in range(max(0, len(text) - 2))}
+
+
+def match_indented_pairs(
+    aligned: list[tuple[str, str, str | None]],
+    passages: list[dict],
+) -> tuple[list[dict], int]:
+    """Khớp parser không số bằng bốn lớp bảo vệ.
+
+    1. so trigram sau khi bỏ khoảng trắng lỗi font;
+    2. đoạn PDF phải được ứng viên bao phủ ít nhất 85% (chặn một đoạn PDF trùm qua
+       nhiều passage rồi bị gán hết vào passage cuối);
+    3. ứng viên đầu phải bỏ xa ứng viên nhì;
+    4. chỉ giữ chuỗi ``sort_order`` không giảm theo đúng thứ tự cuốn sách.
+
+    Trả về chuỗi đã lọc và số ứng viên đã qua ba cổng đầu (trước cổng thứ tự).
+    Nhiều đoạn PDF liên tiếp có thể trỏ cùng một passage; tầng ghi sẽ nối chúng lại,
+    tránh lỗi cũ chỉ giữ đoạn đầu rồi làm mất phần còn lại.
+    """
+    passage_grams: list[set[str]] = []
+    inverted: dict[str, list[int]] = defaultdict(list)
+    for position, passage in enumerate(passages):
+        grams = _char_trigrams(_compact_pali_for_pdf_match(passage["normalized_pali"] or ""))
+        passage_grams.append(grams)
+        for gram in grams:
+            inverted[gram].append(position)
+
+    candidates: list[dict] = []
+    for pair_index, (pali, _viet, _section_id) in enumerate(aligned):
+        query_grams = _char_trigrams(_compact_pali_for_pdf_match(pali))
+        if not query_grams:
+            continue
+        overlaps: Counter[int] = Counter()
+        for gram in query_grams:
+            overlaps.update(inverted.get(gram, ()))
+        scored = sorted(
+            (
+                2 * overlap / (len(query_grams) + len(passage_grams[position])),
+                overlap / len(query_grams),
+                position,
+            )
+            for position, overlap in overlaps.items()
+            if passage_grams[position]
+        )
+        scored.reverse()
+        if len(scored) < 2:
+            continue
+        score, query_coverage, position = scored[0]
+        runner_up_score = scored[1][0]
+        if score < INDENTED_MATCH_MIN:
+            continue
+        if query_coverage < INDENTED_QUERY_COVERAGE_MIN:
+            continue
+        if score - runner_up_score < INDENTED_MATCH_MARGIN:
+            continue
+        passage = passages[position]
+        candidates.append(
+            {
+                "pair_index": pair_index,
+                "passage_id": str(passage["id"]),
+                "sort_order": int(passage["sort_order"]),
+                "score": float(score),
+                "query_coverage": float(query_coverage),
+                "runner_up_score": float(runner_up_score),
+            }
+        )
+
+    if not candidates:
+        return [], 0
+
+    # Longest non-decreasing subsequence: cùng sort_order được phép vì một passage
+    # trong XML đôi khi chứa ba đoạn in liền nhau; ba bản Việt phải được nối lại.
+    tails: list[int] = []
+    tail_indexes: list[int] = []
+    previous = [-1] * len(candidates)
+    for index, candidate in enumerate(candidates):
+        sort_order = candidate["sort_order"]
+        length_index = bisect_right(tails, sort_order)
+        if length_index == len(tails):
+            tails.append(sort_order)
+            tail_indexes.append(index)
+        elif (
+            sort_order < tails[length_index]
+            or candidate["score"] > candidates[tail_indexes[length_index]]["score"]
+        ):
+            tails[length_index] = sort_order
+            tail_indexes[length_index] = index
+        if length_index:
+            previous[index] = tail_indexes[length_index - 1]
+
+    selected_indexes: list[int] = []
+    index = tail_indexes[-1]
+    while index >= 0:
+        selected_indexes.append(index)
+        index = previous[index]
+    selected_indexes.reverse()
+    return [candidates[index] for index in selected_indexes], len(candidates)
+
+
+def group_indented_matches(
+    matches: list[dict],
+    aligned: list[tuple[str, str, str | None]],
+) -> list[dict]:
+    """Nối đủ các đoạn in thuộc cùng một passage trước khi ghi DB."""
+    grouped: list[dict] = []
+    for match in matches:
+        pair_index = match["pair_index"]
+        viet = mend_spacing(aligned[pair_index][1]).strip()
+        if not viet:
+            continue
+        if grouped and grouped[-1]["passage_id"] == match["passage_id"]:
+            grouped[-1]["texts"].append(viet)
+            grouped[-1]["pair_indexes"].append(pair_index)
+            grouped[-1]["score"] = min(grouped[-1]["score"], match["score"])
+            continue
+        grouped.append(
+            {
+                "passage_id": match["passage_id"],
+                "sort_order": match["sort_order"],
+                "score": match["score"],
+                "texts": [viet],
+                "pair_indexes": [pair_index],
+            }
+        )
+    for group in grouped:
+        group["text"] = "\n\n".join(group.pop("texts"))
+    return grouped
+
+
 # Bóc PDF hay chèn dấu cách ngay TRƯỚC nguyên âm mang dấu ("r ừng", "b ởi", "th ấy") -
 # dính 71% số dòng, 15.128 chỗ. Chỉ nối lại khi mẩu đứng trước là phụ âm đầu THUẦN,
 # tức không chứa nguyên âm nào. Nhờ ràng buộc đó mà "anh ấy" không bị nối thành "anhấy":
@@ -349,12 +606,183 @@ def split_verses(text: str) -> dict[str, str]:
 #   10/10 ca phải nối  (thu+ộc, lo+ại, xu+ống, ngh+ĩa, th+ật, khu+ất...)
 #   10/10 ca phải giữ  (do+ý, điều+ấy, nghĩa+ấy, nói+ác, một+ít...)
 # Thêm điều kiện "phổ biến hơn mảnh sau" thì tụt còn 9/10 (mất "khuất"), nên không dùng.
-_VN_VOWEL = "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ"
-# Chỉ xét cặp mà mảnh SAU mở đầu bằng nguyên âm có dấu - đó chính là con chữ bị PDF tách
-# ra. Ràng buộc này không phải để phân loại, chỉ để khỏi phải thử mọi cặp từ liền nhau.
-_JOIN_CANDIDATE = re.compile(rf"([^\W\d_]+) ([{_VN_VOWEL}][^\W\d_]*)", re.UNICODE)
+# Vết cắt thực tế không chỉ nằm trước nguyên âm Việt có dấu. Kiểm tra production còn
+# thấy `C hánh`, `vớ i`, `Sikh ī`, `U ttara`... nên phải xét mọi cặp mảnh chữ. Việc
+# QUYẾT ĐỊNH ghép vẫn do từ vựng bên dưới, không do hình dạng regex; các cụm đúng như
+# `điều ấy`, `do ý`, `vị Ānanda` không ghép vì chuỗi dính không phải một từ.
+_LETTER_TOKEN = re.compile(r"[^\W\d_]+", re.UNICODE)
 _WORDS_FILE = Path(__file__).resolve().parent / "app" / "data" / "vi_words.txt"
 _VI_WORDS: set[str] | None = None
+
+# Tên Pali này chỉ xuất hiện vài lần nên không đạt ngưỡng tần suất 5 của từ vựng, nhưng
+# ảnh khách gửi và dữ liệu DB đều xác nhận đây là một từ bị PDF tách. Danh sách này chỉ
+# nhận các trường hợp đã đối chiếu; không dùng quy tắc "một chữ hoa + từ" vì đại từ
+# `Y` trong tiếng Việt (`Y đã`, `Y nói`) sẽ bị ghép sai hàng trăm lần.
+_KNOWN_PDF_JOIN_WORDS = {
+    # Đợt 1: ảnh khách gửi.
+    "uttara",
+    # Đợt 2: các từ/tên hiếm được vòng audit độc lập đối chiếu với dạng viết liền
+    # đang có ở nơi khác trong cùng kho dữ liệu. Chỉ dùng cho importer Indacanda.
+    "aṇīkadatta",
+    "arindama",
+    "bộp",
+    "campeyyaka",
+    "kakutthā",
+    "kaṇṭaka",
+    "kuṇāla",
+    "luộc",
+    "parivāsa",
+    "poṭakila",
+    "thuyết",
+    # Đợt 3: phần đuôi còn lại sau khi mô phỏng đợt 2 trên toàn bộ hai nguồn Indacanda.
+    # Nhiều mảnh ở đây tình cờ cũng là từ độc lập (`th` + `ai`, `tr` + `ai`) nên phải
+    # xác nhận đích danh; nếu chỉ dựa vào bộ từ vựng, thuật toán sẽ chủ động giữ sai dấu cách.
+    "bấp",
+    "bặt",
+    "bợm",
+    "bủn",
+    "bưởi",
+    "bướm",
+    "bươm",
+    "bươi",
+    "cằm",
+    "chầm",
+    "chần",
+    "chĩa",
+    "chợt",
+    "chổng",
+    "chững",
+    "cườm",
+    "dầm",
+    "dậm",
+    "dẽ",
+    "gāthā",
+    "gāthāpādo",
+    "gian",
+    "giấm",
+    "gừ",
+    "guốc",
+    "hả",
+    "hễ",
+    "hừ",
+    "hoan",
+    "kathā",
+    "kiềng",
+    "lạn",
+    "lấn",
+    "lọn",
+    "lốm",
+    "lốt",
+    "luẩn",
+    "luộm",
+    "lướt",
+    "lành",
+    "māluva",
+    "màng",
+    "miện",
+    "miễn",
+    "mọng",
+    "mẩy",
+    "nāva",
+    "nāvā",
+    "nandisena",
+    "ngạch",
+    "ngấn",
+    "nghẽn",
+    "nhặng",
+    "nhuốm",
+    "nỉ",
+    "nỡ",
+    "nới",
+    "nức",
+    "ñāṇadhara",
+    "pārivāsa",
+    "quan",
+    "ramma",
+    "rạc",
+    "rọ",
+    "rỏi",
+    "rướn",
+    "sāmāka",
+    "saṅghādisesa",
+    "sanh",
+    "samudda",
+    "sọc",
+    "sủng",
+    "than",
+    "thai",
+    "thūpoti",
+    "tịt",
+    "trai",
+    "trằn",
+    "trơ",
+    "trướng",
+    "tủa",
+    "tuyến",
+    "vạch",
+    "vạm",
+    "vặc",
+    "vằng",
+    "vẩy",
+    "vểnh",
+    "diệc",
+    "diṭṭhi",
+    "ghiếc",
+    "khai",
+    "khiễng",
+    "kummāsa",
+    "khulu",
+    "luồn",
+    "makuṭabandhana",
+    "oằn",
+    "quẩy",
+    "romasa",
+    "saṅghāṭi",
+    "saṅkhepato",
+    "sang",
+    "somadeva",
+    "tanh",
+}
+_PALI_LOWER_DIACRITICS = frozenset("āīūṅñṭḍṇḷṃṁĀĪŪṄÑṬḌṆḶṂṀ")
+_PALI_FRAGMENT = re.compile(r"^[A-Za-zāīūṅñṭḍṇḷṃṁ]+$", re.IGNORECASE)
+_PRESERVED_SPACED_PAIRS = {
+    ("ba", "y"),
+    ("này", "āvuso"),
+    ("từ", "āvuso"),
+}
+_KNOWN_PDF_REPLACEMENTS = {
+    # Đây không chỉ là dấu cách sai: PDF còn nhận nhầm dấu của chữ "á" thành "ả".
+    "c ảc": "các",
+    # Các lỗi dưới đây vừa tách chữ vừa làm sai/mất ký tự, nên nối chuỗi đơn thuần
+    # sẽ cho ra từ sai. Chỉ thay đúng cụm đã thấy trong dữ liệu, không sửa gần đúng.
+    "b ắng": "bằng",
+    "b ậcTự": "bậc Tự",
+    "Ch ủa": "Chúa",
+    "d ến": "đến",
+    "g ở": "gỡ",
+    "ngi ệp": "nghiệp",
+    "r ẵng": "rằng",
+    "s ựPhân": "sự Phân",
+    # Dòng này còn mất cả dấu cách trước tên riêng và tách tên thành nhiều mảnh.
+    "làN an di sen a": "là Nandisena",
+    # Pts II: glyph tiếng Việt bị đảo vị trí dấu và tách ngay trước ký tự cuối.
+    # Đã đối chiếu trực quan trang in 189/191: bản in là "tưởng" và "cốt lõi".
+    "tưỏ ng": "tưởng",
+    "lỏ i": "lõi",
+    # Trang in 207: các tên này nằm qua điểm ngắt glyph/dòng của PDF. Giữ dấu nối
+    # thật sự trong "Sārī-putta", chỉ bỏ các khoảng trắng do bộ bóc PDF sinh ra.
+    "Sārī - putta": "Sārī-putta",
+    "Sañjī va": "Sañjīva",
+    "Khāṇ ukoṇḍañña": "Khāṇukoṇḍañña",
+}
+# Các từ ngắn này đứng độc lập rất thường xuyên. Từ điển PDF bị nhiễu có thể khiến
+# chuỗi dính cũng tình cờ là một từ (`mà ra` -> `màra`, `kosa là` -> `kosalà`). Nếu
+# hai vế đều đã là từ và một vế thuộc nhóm này thì ưu tiên GIỮ dấu cách.
+_COMMON_STANDALONE_WORDS = {
+    "ai", "an", "ba", "bà", "bị", "bỏ", "bộ", "có", "do", "đã", "đi", "đó",
+    "gì", "hai", "họ", "khi", "là", "mà", "nó", "ra", "sa", "ta", "từ", "và",
+    "về", "vì", "vị", "ý", "ở", "y",
+}
 
 
 def vi_words() -> set[str]:
@@ -409,13 +837,121 @@ def already_imported() -> set[str]:
     return {str(r["scope"]) for r in rows}
 
 
-def _join_if_word(match: re.Match) -> str:
-    """Nối hai mảnh khi và chỉ khi ghép lại ra một từ có thật."""
-    left, right = match.group(1), match.group(2)
-    joined = left + right
-    if joined.lower() in vi_words():
-        return joined
-    return match.group(0)
+def _known_word(value: str) -> bool:
+    lowered = value.lower()
+    return lowered in vi_words() or lowered in _KNOWN_PDF_JOIN_WORDS
+
+
+def _forced_pali_join(parts: list[str]) -> bool:
+    """Tên Pali bị cắt ngay trước một phụ âm/nguyên âm có dấu dài.
+
+    `An āthapiṇḍika`, `Moggall āna`, `Gijjhak ūṭa` là nhóm lớn còn sót sau
+    đợt đầu. Mảnh trái phải bắt đầu hoa và chỉ chứa bảng chữ Pali, vì thế cụm
+    tiếng Việt đúng như `Này āvuso`, `Từ āvuso` không lọt vào quy tắc này.
+    """
+    if len(parts) != 2:
+        return False
+    left, right = parts
+    lowered = (left.lower(), right.lower())
+    if lowered in _PRESERVED_SPACED_PAIRS:
+        return False
+    return bool(
+        right
+        and right[0] in _PALI_LOWER_DIACRITICS
+        and _PALI_FRAGMENT.fullmatch(left) is not None
+        and left[:1].isupper()
+    )
+
+
+def _confirmed_join(parts: list[str]) -> bool:
+    joined = "".join(parts)
+    if len(parts) == 2 and tuple(part.lower() for part in parts) in _PRESERVED_SPACED_PAIRS:
+        return False
+    if _forced_pali_join(parts):
+        return True
+    # Danh sách này đã được audit theo ngữ cảnh, vì vậy phải thắng bộ chặn từ thông dụng.
+    # Ví dụ `th` và `ai` đều vô tình có trong từ vựng, nhưng dữ liệu gốc `mang th ai`
+    # chắc chắn là `mang thai`.
+    if joined.lower() in _KNOWN_PDF_JOIN_WORDS:
+        return True
+    if _known_word(joined):
+        lowered_parts = [part.lower() for part in parts]
+        if (
+            all(_known_word(part) for part in parts)
+            and any(part in _COMMON_STANDALONE_WORDS for part in lowered_parts)
+        ):
+            return False
+        return True
+    if len(parts) == 2:
+        left, right = parts
+        # Tên Pali bị cắt ngay trước ký tự mang dấu: `Ph ārusaka`, `Bh āradvāja`,
+        # `Sikh ī`. Chỉ nhận tên bắt đầu hoa hoặc mảnh phải rất ngắn, không đụng tới
+        # cụm đúng như `vị ānanda`/`tên Ānanda`.
+        return bool(
+            right
+            and right[0] in _PALI_LOWER_DIACRITICS
+            and _PALI_FRAGMENT.fullmatch(left) is not None
+            and (left[:1].isupper() or len(right) <= 2)
+        )
+    return False
+
+
+def _join_word_spaces(text: str) -> str:
+    """Chọn cách nối các mảnh sao cho tạo ra nhiều từ hợp lệ nhất.
+
+    Không thể quyết từng cặp độc lập: `là N ārada` có cả `là`+`N` -> `làn` và
+    `N`+`ārada` -> `Nārada` là từ hợp lệ, nhưng chỉ cách sau đúng trong toàn câu.
+    Tương tự `sâ n hận` phải thành `sân hận`, không phải `sâ nhận` hay `sânhận`.
+
+    Quy hoạch động chấm điểm toàn chuỗi token: giữ một token hợp lệ được điểm cao;
+    mảnh vô nghĩa bị trừ điểm; ghép 2-5 mảnh chỉ được phép khi kết quả nằm trong từ
+    vựng. Hai từ vốn đều hợp lệ luôn thắng phương án dính chúng thành một từ khác.
+    """
+    tokens = list(_LETTER_TOKEN.finditer(text))
+    if len(tokens) < 2:
+        return text
+
+    count = len(tokens)
+    best = [0.0] * (count + 1)
+    choice = [1] * count
+    for index in range(count - 1, -1, -1):
+        token = tokens[index].group(0)
+        # Giữ từ có thật tốt hơn; giữ một mảnh lạ vẫn được phép nhưng chịu phạt.
+        best[index] = (2.0 if _known_word(token) else -3.0) + best[index + 1]
+        parts = [token]
+        for end in range(index + 1, min(count, index + 5)):
+            if text[tokens[end - 1].end() : tokens[end].start()] != " ":
+                break
+            parts.append(tokens[end].group(0))
+            if not _confirmed_join(parts):
+                continue
+            group_size = end - index + 1
+            # Mảnh dài 1-2 ký tự là dấu hiệu PDF tách chữ rất mạnh (`khô ng`,
+            # `th ang`, `Gi áo`). Nó phải thắng trường hợp từ điển nhiễu đã vô tình
+            # coi chính mảnh đó là một "từ" do xuất hiện nhiều lần trong PDF lỗi.
+            # Hai nhóm phải thắng cả khi từng mảnh tình cờ có trong từ điển:
+            # 1) tên Pali cắt trước chữ có dấu (`Moggall` + `āna`),
+            # 2) từ hiếm đã được audit và đưa vào danh sách xác nhận ở trên.
+            forced = _forced_pali_join(parts) or "".join(parts).lower() in _KNOWN_PDF_JOIN_WORDS
+            fragment_bonus = (
+                6.0 if forced else 3.0 if any(len(part) <= 2 for part in parts) else 0.1
+            )
+            score = 2.0 + fragment_bonus + 0.1 * (group_size - 1) + best[end + 1]
+            if score > best[index] + 1e-9:
+                best[index] = score
+                choice[index] = group_size
+
+    remove_at: list[int] = []
+    index = 0
+    while index < count:
+        group_size = choice[index]
+        if group_size > 1:
+            for offset in range(group_size - 1):
+                remove_at.append(tokens[index + offset].end())
+        index += group_size
+    for index in reversed(remove_at):
+        text = text[:index] + text[index + 1 :]
+    return text
 
 
 def mend_spacing(text: str) -> str:
@@ -425,8 +961,19 @@ def mend_spacing(text: str) -> str:
     tiếp theo. `_JOIN_CANDIDATE` không dùng lookbehind chặn ranh giới từ, nên mỗi vòng
     `re.sub` chỉ bắt các cặp không chồng nhau - vòng sau nhặt nốt phần còn lại.
     """
-    for _ in range(4):
-        fixed = _JOIN_CANDIDATE.sub(_join_if_word, text)
+    text = clean_unicode_artifacts(text)
+    for broken, replacement in _KNOWN_PDF_REPLACEMENTS.items():
+        text = re.sub(
+            rf"(?<!\w){re.escape(broken)}(?!\w)",
+            replacement,
+            text,
+            flags=re.UNICODE,
+        )
+
+    # Một từ có thể bị tách thành hơn hai mảnh (`n g ười`), nên chạy tới ổn định với
+    # trần an toàn 12 vòng.
+    for _ in range(12):
+        fixed = _join_word_spaces(text)
         fixed = _SPLIT_HYPHEN.sub(
             lambda m: (m.group(1) or m.group(3)) + "-" + (m.group(2) or m.group(4)), fixed
         )
@@ -782,6 +1329,12 @@ def main() -> None:
             return
     if not args.volumes:
         parser.error("cần chỉ định tập, hoặc dùng --all / --list")
+    if args.global_align and any(
+        VOLUMES.get(key, {}).get("parser") == "paired_indented" for key in args.volumes
+    ):
+        parser.error(
+            "pts2 có bộ ghép riêng đã khóa theo thứ tự trang; không dùng --global-align với pts2"
+        )
 
     if not args.dry_run:
         migrations = Path(__file__).resolve().parents[1] / "db" / "migrations"
@@ -814,7 +1367,12 @@ def main() -> None:
         print(f"=== {volume['label']} ({volume['file']}) ===")
         path = download(volume)
         reader = PdfReader(str(path))
-        pages = [strip_running_head(page.extract_text() or "") for page in reader.pages]
+        parser_kind = volume.get("parser", "numbered")
+        pages = (
+            []
+            if parser_kind == "paired_indented"
+            else [strip_running_head(page.extract_text() or "") for page in reader.pages]
+        )
 
         # Giu dung thu tu nhu cau hinh: con tro tien-mot-chieu chay theo thu tu nay.
         by_name = {
@@ -826,6 +1384,132 @@ def main() -> None:
         doc_ids = [by_name[name] for name in volume["docs"] if name in by_name]
         if not doc_ids:
             print("  !! không tìm thấy tài liệu tương ứng trong DB\n")
+            continue
+
+        if parser_kind == "paired_indented":
+            start_page = int(volume["pdf_start_page"])
+            end_page = int(volume["pdf_end_page"])
+            if start_page < 1 or end_page > len(reader.pages) or (end_page - start_page + 1) % 2:
+                raise ValueError(
+                    f"khoảng trang pts2 không hợp lệ: {start_page}-{end_page}/"
+                    f"{len(reader.pages)}"
+                )
+
+            aligned: list[tuple[str, str, str | None]] = []
+            unbalanced_pages: list[dict] = []
+            balanced_page_pairs = 0
+            unbalanced_block_count = 0
+            for pali_page in range(start_page, end_page + 1, 2):
+                viet_page = pali_page + 1
+                pali_pdf_page = reader.pages[pali_page - 1]
+                viet_pdf_page = reader.pages[viet_page - 1]
+                pali_layout = pali_pdf_page.extract_text(extraction_mode="layout") or ""
+                viet_layout = viet_pdf_page.extract_text(extraction_mode="layout") or ""
+                pali_blocks = split_indented_paragraphs(pali_layout)
+                viet_blocks = split_indented_paragraphs(viet_layout)
+                if not pali_blocks or len(pali_blocks) != len(viet_blocks):
+                    unbalanced_block_count += max(len(pali_blocks), len(viet_blocks))
+                    unbalanced_pages.append(
+                        {
+                            "pali_page": pali_page,
+                            "viet_page": viet_page,
+                            "pali_text": re.sub(
+                                r"\s+", " ", pali_pdf_page.extract_text() or ""
+                            ).strip(),
+                            "viet_text": mend_spacing(
+                                re.sub(r"\s+", " ", viet_pdf_page.extract_text() or "").strip()
+                            ),
+                        }
+                    )
+                    continue
+                balanced_page_pairs += 1
+                aligned.extend(
+                    (pali, mend_spacing(viet), None)
+                    for pali, viet in zip(pali_blocks, viet_blocks)
+                )
+
+            passages = fetch_all(
+                """
+                select id, document_id, sort_order, normalized_pali
+                from passages
+                where document_id = any(%s::uuid[])
+                order by document_id, sort_order
+                """,
+                [doc_ids],
+            )
+            matches, quality_candidates = match_indented_pairs(aligned, passages)
+            groups = group_indented_matches(matches, aligned)
+            matched = len(groups)
+            written = 0
+            if args.verbose:
+                for group in groups[:4]:
+                    pair_index = group["pair_indexes"][0]
+                    print(
+                        f"     sort={group['sort_order']} · điểm={group['score']:.3f}"
+                        f" · ghép {len(group['pair_indexes'])} đoạn in"
+                    )
+                    print(f"     PALI: {aligned[pair_index][0][:74]}")
+                    print(f"     VIỆT: {group['text'][:74]}")
+            if not args.dry_run:
+                for group in groups:
+                    if write_translation(
+                        group["passage_id"], SOURCE_ID, group["text"], key,
+                        method="strict_unique", batch=batch, score=group["score"],
+                    ):
+                        written += 1
+
+            resolved_indexes = {match["pair_index"] for match in matches}
+            unresolved_count = len(aligned) - len(resolved_indexes)
+            unbalanced_count = len(unbalanced_pages)
+            if not args.dry_run:
+                unresolved_count = stage_unresolved_pairs(
+                    key, aligned, resolved_indexes, batch
+                )
+                unbalanced_count = stage_unbalanced_indented_pages(
+                    key, unbalanced_pages, batch
+                )
+
+            total_page_pairs = (end_page - start_page + 1) // 2
+            print(
+                f"  {len(reader.pages)} trang · xét thân sách {start_page}-{end_page}: "
+                f"{balanced_page_pairs}/{total_page_pairs} cặp trang cân đoạn"
+            )
+            print(
+                f"  {len(aligned)} cặp đoạn Pali-Việt · qua cổng chất lượng "
+                f"{quality_candidates} · đúng thứ tự {len(matches)} đoạn in "
+                f"→ {matched} passage DB · ghi {written}"
+            )
+            print(
+                f"  giữ lại {unresolved_count} cặp chưa đủ chắc và "
+                f"{unbalanced_count} cặp trang lệch ({unbalanced_block_count} đoạn), không đoán"
+            )
+            print(
+                "  bản trọn bài: không dựng từ pts2 ở đợt này vì còn trang bị giữ lại; "
+                "tránh gắn nhãn 'trọn bài' cho dữ liệu chưa phủ đủ"
+            )
+
+            grand["pairs"] += len(aligned)
+            grand["matched"] += matched
+            grand["written"] += written
+            if not args.dry_run:
+                execute(
+                    """
+                    insert into human_translation_imports
+                      (source, language, scope, segments_total, segments_matched,
+                       passages_written, notes, import_batch)
+                    values (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        SOURCE_ID, LANGUAGE, key, len(aligned), matched, written,
+                        (
+                            f"{volume['label']}; paired_indented; "
+                            f"balanced_pages={balanced_page_pairs}/{total_page_pairs}; "
+                            f"unbalanced_blocks={unbalanced_block_count}"
+                        ),
+                        batch,
+                    ],
+                )
+            print()
             continue
 
         sections = load_sections(doc_ids)
@@ -1033,7 +1717,7 @@ def main() -> None:
             )
         print()
 
-    print(f"TỔNG: {grand['pairs']} cặp câu kệ · khớp DB {grand['matched']} · ghi {grand['written']}")
+    print(f"TỔNG: {grand['pairs']} cặp Pali-Việt · khớp DB {grand['matched']} · ghi {grand['written']}")
     if not args.dry_run:
         execute(
             """

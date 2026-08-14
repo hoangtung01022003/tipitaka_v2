@@ -28,33 +28,50 @@
       </div>
       <p class="pali">{{ item.paliText }}</p>
 
-      {# Bản dịch của dịch giả có sẵn trong DB nên in ra ngay, không phải chờ tải.
-         Hiện theo TỪNG đoạn vì độ phủ mỗi đoạn một khác. #}
+      {# Bản dịch chính thức đứng trước, theo đúng thứ tự nguồn đã chốt. Mỗi nút đọc
+         toàn bài nằm ngay dưới bản dịch tương ứng, không gom thành một cụm ở cuối. #}
       <div class="resultTitle">{{ t('translation.officialTitle') }}</div>
-      {% if item.officialTranslations %}
-        {% for official in item.officialTranslations %}
-          <div class="officialTranslation">
-            {# Bản cấp bài kinh (Minh Châu) phủ cả bài, có bản ~147.000 ký tự. Ở đây chỉ
-               in đoạn đầu - đủ để nhận ra bài kinh mà không lấp mất phần Pali lẫn các
-               bản dịch khác; nút "Xem toàn bộ bài kinh" ngay dưới thẻ mở trang đọc với
-               đủ nguyên văn, nên không cần nhét trọn bài vào đây. #}
-            <div class="officialLabel">
-              {{ official.label }}
-              {% if official.truncated %}<span class="officialHint">{{ t('translation.wholeSutta') }}</span>{% endif %}
-            </div>
+      {% for entry in item.translationEntries %}
+        {% set official = entry.translation %}
+        <div class="officialTranslation{% if not official %} officialTranslationMissing{% endif %}">
+          <div class="officialLabel">
+            {{ entry.label }}
+            {% if official and official.truncated %}<span class="officialHint">{{ t('translation.wholeSutta') }}</span>{% endif %}
+          </div>
+          {% if official %}
             <div class="translation">{{ official.text }}</div>
             {% if official.truncated %}
               <p class="officialHint officialMore">{{ t('translation.wholeSuttaMore') }}</p>
             {% endif %}
-          </div>
-        {% endfor %}
-      {% else %}
-        <p class="notice officialMissing">{{ t('translation.noOfficial') }}</p>
-      {% endif %}
-      {% if item.missingTranslations %}
-        <p class="notice officialMissing">{{ t('translation.missingList', sources=item.missingTranslations | join(', ')) }}</p>
-      {% endif %}
+          {% elif entry.elsewhereOnly %}
+            <p class="notice officialMissing">{{ t('translation.elsewhereDetail') }}</p>
+          {% else %}
+            <p class="notice officialMissing">{{ entry.unavailableReason }}</p>
+          {% endif %}
 
+          {% if item.canOpenSection and item.readerSectionId %}
+            <div class="sectionActions sourceAction">
+              {% if entry.available %}
+                <button
+                  class="button secondary"
+                  type="button"
+                  data-section-id="{{ item.readerSectionId }}"
+                  data-section-source="{{ entry.source }}"
+                >
+                  {{ t('results.openSectionWith', source=entry.label) }}
+                </button>
+              {% else %}
+                <button class="button secondary" type="button" disabled title="{{ entry.unavailableReason }}">
+                  {{ t('results.openSectionWith', source=entry.label) }}<span class="officialHint">{{ t('translation.noData') }}</span>
+                </button>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      {# AI chỉ dịch đoạn Pali đang hiển thị và luôn đứng cuối. Không có nút "toàn bộ
+         bài kinh" cho AI, tránh khiến người đọc tưởng AI đã dịch cả bài. #}
       <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
       <div
         class="translationMount"
@@ -69,31 +86,6 @@
         </div>
       </div>
       <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
-
-      {% if item.canOpenSection and item.sectionId %}
-        {# Mỗi dịch giả một nút riêng. Liệt kê ĐỦ mọi dịch giả: nguồn chưa có bản dịch cho
-           bài này vẫn hiện tên nhưng tắt nút và ghi rõ là chưa có. Trước đây ẩn hẳn nguồn
-           không có dữ liệu, nên bản Indacanda biến mất khỏi mọi bộ kinh chưa nạp - nhìn
-           vào không phân biệt được là chưa nạp hay giao diện hỏng. #}
-        <div class="sectionActions">
-          {% for entry in item.sectionSources %}
-            {% if entry.available %}
-              <button
-                class="button secondary"
-                type="button"
-                data-section-id="{{ item.sectionId }}"
-                data-section-source="{{ entry.source }}"
-              >
-                {{ t('results.openSectionWith', source=entry.label) }}{% if entry.elsewhereOnly %}<span class="officialHint">{{ t('translation.elsewhereInSutta') }}</span>{% endif %}
-              </button>
-            {% else %}
-              <button class="button secondary" type="button" disabled title="{{ t('translation.noOfficial') }}">
-                {{ t('results.openSectionWith', source=entry.label) }}<span class="officialHint">{{ t('translation.noData') }}</span>
-              </button>
-            {% endif %}
-          {% endfor %}
-        </div>
-      {% endif %}
 
       <div class="notice">{{ item.matchReason }}</div>
     </article>

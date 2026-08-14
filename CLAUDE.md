@@ -261,16 +261,14 @@ So the span is cut strictly inside the anchors: a few lines are lost at each end
 
 Ordered by expected value. Each is independent thanks to the provenance ranking — a failed pass writes nothing that outranks what is already there.
 
-1. **Run the `global_align` pass** (`--all --force --global-align`). Unmeasured; the strict pass leaves 49–60% unmatched on several volumes.
-   *Pass* — new rows land as `global_align`, strict rows untouched; keep and export.
-   *Fail* — if spot-checking shows wrong placements, delete by batch (`delete … where import_batch = '<label>'`); nothing else is affected.
+1. **Do not run `--all --force --global-align` as a production batch.** It remains experimental and unmeasured; earlier context-based/fill-between attempts produced plausible but wrong neighbouring paragraphs. Test it only on one named volume and one reversible batch after adding a representative audit set. `pts2` explicitly rejects this flag because its dedicated parser already enforces page and book order.
 2. **Jātaka whole-unit is 0** despite the best passage-level rates (72–81%). Two causes known: `s0514m` has **no** jātaka-level sections at all (only nipāta), and `s0513m`'s 150 units are all dropped before the overlap check, so it is `WHOLE_MIN_ANCHORS` or `WHOLE_EDGE_SLACK` — the jātaka unit includes the prose frame story that the verse-only PDF never covers. *Unverified hypothesis.*
    *Pass* — relax the edge guard for verse-only sources and re-run just `ja1 ja2 ja3`.
    *Fail* — if openings start mid-story, leave it at 0; passage-level already serves those 7,000+ rows.
-3. **`pts2` extracts 0 pairs** from 318 pages — a parser failure, not a matching failure. Fix extraction first; matching cannot be judged until pairs exist.
+3. **`pts2` parser fixed, pending the operator's real import.** Root cause was confirmed: body pages use bare page numbers, not numbered paragraphs, so `_VERSE` correctly found 0 and must not be loosened. The dedicated `paired_indented` parser limits itself to PDF pages 36–303, pairs Pāli/Việt only when both pages have the same number of indented paragraphs, requires ≥85% query coverage plus a unique trigram winner, then keeps only a non-decreasing `sort_order` chain. Measured dry-run: 122/134 balanced page pairs, 659 paired paragraphs, 277 quality candidates, 268 ordered print paragraphs grouped into **258 DB passages**; 391 ambiguous pairs and 12 unbalanced page pairs are retained, not guessed. It deliberately writes no `indacanda_full`: incomplete coverage must never be labeled “whole discourse”.
 4. **`mv1` detects sections on 0/597 pages** while comparable volumes reach 400–780. Anomalous enough to have its own cause.
 5. **Low-rate volumes** (`pc2` 8%, `cv1` 8%, `bvcp` 10%). **Do not loosen similarity here.** Find out first whether CST and the printed edition divide the text differently; if they do, loosening produces a flattering number and wrong data — the same trap `pc8` sprang on the Sujato importer.
-6. **An `unresolved` store** for pairs that never matched, keeping top candidates, scores and neighbours, so a better algorithm can be run over just that set later.
+6. **Unresolved store implemented** in migration 005. Numbered pairs that do not pass matching are stored in `human_translation_unresolved`; `pts2` additionally stores whole unbalanced page pairs with reason `unbalanced_indented_pdf_pages`, so future passes can target only the retained cases.
 
 A useful target shape for this corpus: ~60% certain + ~20% inferred from context + ~20% deliberately left empty. Do not chase 100%.
 
