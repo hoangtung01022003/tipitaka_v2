@@ -21,6 +21,7 @@ Chạy:
     .venv\\Scripts\\python.exe export_data.py
 """
 
+import datetime as dt
 import json
 import sys
 from pathlib import Path
@@ -45,6 +46,11 @@ def lit(value) -> str:
     if isinstance(value, list):
         inner = ",".join(str(x).replace("\\", "\\\\").replace('"', '\\"') for x in value)
         return "'{" + inner + "}'"
+    if isinstance(value, (dt.datetime, dt.date)):
+        # Ép kiểu tường minh. Trong `values (...)` thì kiểu cột đã đủ để Postgres suy ra,
+        # nhưng ở vế `col is not distinct from <literal>` của phép khử trùng thì literal
+        # không có ngữ cảnh kiểu và Postgres từ chối vì không xác định được kiểu.
+        return "'" + value.isoformat() + "'::timestamptz"
     raw_text = str(value)
     artifacts = unicode_artifacts(raw_text)
     if artifacts:
@@ -65,6 +71,11 @@ lines: list[str] = [
     "-- Xuất từ máy phát triển. Nạp trên VPS bằng:",
     "--   docker exec -i <container> psql -U postgres -d tipitaka_ai < export_data.sql",
     "-- Chạy lại nhiều lần vẫn an toàn (mọi câu đều có 'if not exists' hoặc 'on conflict').",
+    # File này là UTF-8. Nếu không tự khai báo, psql lấy client_encoding theo locale của
+    # máy chạy - trên Windows là WIN1252/WIN1258 - và toàn bộ tiếng Việt lẫn dấu Pali sẽ
+    # bị diễn giải sai rồi ghi thẳng vào DB, hỏng âm thầm chứ không báo lỗi. `pg_dump`
+    # luôn phát dòng này; ở đây phải tự phát vì không dùng pg_dump.
+    "set client_encoding = 'UTF8';",
     "begin;",
     "",
     "-- ── PHẦN 1: tạo bảng và thêm cột nếu còn thiếu ─────────────────────────",
@@ -74,6 +85,7 @@ for name in (
     "003_query_cache.sql",
     "004_match_provenance.sql",
     "005_import_batches.sql",
+    "006_pdf_heading_boundary.sql",
 ):
     path = MIGRATIONS / name
     lines += [f"-- nguồn: db/migrations/{name}", path.read_text(encoding="utf-8"), ""]
@@ -161,14 +173,26 @@ plain = {
     "text_translations": ["text_hash", "language", "model", "prompt_version",
                           "source_text", "translated_text", "notes"],
     "query_ai_cache": ["cache_key", "kind", "pipeline_version", "payload"],
+    # `created_at` phải nằm trong danh sách: bảng này ghi MỘT dòng cho MỖI lần chạy
+    # importer, nên chạy lại cùng một tập sinh ra nhiều dòng giống hệt nhau (246 dòng
+    # thật chỉ có 91 tổ hợp phân biệt). Không mang theo `created_at` thì phép khử trùng
+    # ở dưới sẽ gộp chúng lại và xoá mất lịch sử số lần chạy.
     "human_translation_imports": ["source", "language", "scope", "segments_total",
-                                  "segments_matched", "passages_written", "notes", "import_batch"],
+                                  "segments_matched", "passages_written", "notes",
+                                  "import_batch", "created_at"],
     "human_translation_batches": ["import_batch", "source", "language", "scope", "status",
                                   "notes", "started_at", "finished_at"],
     "human_translation_unresolved": ["source", "language", "scope", "source_ref", "segment_id",
                                      "raw_text", "normalized_text", "candidate_score", "reason",
                                      "import_batch", "resolved_at", "resolution"],
 }
+# `on conflict do nothing` chỉ chống trùng khi bảng CÓ ràng buộc unique để mà đụng.
+# `human_translation_imports` chỉ có khoá chính `id uuid default gen_random_uuid()`, nên
+# không lần nào xung đột và mỗi lần nạp lại file sẽ chép thêm một bộ đầy đủ - trái với
+# câu "chạy lại nhiều lần vẫn an toàn" ở đầu file. Với bảng này phải tự so bằng
+# `where not exists`; `is not distinct from` để cột null cũng khớp được với null.
+NO_UNIQUE_CONSTRAINT = {"human_translation_imports"}
+
 for table, columns in plain.items():
     rows = fetch_all(f"select {', '.join(columns)} from {table}")
     print(f"{table}: {len(rows)} dòng")
@@ -176,15 +200,27 @@ for table, columns in plain.items():
     for row in rows:
         # `payload` là jsonb: phải qua json.dumps, không được dùng repr của Python
         # (repr sinh dấu nháy đơn, Postgres từ chối vì không phải JSON hợp lệ).
-        values = ", ".join(
+        rendered = [
             lit(json.dumps(row[column], ensure_ascii=False)) + "::jsonb"
             if column == "payload"
             else lit(row[column])
             for column in columns
-        )
-        lines.append(
-            f"insert into {table} ({', '.join(columns)}) values ({values}) on conflict do nothing;"
-        )
+        ]
+        values = ", ".join(rendered)
+        column_list = ", ".join(columns)
+        if table in NO_UNIQUE_CONSTRAINT:
+            guard = " and ".join(
+                f"{column} is not distinct from {value}"
+                for column, value in zip(columns, rendered)
+            )
+            lines.append(
+                f"insert into {table} ({column_list}) select {values}"
+                f" where not exists (select 1 from {table} where {guard});"
+            )
+        else:
+            lines.append(
+                f"insert into {table} ({column_list}) values ({values}) on conflict do nothing;"
+            )
 
 lines += [
     "",

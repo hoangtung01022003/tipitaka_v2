@@ -77,8 +77,22 @@ _READER_NUMBERED_SUFFIXES = (
 )
 
 
+# Số thứ tự in trong ngoặc ở CUỐI tiêu đề, ví dụ `543. Bhūridattajātakaṃ (6)` - số 6 là
+# vị trí trong Mahānipāta, không phải một phần của tên bài. Nó che mất đuôi thật khiến
+# `jatakam` không khớp, nên toàn bộ Jātaka bị coi là không có đơn vị đọc: đo được 4.885
+# đoạn (2.717 ở s0514m + 2.168 ở s0513m) mở nút "Xem toàn bộ bài kinh" ra một mẩu.
+#
+# CLAUDE.md từng ghi giả thuyết "s0514m không có section cấp jātaka, chỉ có nipāta" và
+# tự đánh dấu là chưa kiểm chứng. Giả thuyết đó SAI - các section ấy có đủ, chỉ bị luật
+# tiêu đề loại oan.
+#
+# Bỏ đuôi này chỉ làm THÊM tiêu đề được nhận, không nới danh sách đuôi: `22. Mahānipāto
+# (3)` sau khi bỏ vẫn kết thúc bằng `nipato` nên vẫn bị loại đúng như trước.
+_READER_TRAILING_ORDINAL = re.compile(r"\s*\(\d+\)\s*$")
+
+
 def _is_reader_unit_title(title: str) -> bool:
-    raw = str(title or "").strip()
+    raw = _READER_TRAILING_ORDINAL.sub("", str(title or "").strip())
     normalized = normalize_pali(raw).replace(" ", "")
     if normalized.endswith(_READER_SUTTA_SUFFIXES):
         return True
@@ -269,10 +283,11 @@ def search_page(
     # theo section cũ làm Sujato/Indacanda có ở phần khác của bài bị báo nhầm là trống.
     section_sources = sources_for_sections([item.get("readerSectionId") for item in results], language)
     for item in results:
-        with_data = {
-            str(entry["source"])
-            for entry in section_sources.get(str(item.get("readerSectionId")), [])
-        }
+        section_entries = section_sources.get(str(item.get("readerSectionId")), [])
+        with_data = {str(entry["source"]) for entry in section_entries}
+        # Hình dạng bản dịch mà dịch giả này có cho CẢ BÀI - dùng khi đoạn đang hiện
+        # không có bản dịch nhưng nút "Xem toàn bộ bài kinh" vẫn bấm được.
+        section_shapes = {str(entry["source"]): entry.get("shape") for entry in section_entries}
         here = {str(entry["source"]) for entry in item["officialTranslations"]}
         translations_by_source = {
             str(entry["source"]): entry for entry in item["officialTranslations"]
@@ -288,11 +303,16 @@ def search_page(
                 unavailable_reason = t(language, "translation.noAbhidhammaCoverage")
             else:
                 unavailable_reason = t(language, "translation.noOfficial")
+            translation = translations_by_source.get(source_id)
+            # Nhãn phải nói đúng thứ người đọc sắp thấy: hình dạng của bản dịch đang in
+            # ra, hoặc - khi đoạn này chưa có - hình dạng mà nút toàn bài sẽ mở ra.
+            shape = translation.get("shape") if translation else section_shapes.get(source_id)
             entries.append(
                 {
                     "source": source_id,
-                    "label": source_label(source_id, language),
-                    "translation": translations_by_source.get(source_id),
+                    "label": source_label(source_id, language, shape),
+                    "shape": shape,
+                    "translation": translation,
                     "available": source_id in with_data,
                     "elsewhereOnly": source_id in with_data and source_id not in here,
                     "unavailableReason": unavailable_reason,
@@ -598,12 +618,20 @@ def _section_payload(
         translation, attempted_translation = {"vi": None, "text": None, "fromCache": False, "pending": True}, False
     source_path = section.get("source_path") or []
     # Bản dịch của dịch giả cho cả bài, ghép theo đúng thứ tự các đoạn đang có.
-    official_list = official_translations_merged([str(row["id"]) for row in rows], language)
+    # `covers_whole_sutta=True`: ở đây `rows` là TOÀN BỘ đoạn của bài kinh, nên nguồn cấp
+    # đoạn phủ đủ 100% được dán nhãn "(toàn bộ bài kinh)" - đúng thứ đang hiện ra.
+    official_list = official_translations_merged(
+        [str(row["id"]) for row in rows], language, covers_whole_sutta=True
+    )
     # Liet ke DU moi dich gia chu khong chi nguon co du lieu, dung nhu khach yeu cau:
     # nguon nao chua co ban dich cho muc nay van hien tab, bam vao thi bao "Hien khong co
     # ban dich chinh thuc nao". Truoc day chi dung tab tu `official_list` nen tab
     # Indacanda bien mat o moi bo kinh chua nap - giong het loi ben trang ket qua.
     with_data = {str(item["source"]) for item in official_list}
+    # Nhãn tab lấy thẳng từ `official_list` chứ không tự dựng lại: chỉ nơi đã ghép xong
+    # mới biết nguồn cấp đoạn có phủ đủ bài hay không, tự tính lại ở đây sẽ ra khác.
+    label_by_source = {str(item["source"]): str(item["label"]) for item in official_list}
+    shape_by_source = {str(item["source"]): item.get("labelShape") for item in official_list}
     is_abhidhamma = "abhidhammapitaka" in normalize_pali(" ".join(map(str, source_path)))
     available = []
     for source_id in SOURCE_ORDER:
@@ -618,7 +646,9 @@ def _section_payload(
         available.append(
             {
                 "source": source_id,
-                "label": source_label(source_id, language),
+                "label": label_by_source.get(source_id)
+                or source_label(source_id, language, shape_by_source.get(source_id)),
+                "shape": shape_by_source.get(source_id),
                 "available": source_id in with_data,
                 "unavailableReason": unavailable_reason,
             }

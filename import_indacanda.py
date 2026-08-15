@@ -668,6 +668,7 @@ _KNOWN_PDF_JOIN_WORDS = {
     "hoan",
     "kathā",
     "kiềng",
+    "khoảng",
     "lạn",
     "lấn",
     "lọn",
@@ -714,6 +715,7 @@ _KNOWN_PDF_JOIN_WORDS = {
     "thūpoti",
     "tịt",
     "trai",
+    "trường",
     "trằn",
     "trơ",
     "trướng",
@@ -725,6 +727,7 @@ _KNOWN_PDF_JOIN_WORDS = {
     "vằng",
     "vẩy",
     "vểnh",
+    "chướng",
     "diệc",
     "diṭṭhi",
     "ghiếc",
@@ -762,7 +765,24 @@ _KNOWN_PDF_REPLACEMENTS = {
     "g ở": "gỡ",
     "ngi ệp": "nghiệp",
     "r ẵng": "rằng",
+    # Cùng một chỗ hỏng với "r ẵng" nhưng PDF đọc dấu huyền thành dấu hỏi ngã khác.
+    # Bản in là "Dân chúng nói rằng:"; "nói rằng:" có ở 657 dòng khác trong kho.
+    "r ẳng": "rằng",
     "s ựPhân": "sự Phân",
+    # Chỗ cắt nằm SAI VỊ TRÍ chứ không chỉ thừa khoảng trắng: nối thẳng ra "nghĩahội",
+    # không phải từ nào cả. Bản đúng là "theo ý nghĩa hội tụ" - cụm "nghĩa hội tụ" có ở
+    # 6 dòng khác, và ngay cạnh trong cùng đoạn là "theo ý nghĩa liên kết / dẫn đầu".
+    "ngh ĩahội": "nghĩa hội",
+    # Vết tách thuần tuý, nhưng từ điển KHÔNG gỡ được: cả "tu" lẫn "ốt" đều nằm trong
+    # `vi_words.txt`, mà `_join_word_spaces` cố ý cho "hai từ đều hợp lệ" thắng phương
+    # án dính lại. Thêm "tuốt" vào từ điển vì thế vô tác dụng.
+    #
+    # Mục này hẹp hơn hẳn các mục trên - lấy cả chữ "ra" - vì các mảnh kia ("b", "g",
+    # "ngh", "r") không phải từ nên không thể bắt nhầm, còn "tu" thì LÀ từ hợp lệ:
+    # riêng "tu ốt" sẽ nuốt luôn những chỗ "tu" đứng riêng đứng cạnh một chữ bắt đầu
+    # bằng "ốt". Dạng đúng nằm ngay hai câu sau trong cùng đoạn: "chính con rắn được
+    # tuốt ra từ lớp da".
+    "tu ốt ra": "tuốt ra",
     # Dòng này còn mất cả dấu cách trước tên riêng và tách tên thành nhiều mảnh.
     "làN an di sen a": "là Nandisena",
     # Pts II: glyph tiếng Việt bị đảo vị trí dấu và tách ngay trước ký tự cuối.
@@ -805,6 +825,8 @@ def vi_words() -> set[str]:
 # đều phải dính liền chữ, nên dấu gạch ngang thật sự (" - " có cách hai bên, như
 # "hữu biên - vô biên") không bị đụng tới.
 _SPLIT_HYPHEN = re.compile(r"(\w) -(\w)|(\w)- (\w)")
+_SPACE_AFTER_OPENING_PUNCTUATION = re.compile(r"(?<=[(\[“‘]) +")
+_SPACE_BEFORE_CLOSING_PUNCTUATION = re.compile(r" +(?=[)\],.;:!?%”’])")
 
 
 # Thứ tự chạy cho `--all`, xếp theo GIÁ TRỊ GIẢM DẦN chứ không theo thứ tự trong tạng.
@@ -969,6 +991,12 @@ def mend_spacing(text: str) -> str:
             text,
             flags=re.UNICODE,
         )
+
+    # Khoảng trắng do text layer PDF chèn sát dấu ngoặc/dấu câu không thuộc nội
+    # dung in (`( đoạn kiến)`, `sẽ )`, `tâm .`). Chỉ sửa ở cạnh dấu câu, không
+    # gom khoảng trắng giữa hai từ và không thay đổi xuống dòng/ranh giới đoạn.
+    text = _SPACE_AFTER_OPENING_PUNCTUATION.sub("", text)
+    text = _SPACE_BEFORE_CLOSING_PUNCTUATION.sub("", text)
 
     # Một từ có thể bị tách thành hơn hai mảnh (`n g ười`), nên chạy tới ổn định với
     # trần an toàn 12 vòng.
@@ -1338,9 +1366,14 @@ def main() -> None:
 
     if not args.dry_run:
         migrations = Path(__file__).resolve().parents[1] / "db" / "migrations"
-        for name in ("002_human_translations.sql", "004_match_provenance.sql", "005_import_batches.sql"):
+        for name in (
+            "002_human_translations.sql",
+            "004_match_provenance.sql",
+            "005_import_batches.sql",
+            "006_pdf_heading_boundary.sql",
+        ):
             execute((migrations / name).read_text(encoding="utf-8"))
-        print("đã áp dụng 002 + 004 + 005 (xếp hạng, lịch sử và đợt nạp)")
+        print("đã áp dụng 002 + 004 + 005 + 006 (xếp hạng, lịch sử và đợt nạp)")
 
     # Nhãn của đợt nạp này, để về sau truy được dòng nào do đợt nào ghi.
     method = "global_align" if args.global_align else "strict_unique"

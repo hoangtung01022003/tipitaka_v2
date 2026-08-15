@@ -25,8 +25,10 @@ những số này thì dừng, chưa nạp. Nếu đúng, mới chạy:
 .venv\Scripts\python.exe import_indacanda.py pts2 > nap_pts2.log 2>&1
 type nap_pts2.log
 .venv\Scripts\python.exe dev_batch_stats.py --source indacanda
-.venv\Scripts\python.exe repair_indacanda_spacing.py --apply
+rem repair_indacanda_spacing.py xử lý indacanda + indacanda_full (nối chữ theo từ điển)
+rem và minh_chau (CHỈ luật dấu câu - từ điển nối chữ phá nguồn này, xem CLAUDE.md).
 .venv\Scripts\python.exe repair_indacanda_spacing.py
+.venv\Scripts\python.exe repair_indacanda_spacing.py --apply
 .venv\Scripts\python.exe repair_unicode_artifacts.py
 .venv\Scripts\python.exe audit_indacanda_spacing.py --sample-size 30
 ```
@@ -41,6 +43,64 @@ dir export_data.sql
 Importer không dựng `indacanda_full` từ đợt này: còn trang chưa ghép chắc nên gắn
 nhãn “trọn bài” sẽ sai. Các cặp bị bỏ được lưu vào `human_translation_unresolved`
 để xử lý ở đợt sau, không bị xóa.
+
+## Tách thử bản Indacanda trọn bài theo từng PDF
+
+Ba bộ được tách bằng ba lệnh độc lập; chúng chỉ đọc PDF/DB rồi sinh tệp TXT và
+`manifest.json` trong `indacanda_full_preview`. **Không lệnh nào dưới đây ghi DB.**
+
+```bat
+cd /d D:\code_khach_hang\Lamnhatkhoi_code\nextjs\tipitaka\python_app
+chcp 65001 >nul
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+.venv\Scripts\python.exe extract_indacanda_full_dn2.py > test_full_dn2.log 2>&1
+type test_full_dn2.log
+
+.venv\Scripts\python.exe extract_indacanda_full_pts2.py > test_full_pts2.log 2>&1
+type test_full_pts2.log
+
+.venv\Scripts\python.exe extract_indacanda_full_sn.py > test_full_sn.log 2>&1
+type test_full_sn.log
+```
+
+Mở các thư mục sau để đọc từng bài đã tách:
+
+```txt
+indacanda_full_preview\dn2
+indacanda_full_preview\pts2
+indacanda_full_preview\sn
+```
+
+`PASS` nghĩa là đã có tiêu đề đầu, dòng tiêu đề Việt trên trang đối diện, ranh giới
+bài kế tiếp và cặp trang Pāli-Việt. `REVIEW` không được phép nạp tự động. Bộ tách cắt
+được cả hai bài nằm chung một trang bằng vị trí dòng tiêu đề, giữ phần chữ nhỏ/chú
+thích của PDF và bỏ đầu trang/số trang lặp. Không dùng `import_indacanda.py --force`
+để nạp các preview này.
+
+Mỗi trang Việt còn được kiểm toán độc lập bằng `pdfplumber`: so toàn bộ từ, riêng
+những từ có font nhỏ hơn 85% font trung vị, glyph/Unicode lỗi và vùng ảnh/scan. Nếu
+pypdf thiếu nhưng pdfplumber phủ đủ cả hai chiều, trang dùng `pdfplumber_fallback`;
+nếu hai engine mâu thuẫn hoặc trang cần OCR thì bài bị hạ xuống `REVIEW`. Xem các số
+`small_text_pages`, `fallback_text_pages`, `review_text_pages` và `page_text_audit`
+trong manifest; không chỉ nhìn số bài `PASS`.
+
+Sau khi cả ba manifest đã được duyệt, chạy dry-run DB (chỉ đọc):
+
+```bat
+.venv\Scripts\python.exe apply_indacanda_full_preview.py
+```
+
+Chỉ khi dry-run báo `bị chặn 0` mới ghi trong một transaction:
+
+```bat
+.venv\Scripts\python.exe apply_indacanda_full_preview.py --apply
+```
+
+Importer kiểm lại SHA-256 của PDF/TXT, section/range và passage neo ngay trước khi
+ghi; chỉ nhận `PASS`, luôn bỏ `REVIEW`, không đè `manual`, lưu neo cũ cùng range vào
+lịch sử rồi mới dọn. Nguồn đích duy nhất là `indacanda_full`; các dòng trích đoạn
+`indacanda` không bị sửa.
 
 ## Chạy local
 

@@ -28,8 +28,26 @@
       </div>
       <p class="pali">{{ item.paliText }}</p>
 
-      {# Bản dịch chính thức đứng trước, theo đúng thứ tự nguồn đã chốt. Mỗi nút đọc
-         toàn bài nằm ngay dưới bản dịch tương ứng, không gom thành một cụm ở cuối. #}
+      {# Khách chốt thứ tự: khối AI của ĐÚNG đoạn Pali trên đứng trước, rồi mới tới các
+         bản dịch chính thức của cả bài kinh. AI tải bất đồng bộ nên chỗ này hiện spinner
+         một nhịp trước khi có chữ. #}
+      <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
+      <div
+        class="translationMount"
+        data-translation-card
+        data-passage-id="{{ item.id }}"
+        data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
+        data-loaded="false"
+      >
+        <div class="translationLoading" role="status" aria-live="polite">
+          <span class="miniSpinner" aria-hidden="true"></span>
+          <span>{{ t('results.translationLoading') }}</span>
+        </div>
+      </div>
+      <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
+
+      {# Mỗi nút đọc toàn bài nằm ngay dưới bản dịch tương ứng, không gom thành một cụm
+         ở cuối. Nhãn `entry.label` đã kèm sẵn hình dạng (trọn bài / trích đoạn ngắn). #}
       <div class="resultTitle">{{ t('translation.officialTitle') }}</div>
       {% for entry in item.translationEntries %}
         {% set official = entry.translation %}
@@ -69,23 +87,6 @@
           {% endif %}
         </div>
       {% endfor %}
-
-      {# AI chỉ dịch đoạn Pali đang hiển thị và luôn đứng cuối. Không có nút "toàn bộ
-         bài kinh" cho AI, tránh khiến người đọc tưởng AI đã dịch cả bài. #}
-      <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
-      <div
-        class="translationMount"
-        data-translation-card
-        data-passage-id="{{ item.id }}"
-        data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
-        data-loaded="false"
-      >
-        <div class="translationLoading" role="status" aria-live="polite">
-          <span class="miniSpinner" aria-hidden="true"></span>
-          <span>{{ t('results.translationLoading') }}</span>
-        </div>
-      </div>
-      <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
 
       <div class="notice">{{ item.matchReason }}</div>
     </article>

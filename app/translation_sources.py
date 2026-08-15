@@ -20,14 +20,24 @@ HAI KIỂU GẮN BẢN DỊCH - quyết định phải dùng hàm đọc nào
 - CẤP ĐOẠN (`sujato`, `indacanda`, `brahmali`): mỗi bản ghi ứng đúng một `passage_id`, ba cột
   `document_id/start_sort_order/end_sort_order` bỏ trống. Đọc bằng
   `_fetch_from_human_translations`.
-- CẤP BÀI KINH (`minh_chau`): các vị chia đoạn khác bản gốc nên một bản ghi phủ cả
-  bài, kèm khoảng `sort_order`. `passage_id` chỉ là đoạn neo, KHÔNG phải đoạn duy
-  nhất được phủ - tra theo `passage_id` thì mọi đoạn khác trong bài đều trượt.
+- CẤP BÀI KINH (`minh_chau`, `indacanda_full`): các vị chia đoạn khác bản gốc nên một
+  bản ghi phủ cả bài, kèm khoảng `sort_order`. `passage_id` chỉ là đoạn neo, KHÔNG phải
+  đoạn duy nhất được phủ - tra theo `passage_id` thì mọi đoạn khác trong bài đều trượt.
   Đọc bằng `_fetch_whole_sutta_translation`.
 
-Nguồn nào chưa có dữ liệu thì `source_options` tự đánh dấu `available: False` và
-giao diện hiện "Hiện không có bản dịch chính thức nào". Thêm nguồn mới chỉ cần
-đăng ký hàm đọc đúng kiểu ở `HUMAN_TRANSLATION_FETCHERS`.
+MỘT DỊCH GIẢ Ở GIAO DIỆN ≠ MỘT NGUỒN TRONG DB
+----------------------------------------------
+Hai kiểu gắn ở trên là chuyện lưu trữ, không phải chuyện người đọc cần biết. `indacanda`
+và `indacanda_full` là cùng một bản dịch ở hai hình dạng, và khi được phơi ra thành hai
+option thì sinh đúng lỗi khách báo: hai dòng cùng tên dịch giả, một bấm được, một xám
+"(chưa có dữ liệu)". `TRANSLATOR_SOURCES` gộp chúng lại thành MỘT dịch giả; hình dạng
+nào đang được hiển thị thì nói bằng hậu tố nhãn (`SHAPE_SUFFIXES`), tính theo dữ liệu
+thật của đúng bài kinh đó chứ không phải một chuỗi cố định.
+
+Dịch giả nào chưa có dữ liệu ở BẤT KỲ hình dạng nào thì `source_options` mới đánh dấu
+`available: False` và giao diện hiện "Hiện không có bản dịch chính thức nào". Thêm nguồn
+mới cần hai bước: đăng ký hàm đọc đúng kiểu ở `HUMAN_TRANSLATION_FETCHERS`, và gắn nó
+vào một dịch giả trong `TRANSLATOR_SOURCES`.
 """
 
 
@@ -38,8 +48,35 @@ from .i18n import normalize_language, t
 
 AI_SOURCE = "ai"
 
-# Nhãn của từng nguồn theo ngôn ngữ giao diện, đúng như khách liệt kê trong yêu cầu.
-SOURCE_LABELS: dict[str, dict[str, str]] = {
+# ── DỊCH GIẢ (giao diện) ↔ NGUỒN (DB) ────────────────────────────────────────
+# Một dịch giả ở giao diện có thể ứng với NHIỀU nguồn trong DB. Hiện chỉ có một ca:
+# `indacanda` và `indacanda_full` là CÙNG một bản dịch, lưu hai hình dạng vì khoá
+# `(passage_id, source)` không cho một nguồn vừa giữ bản cấp đoạn vừa giữ bản cả bài.
+#
+# Trước đây hai nguồn ấy được phơi thẳng ra giao diện thành hai option, nên người đọc
+# thấy hai dòng cùng tên một dịch giả - một bấm được, một xám "(chưa có dữ liệu)" -
+# đúng lỗi khách báo. Đó là chi tiết lưu trữ nội bộ rò ra mặt người dùng: bài kinh nào
+# chưa có bản trọn bài thì option kia trông như hỏng, dù bản trích đoạn vẫn đọc tốt.
+#
+# Ghép ở tầng này thì `indacanda_full` thành BẢN NÂNG CẤP của `indacanda`: có dữ liệu
+# trọn bài thì hiện trọn bài, chưa có thì ghép từ các đoạn - một option duy nhất, luôn
+# bấm được. Hai nguồn trong DB vẫn giữ nguyên, không xoá cái nào.
+TRANSLATOR_SOURCES: dict[str, tuple[str, ...]] = {
+    # Thứ tự trong tuple là thứ tự ƯU TIÊN khi cùng một đoạn có cả hai hình dạng.
+    "indacanda": ("indacanda_full", "indacanda"),
+    "minh_chau": ("minh_chau",),
+    "sujato": ("sujato",),
+    "brahmali": ("brahmali",),
+}
+SOURCE_TO_TRANSLATOR: dict[str, str] = {
+    source_id: translator_id
+    for translator_id, source_ids in TRANSLATOR_SOURCES.items()
+    for source_id in source_ids
+}
+
+# Tên dịch giả, KHÔNG kèm hình dạng - hình dạng do `SHAPE_SUFFIXES` ghép vào lúc hiển
+# thị, vì cùng một dịch giả có bài trọn vẹn có bài chỉ có trích đoạn.
+TRANSLATOR_LABELS: dict[str, dict[str, str]] = {
     AI_SOURCE: {
         "vi": "Công cụ hỗ trợ ngôn ngữ bằng trí tuệ nhân tạo AI",
         "en": "AI-powered language support tools",
@@ -51,21 +88,14 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
         "my": "အရှင် သစ်ချ် မင်းချောင် ၏ ဘာသာပြန်",
     },
     "indacanda": {
-        "vi": "Bản dịch của Tỳ Khưu Indacanda (trích đoạn ngắn)",
-        "en": "Translation by Bhikkhu Indacanda (short excerpt)",
-        "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန် (အပိုဒ်တို)",
+        "vi": "Bản dịch của Tỳ Khưu Indacanda",
+        "en": "Translation by Bhikkhu Indacanda",
+        "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန်",
     },
     "sujato": {
         "vi": "Bản dịch Tiếng Anh của Bhikkhu Sujato",
         "en": "English translation by Bhikkhu Sujato",
         "my": "ဘိက္ခု သုဇာတ ၏ အင်္ဂလိပ်ဘာသာပြန်",
-    },
-    # Cùng người dịch với `indacanda` nhưng gắn theo CẢ BÀI KINH, nên nhãn phải nói rõ
-    # để người đọc biết chọn cái nào - xem chú thích ở `HUMAN_TRANSLATION_FETCHERS`.
-    "indacanda_full": {
-        "vi": "Bản dịch của Tỳ Khưu Indacanda (toàn bộ bài kinh)",
-        "en": "Translation by Bhikkhu Indacanda (whole discourse)",
-        "my": "ဘိက္ခု ဣန္ဒစန္ဒ ၏ ဘာသာပြန် (ဒေသနာတော် အပြည့်)",
     },
     # Nhãn có nói rõ "Tạng Luật": đây là nguồn duy nhất chỉ phủ một tạng, mà Ngài
     # Sujato lại không dịch Luật nên không có nguồn nào khác lấp vào chỗ đó.
@@ -76,31 +106,68 @@ SOURCE_LABELS: dict[str, dict[str, str]] = {
     },
 }
 
+# Khách yêu cầu nhãn phải nói rõ người đọc đang xem trọn bài hay chỉ một khúc, và áp
+# cho MỌI bản dịch của người dịch - cả tiếng Anh lẫn tiếng Việt - chứ không riêng
+# Indacanda. Riêng AI thì giữ nguyên lối chia theo đoạn nên không mang hậu tố nào.
+WHOLE_SHAPE = "whole"
+EXCERPT_SHAPE = "excerpt"
+SHAPE_SUFFIXES: dict[str, dict[str, str]] = {
+    WHOLE_SHAPE: {
+        "vi": " (toàn bộ bài kinh)",
+        "en": " (whole discourse)",
+        "my": " (ဒေသနာတော် အပြည့်)",
+    },
+    EXCERPT_SHAPE: {
+        "vi": " (trích đoạn ngắn trong bài kinh)",
+        "en": " (short excerpt from the discourse)",
+        "my": " (ဒေသနာတော်မှ အပိုဒ်တို)",
+    },
+}
+
+# Các nguồn DB gắn theo CẢ BÀI KINH (có `document_id` + khoảng `sort_order`), đối lại
+# với các nguồn gắn theo từng đoạn. Quyết định phải dùng hàm đọc nào - xem docstring
+# đầu file và `HUMAN_TRANSLATION_FETCHERS`.
+WHOLE_SUTTA_DB_SOURCES = frozenset({"minh_chau", "indacanda_full"})
+
 # Ngôn ngữ mà mỗi bản dịch của người dịch được viết ra.
 SOURCE_LANGUAGE = {
     "minh_chau": "vi",
     "indacanda": "vi",
-    "indacanda_full": "vi",
     "sujato": "en",
     "brahmali": "en",
 }
 
-# Thứ tự hiển thị do khách chốt: các bản dịch chính thức trước, AI của riêng đoạn
-# kết quả ở cuối. `indacanda` và `indacanda_full` phải đứng cạnh nhau vì cùng một
-# dịch giả nhưng khác hình dạng dữ liệu.
-SOURCE_ORDER = ("indacanda", "indacanda_full", "minh_chau", "sujato", "brahmali", AI_SOURCE)
-WHOLE_SUTTA_SOURCES = frozenset({"minh_chau", "indacanda_full"})
+# Thứ tự hiển thị các dịch giả. AI không nằm trong danh sách này: khách chốt khối AI
+# đứng RIÊNG và đứng TRƯỚC khối bản dịch chính thức (xem `results.html`).
+TRANSLATOR_ORDER = ("indacanda", "minh_chau", "sujato", "brahmali")
+# Giữ tên cũ cho phần còn lại của ứng dụng; AI vẫn xếp cuối trong danh sách gộp.
+SOURCE_ORDER = TRANSLATOR_ORDER + (AI_SOURCE,)
 
 
-def source_label(source_id: str, language: str) -> str:
-    labels = SOURCE_LABELS.get(source_id, {})
+def source_label(source_id: str, language: str, shape: str | None = None) -> str:
+    """Nhãn hiển thị của một dịch giả, kèm hình dạng bản dịch nếu biết.
+
+    `shape` là `WHOLE_SHAPE`/`EXCERPT_SHAPE`, do nơi gọi xác định từ dữ liệu thật của
+    đúng bài kinh đó. Không truyền thì trả về tên trần - dùng cho dropdown chọn nguồn,
+    nơi chưa biết bài kinh nào.
+    """
     language = normalize_language(language)
-    return labels.get(language) or labels.get("vi") or source_id
+    translator_id = SOURCE_TO_TRANSLATOR.get(source_id, source_id)
+    labels = TRANSLATOR_LABELS.get(translator_id, {})
+    label = labels.get(language) or labels.get("vi") or translator_id
+    if shape and translator_id != AI_SOURCE:
+        suffixes = SHAPE_SUFFIXES.get(shape, {})
+        label += suffixes.get(language) or suffixes.get("vi") or ""
+    return label
 
 
 def normalize_source(value: str | None) -> str:
     candidate = str(value or "").strip().lower()
-    return candidate if candidate in SOURCE_LABELS else AI_SOURCE
+    # Trang đã mở sẵn trong trình duyệt và bookmark cũ còn gửi `indacanda_full`; ánh xạ
+    # về đúng dịch giả thay vì rơi về AI, nếu không người đọc bấm nút cũ sẽ thấy bản
+    # dịch AI hiện ra thay cho bản của dịch giả họ chọn.
+    candidate = SOURCE_TO_TRANSLATOR.get(candidate, candidate)
+    return candidate if candidate in TRANSLATOR_LABELS else AI_SOURCE
 
 
 def sources_with_data() -> frozenset[str]:
@@ -127,12 +194,16 @@ def source_options(language: str) -> list[dict[str, object]]:
     available = sources_with_data()
     return [
         {
-            "value": source_id,
-            "label": source_label(source_id, language),
-            "available": source_id == AI_SOURCE or source_id in available,
-            "language": SOURCE_LANGUAGE.get(source_id),
+            "value": translator_id,
+            "label": source_label(translator_id, language),
+            # Một dịch giả còn dùng được khi BẤT KỲ hình dạng nào của họ có dữ liệu.
+            # Xét từng nguồn DB riêng lẻ chính là thứ sinh ra option Indacanda thứ hai
+            # luôn xám mà khách đã báo.
+            "available": translator_id == AI_SOURCE
+            or any(source_id in available for source_id in TRANSLATOR_SOURCES.get(translator_id, ())),
+            "language": SOURCE_LANGUAGE.get(translator_id),
         }
-        for source_id in SOURCE_ORDER
+        for translator_id in SOURCE_ORDER
     ]
 
 
@@ -170,6 +241,7 @@ def official_translations_for(passage_ids: list[str], language: str) -> dict[str
         grouped.setdefault(str(row["passage_id"]), []).append(
             {
                 "source": row["source"],
+                "translator": SOURCE_TO_TRANSLATOR.get(str(row["source"]), str(row["source"])),
                 "label": source_label(str(row["source"]), language),
                 "language": row["language"],
                 "text": row["translated_text"],
@@ -246,11 +318,44 @@ def _excerpt(text: str, limit: int, position: float | None = None) -> tuple[str,
     return excerpt, True, start > 0
 
 
+def _join_with_gap_markers(
+    chosen: list[tuple[int, dict]], total: int, language: str
+) -> tuple[str, int]:
+    """Ghép các đoạn dịch rời rạc, chèn mốc tại đúng chỗ bản dịch bị hụt.
+
+    Bản cấp đoạn khớp 70-95% số đoạn, nên nối thẳng bằng `"\\n\\n".join` sẽ dán hai
+    đoạn không liền nhau lại làm một - người đọc không thấy có gì bất thường và tưởng
+    mình đang đọc mạch văn liên tục. Khách báo đúng triệu chứng đó: "bấm xem toàn bộ
+    thì bản dịch bị thiếu so với bản Pali gốc".
+
+    Con số phần trăm ở tiêu đề chỉ nói THIẾU BAO NHIÊU; mốc này nói THIẾU Ở ĐÂU. Các
+    đoạn hụt liền nhau gộp thành một mốc để bản dịch phủ thưa không biến thành một
+    rừng mốc chen giữa từng câu.
+    """
+    ordered = sorted(chosen, key=lambda pair: pair[0])
+    pieces: list[str] = []
+    missing = 0
+    previous = -1
+    for index, entry in ordered:
+        gap = index - previous - 1
+        if gap > 0:
+            missing += gap
+            pieces.append(t(language, "translation.gapPassages", count=gap))
+        pieces.append(entry["text"])
+        previous = index
+    trailing = total - 1 - previous
+    if trailing > 0:
+        missing += trailing
+        pieces.append(t(language, "translation.gapPassages", count=trailing))
+    return "\n\n".join(pieces), missing
+
+
 def official_translations_merged(
     passage_ids: list[str],
     language: str,
     passage_level_only: bool = False,
     whole_sutta_excerpt_chars: int | None = None,
+    covers_whole_sutta: bool = False,
 ) -> list[dict]:
     """Bản dịch cho một NHÓM đoạn liền nhau, ghép lại theo đúng thứ tự đã truyền vào.
 
@@ -270,54 +375,77 @@ def official_translations_merged(
     vẫn nhận đủ nguyên văn.
     """
     grouped = official_translations_for(passage_ids, language)
-    merged: dict[str, dict] = {}
-    seen_whole_sutta: set[str] = set()
-    for passage_id in passage_ids:
+
+    # Gom theo DỊCH GIẢ chứ không theo nguồn DB, rồi trong mỗi dịch giả tách theo hình
+    # dạng. Có bản trọn bài thì dùng bản trọn bài và bỏ hẳn bản cấp đoạn của cùng người
+    # ấy - nếu không, một dịch giả sẽ hiện ra hai lần với cùng một nội dung.
+    per_translator: dict[str, dict[str, list[tuple[int, dict]]]] = {}
+    for index, passage_id in enumerate(passage_ids):
         for entry in grouped.get(str(passage_id), []):
             if passage_level_only and not entry["passageLevel"]:
                 continue
-            bucket = merged.setdefault(
-                entry["source"],
-                {
-                    "label": entry["label"],
-                    "parts": [],
-                    "wholeSutta": not entry["passageLevel"],
-                    "positions": [],
-                    "coveredPassages": set(),
-                },
+            shape = EXCERPT_SHAPE if entry["passageLevel"] else WHOLE_SHAPE
+            per_translator.setdefault(entry["translator"], {}).setdefault(shape, []).append(
+                (index, entry)
             )
-            bucket["coveredPassages"].add(str(passage_id))
-            if not entry["passageLevel"]:
-                if entry["source"] in seen_whole_sutta:
-                    # Vẫn ghi nhận đoạn này được khoảng của bản toàn bài bao phủ,
-                    # nhưng không lặp nguyên văn bản dịch thêm một lần nữa.
-                    continue
-                seen_whole_sutta.add(entry["source"])
-            bucket["parts"].append(entry["text"])
-            if entry.get("position") is not None:
-                bucket["positions"].append(entry["position"])
 
     items = []
-    for source, value in merged.items():
-        text = "\n\n".join(value["parts"])
+    for translator_id, shapes in per_translator.items():
+        shape = WHOLE_SHAPE if WHOLE_SHAPE in shapes else EXCERPT_SHAPE
+        chosen = shapes[shape]
+        covered = {index for index, _ in chosen}
+        positions = [
+            entry["position"] for _, entry in chosen if entry.get("position") is not None
+        ]
+
         truncated = shifted = False
-        if value["wholeSutta"] and whole_sutta_excerpt_chars:
-            # Doan trich hien thi hay trai qua vai doan Pali; ngam cua so vao GIUA khoang
-            # do de phu ca cum, thay vi bam vao mot doan roi lech sang hai ben.
-            spots = value["positions"]
-            centre = (min(spots) + max(spots)) / 2 if spots else None
-            text, truncated, shifted = _excerpt(text, whole_sutta_excerpt_chars, centre)
-        coverage_count = len(value["coveredPassages"])
+        missing_passages = 0
+        if shape == WHOLE_SHAPE:
+            # Một bản ghi phủ cả bài, nên chỉ in nguyên văn MỘT lần dù nhiều đoạn của
+            # trang kết quả cùng rơi vào khoảng của nó.
+            text = chosen[0][1]["text"]
+            if whole_sutta_excerpt_chars:
+                # Doan trich hien thi hay trai qua vai doan Pali; ngam cua so vao GIUA
+                # khoang do de phu ca cum, thay vi bam vao mot doan roi lech sang hai ben.
+                centre = (min(positions) + max(positions)) / 2 if positions else None
+                text, truncated, shifted = _excerpt(text, whole_sutta_excerpt_chars, centre)
+        else:
+            text, missing_passages = _join_with_gap_markers(chosen, len(passage_ids), language)
+
+        coverage_count = len(covered)
         coverage_total = len(passage_ids)
         coverage_percent = round(coverage_count * 100 / coverage_total) if coverage_total else 0
+
+        # `shape` là hình dạng LƯU TRỮ; nhãn phải nói hình dạng NGƯỜI ĐỌC NHẬN ĐƯỢC.
+        # Hai thứ đó lệch nhau đúng một chỗ: trang đọc truyền vào toàn bộ đoạn của bài,
+        # nên một nguồn cấp đoạn phủ đủ 100% thì thứ hiện ra chính là trọn bài - gọi nó
+        # là "trích đoạn ngắn" là nói ngược với chữ đang nằm trên màn hình. Đo được:
+        # 3.513 bài có Sujato đều bị dán nhãn trích đoạn, mà 44/60 mẫu phủ đủ 100%.
+        # Trang kết quả KHÔNG bật cờ này vì ở đó `passage_ids` chỉ là mấy đoạn của trích
+        # dẫn, phủ đủ chúng không có nghĩa là phủ đủ bài.
+        label_shape = shape
+        if (
+            shape == EXCERPT_SHAPE
+            and covers_whole_sutta
+            and coverage_total
+            and coverage_count == coverage_total
+        ):
+            label_shape = WHOLE_SHAPE
+
         items.append(
             {
-                "source": source,
-                "label": value["label"],
+                "source": translator_id,
+                "label": source_label(translator_id, language, label_shape),
+                "shape": shape,
+                "labelShape": label_shape,
                 "text": text,
-                "wholeSutta": value["wholeSutta"],
+                "wholeSutta": shape == WHOLE_SHAPE,
                 "truncated": truncated,
                 "shifted": shifted,
+                # Số đoạn Pali đang hiển thị mà bản dịch này không phủ. Khách báo "bản
+                # dịch bị thiếu so với bản Pali gốc" nên con số phải lộ ra, và chỗ thiếu
+                # phải được đánh dấu ngay trong nội dung chứ không chỉ nói tổng quát.
+                "missingPassages": missing_passages,
                 "coverageCount": coverage_count,
                 "coverageTotal": coverage_total,
                 "coveragePercent": coverage_percent,
@@ -364,13 +492,32 @@ def sources_for_sections(section_ids: list[str], language: str) -> dict[str, lis
         [ids],
     )
     order = {source_id: index for index, source_id in enumerate(SOURCE_ORDER)}
-    grouped: dict[str, list[dict]] = {}
+    # Gộp về dịch giả: nút "Xem toàn bộ bài kinh" phải bật khi BẤT KỲ hình dạng nào của
+    # dịch giả ấy có dữ liệu cho bài này. Xét riêng từng nguồn DB chính là thứ làm nút
+    # Indacanda thứ hai luôn xám "(chưa có dữ liệu)" bên cạnh nút Indacanda bấm được.
+    shapes_by_section: dict[str, dict[str, set[str]]] = {}
     for row in rows:
-        grouped.setdefault(str(row["section_id"]), []).append(
-            {"source": row["source"], "label": source_label(str(row["source"]), language)}
-        )
-    for items in grouped.values():
+        source_id = str(row["source"])
+        translator_id = SOURCE_TO_TRANSLATOR.get(source_id, source_id)
+        shape = WHOLE_SHAPE if source_id in WHOLE_SUTTA_DB_SOURCES else EXCERPT_SHAPE
+        shapes_by_section.setdefault(str(row["section_id"]), {}).setdefault(
+            translator_id, set()
+        ).add(shape)
+
+    grouped: dict[str, list[dict]] = {}
+    for section_id, translators in shapes_by_section.items():
+        items = []
+        for translator_id, shapes in translators.items():
+            shape = WHOLE_SHAPE if WHOLE_SHAPE in shapes else EXCERPT_SHAPE
+            items.append(
+                {
+                    "source": translator_id,
+                    "shape": shape,
+                    "label": source_label(translator_id, language, shape),
+                }
+            )
         items.sort(key=lambda item: order.get(str(item["source"]), 99))
+        grouped[section_id] = items
     return grouped
 
 
@@ -476,10 +623,24 @@ HUMAN_TRANSLATION_FETCHERS: dict[str, Callable[[str | None, str, str], dict | No
 
 
 def resolve_human_translation(source_id: str, passage_id: str | None, text: str, language: str) -> dict | None:
-    fetcher = HUMAN_TRANSLATION_FETCHERS.get(source_id)
-    if not fetcher:
-        return None
-    try:
-        return fetcher(passage_id, text, language)
-    except Exception:  # noqa: BLE001 - nguồn phụ hỏng không được làm hỏng cả request
-        return None
+    """Bản dịch của một DỊCH GIẢ cho đoạn này, thử lần lượt các hình dạng họ có.
+
+    `TRANSLATOR_SOURCES` xếp bản trọn bài trước bản cấp đoạn, nên đoạn nào đã có bản
+    trọn bài thì người đọc nhận được trọn bài; chưa có thì rơi xuống bản cấp đoạn thay
+    vì báo "chưa có dữ liệu" như trước.
+    """
+    for db_source in TRANSLATOR_SOURCES.get(source_id, (source_id,)):
+        fetcher = HUMAN_TRANSLATION_FETCHERS.get(db_source)
+        if not fetcher:
+            continue
+        try:
+            resolved = fetcher(passage_id, text, language)
+        except Exception:  # noqa: BLE001 - nguồn phụ hỏng không được làm hỏng cả request
+            continue
+        if resolved:
+            resolved["shape"] = (
+                WHOLE_SHAPE if db_source in WHOLE_SUTTA_DB_SOURCES else EXCERPT_SHAPE
+            )
+            resolved["label"] = source_label(source_id, language, resolved["shape"])
+            return resolved
+    return None

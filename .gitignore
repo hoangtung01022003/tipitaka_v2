@@ -70,4 +70,5 @@ Thumbs.db
 tmp/
 temp/
 .tmp/
+indacanda_full_preview/
 export_data_before_spacing_fix.sql

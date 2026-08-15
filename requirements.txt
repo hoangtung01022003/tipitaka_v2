@@ -12,3 +12,4 @@ itsdangerous==2.2.0
 # project khong co file requirements rieng cho cong cu, ma thieu no thi dung venv sach
 # chay importer se bao ModuleNotFoundError.
 pypdf==6.15.0
+pdfplumber==0.11.9

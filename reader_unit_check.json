@@ -1,0 +1,230 @@
+{
+  "sections_total": 29874,
+  "sections_ok": 8413,
+  "sections_fallback": 21461,
+  "sections_self_unit": 6340,
+  "sections_promoted": 2073,
+  "passages_total": 463175,
+  "passages_fallback": 354210,
+  "by_corpus": {
+    "att": {
+      "passages": 107271,
+      "fallback": 100201
+    },
+    "nrf": {
+      "passages": 114635,
+      "fallback": 111639
+    },
+    "mul": {
+      "passages": 159007,
+      "fallback": 66873
+    },
+    "tik": {
+      "passages": 82262,
+      "fallback": 75497
+    }
+  },
+  "worst_files": [
+    [
+      "e0703n.nrf.xml",
+      15620
+    ],
+    [
+      "abh06t.nrf.xml",
+      15165
+    ],
+    [
+      "vin10t.nrf.xml",
+      12762
+    ],
+    [
+      "e1208n.nrf.xml",
+      9896
+    ],
+    [
+      "s0513a4.att.xml",
+      6548
+    ],
+    [
+      "s0508a2.att.xml",
+      6405
+    ],
+    [
+      "s0514a3.att.xml",
+      6385
+    ],
+    [
+      "e0201n.nrf.xml",
+      5752
+    ],
+    [
+      "abh03m10.mul.xml",
+      5455
+    ],
+    [
+      "abh03m6.mul.xml",
+      5320
+    ],
+    [
+      "s0514a1.att.xml",
+      5031
+    ],
+    [
+      "s0508a1.att.xml",
+      4986
+    ],
+    [
+      "s0513a3.att.xml",
+      4550
+    ],
+    [
+      "vin11t.nrf.xml",
+      4547
+    ],
+    [
+      "s0509a.att.xml",
+      4372
+    ],
+    [
+      "abh03m4.mul.xml",
+      4208
+    ],
+    [
+      "s0511a.att.xml",
+      4029
+    ],
+    [
+      "abh03m11.mul.xml",
+      3970
+    ],
+    [
+      "e0809n.nrf.xml",
+      3918
+    ],
+    [
+      "e0805n.nrf.xml",
+      3898
+    ],
+    [
+      "s0506a.att.xml",
+      3815
+    ],
+    [
+      "s0514a2.att.xml",
+      3627
+    ],
+    [
+      "abh03m5.mul.xml",
+      3557
+    ],
+    [
+      "abh03m9.mul.xml",
+      3493
+    ],
+    [
+      "s0514m.mul.xml",
+      3422
+    ],
+    [
+      "e0802n.nrf.xml",
+      3381
+    ],
+    [
+      "vin13t.nrf.xml",
+      3300
+    ],
+    [
+      "e0804n.nrf.xml",
+      3240
+    ],
+    [
+      "s0510a.att.xml",
+      3228
+    ],
+    [
+      "e0801n.nrf.xml",
+      3206
+    ],
+    [
+      "s0513m.mul.xml",
+      3162
+    ],
+    [
+      "s0507a.att.xml",
+      3114
+    ],
+    [
+      "vin02m4.mul.xml",
+      3060
+    ],
+    [
+      "e1215n.nrf.xml",
+      3022
+    ],
+    [
+      "s0515m.mul.xml",
+      2888
+    ],
+    [
+      "abh03m8.mul.xml",
+      2881
+    ],
+    [
+      "e0803n.nrf.xml",
+      2876
+    ],
+    [
+      "abh02m.mul.xml",
+      2851
+    ],
+    [
+      "s0513a1.att.xml",
+      2768
+    ],
+    [
+      "abh03m7.mul.xml",
+      2739
+    ],
+    [
+      "abh03m3.mul.xml",
+      2695
+    ],
+    [
+      "e0812n.nrf.xml",
+      2676
+    ],
+    [
+      "e0810n.nrf.xml",
+      2671
+    ],
+    [
+      "s0513a2.att.xml",
+      2664
+    ],
+    [
+      "e1103n.nrf.xml",
+      2611
+    ],
+    [
+      "s0201a.att.xml",
+      2577
+    ],
+    [
+      "e0608n.nrf.xml",
+      2456
+    ],
+    [
+      "s0505a.att.xml",
+      2406
+    ],
+    [
+      "abh09t.nrf.xml",
+      2386
+    ],
+    [
+      "e1101n.nrf.xml",
+      2343
+    ]
+  ],
+  "samples": []
+}

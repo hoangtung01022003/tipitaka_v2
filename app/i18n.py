@@ -83,7 +83,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.aiWarning": "Đây là bản dịch của AI, chưa có sự kiểm chứng.",
         "translation.sourceLabel": "Bản dịch",
         "translation.noOfficial": "Hiện không có bản dịch chính thức nào",
-        "translation.officialTitle": "Bản dịch chính thức của bài kinh chứa đoạn Pali trên",
+        # Chèn vào ĐÚNG chỗ bản dịch cấp đoạn bị hụt so với bản Pali. Con số phần trăm ở
+        # tiêu đề chỉ nói thiếu bao nhiêu; mốc này nói thiếu ở đâu.
+        "translation.gapPassages": "[… thiếu {count} đoạn chưa có bản dịch …]",
+        "translation.officialTitle": "Bản dịch chính thức của bài kinh chứa đoạn kinh Pali trên",
         "translation.aiTitle": "Bản dịch AI của đoạn Pali trên",
         "translation.noData": " (chưa có dữ liệu)",
         # Nguon co ban dich cho bai kinh nhung khong co cho DUNG doan dang hien. Khoi
@@ -94,7 +97,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.brahmaliVinayaOnly": "Nguồn Bhikkhu Brahmali hiện chỉ bao phủ Tạng Luật.",
         "translation.noAbhidhammaCoverage": "Nguồn này chưa bao phủ Tạng Vi Diệu Pháp.",
         "translation.aiOptionHint": "Nguồn này chưa được nạp. Hãy chọn nguồn khác để xem bản dịch.",
-        "translation.wholeSutta": "(bản dịch cả bài kinh — khúc gần đúng với đoạn trên, có thể lệch)",
+        # Nhãn dịch giả đã nói "(toàn bộ bài kinh)" rồi, nên ở đây chỉ còn phần cảnh báo
+        # là khúc đang in ra được cắt gần đúng - đừng lặp lại hình dạng thêm lần nữa.
+        "translation.wholeSutta": "(khúc cắt gần đúng với đoạn trên, có thể lệch)",
         "translation.missingList": "Chưa có bản dịch cho đoạn này: {sources}",
         "translation.wholeSuttaMore": "Bản dịch này gắn theo cả bài kinh nên chỉ cắt được khúc gần đúng — nếu thấy lệch, bấm “Xem toàn bộ bài kinh” bên dưới để đọc trọn bài.",
         "language.label": "Ngôn ngữ",
@@ -167,6 +172,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.aiWarning": "This is an AI translation and has not been verified.",
         "translation.sourceLabel": "Translation",
         "translation.noOfficial": "No official translation is available",
+        "translation.gapPassages": "[… {count} passage(s) not yet translated …]",
         "translation.officialTitle": "Official translations of the discourse containing the Pali passage above",
         "translation.aiTitle": "AI translation of the Pali passage above",
         "translation.noData": " (not imported yet)",
@@ -175,7 +181,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.brahmaliVinayaOnly": "Bhikkhu Brahmali's source currently covers the Vinaya only.",
         "translation.noAbhidhammaCoverage": "This source does not yet cover the Abhidhamma Piṭaka.",
         "translation.aiOptionHint": "This source has not been imported. Pick another source to see a translation.",
-        "translation.wholeSutta": "(whole-discourse translation — approximate section, may be offset)",
+        "translation.wholeSutta": "(approximate section, may be offset)",
         "translation.missingList": "No translation for this passage from: {sources}",
         "translation.wholeSuttaMore": "This translation is attached to the whole discourse, so only an approximate section can be cut — if it looks offset, use “Read the whole discourse” below.",
         "language.label": "Language",
@@ -248,6 +254,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.aiWarning": "ဤသည်မှာ AI ဘာသာပြန်ဖြစ်ပြီး အတည်ပြုထားခြင်း မရှိသေးပါ။",
         "translation.sourceLabel": "ဘာသာပြန်",
         "translation.noOfficial": "တရားဝင်ဘာသာပြန် မရှိသေးပါ",
+        "translation.gapPassages": "[… ဘာသာပြန် မရှိသေးသော အပိုဒ် {count} ခု …]",
         "translation.officialTitle": "အထက်ပါ ပါဠိအပိုဒ်ပါဝင်သည့် သုတ္တန်၏ တရားဝင်ဘာသာပြန်များ",
         "translation.aiTitle": "အထက်ပါ ပါဠိအပိုဒ်၏ AI ဘာသာပြန်",
         "translation.noData": " (ဒေတာ မရှိသေးပါ)",
@@ -256,7 +263,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.brahmaliVinayaOnly": "ဘိက္ခု ဗြဟ္မာလိ၏ ရင်းမြစ်သည် ဝိနည်းပိဋကတ်ကိုသာ လွှမ်းခြုံထားသည်။",
         "translation.noAbhidhammaCoverage": "ဤရင်းမြစ်သည် အဘိဓမ္မာပိဋကတ်ကို မလွှမ်းခြုံသေးပါ။",
         "translation.aiOptionHint": "ဤရင်းမြစ်ကို မထည့်သွင်းရသေးပါ။ အခြားရင်းမြစ်ကို ရွေးပါ။",
-        "translation.wholeSutta": "(သုတ္တန် တစ်ခုလုံး၏ ဘာသာပြန် — ခန့်မှန်း အပိုင်း၊ ရွေ့နေနိုင်သည်)",
+        "translation.wholeSutta": "(ခန့်မှန်း ဖြတ်ထားသော အပိုင်း၊ ရွေ့နေနိုင်သည်)",
         "translation.missingList": "ဤအပိုဒ်အတွက် ဘာသာပြန် မရှိသေးသည်များ - {sources}",
         "translation.wholeSuttaMore": "ဤဘာသာပြန်သည် သုတ္တန်တစ်ခုလုံးနှင့် တွဲထားသဖြင့် ခန့်မှန်းသာ ဖြတ်နိုင်သည် — ရွေ့နေပါက အောက်ရှိ “သုတ္တန် တစ်ခုလုံး ကြည့်ရန်” ကို နှိပ်ပါ။",
         "language.label": "ဘာသာစကား",

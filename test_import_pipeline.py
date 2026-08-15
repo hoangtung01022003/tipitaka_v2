@@ -1,3 +1,7 @@
+import hashlib
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +13,14 @@ from import_indacanda import (
     split_verses,
 )
 from import_sujato import _clean, merged_segment_text
+from indacanda_full_extract import (
+    HeadingHit,
+    Unit,
+    clean_vietnamese_page,
+    find_vietnamese_heading_offset,
+    heading_stem,
+)
+from apply_indacanda_full_preview import load_verified_volume
 
 
 class IndacandaPdfParsingTests(unittest.TestCase):
@@ -176,6 +188,91 @@ class IndacandaPdfParsingTests(unittest.TestCase):
     def test_mend_spacing_repairs_confirmed_private_font_glyph(self):
         self.assertEqual(mend_spacing("pappoṭakojam\uf01e"), "pappoṭakojaṃ")
 
+    def test_mend_spacing_repairs_final_whole_preview_audit(self):
+        broken = (
+            "ở kho ảng giữa, vượt chư ớng ngại trong trư ờng hợp ấy; "
+            "Ngã ( đoạn kiến), điều ấy sẽ ) không xảy ra."
+        )
+
+        self.assertEqual(
+            mend_spacing(broken),
+            "ở khoảng giữa, vượt chướng ngại trong trường hợp ấy; "
+            "Ngã (đoạn kiến), điều ấy sẽ) không xảy ra.",
+        )
+        self.assertEqual(mend_spacing("Tissa Metteyya"), "Tissa Metteyya")
+
+    def test_mend_spacing_repairs_third_audit_batch(self):
+        """Ba ca `audit_indacanda_spacing.py` chặn lại sau đợt vá 2.748 dòng.
+
+        Cả ba đều KHÔNG sửa được bằng từ điển, mỗi ca một lý do khác nhau - xem chú
+        thích tại `_KNOWN_PDF_REPLACEMENTS`.
+        """
+        # Chỗ cắt sai vị trí: nối thẳng ra "nghĩahội", không phải từ nào cả.
+        self.assertEqual(
+            mend_spacing("Thọ, theo ý ngh ĩahội tụ, là ly tham ái."),
+            "Thọ, theo ý nghĩa hội tụ, là ly tham ái.",
+        )
+        # Tách chữ + PDF đọc sai dấu.
+        self.assertEqual(
+            mend_spacing("Dân chúng nói r ẳng: ‘Có các vị ẩn sĩ"),
+            "Dân chúng nói rằng: ‘Có các vị ẩn sĩ",
+        )
+        # Vết tách thuần tuý mà từ điển bó tay vì "tu" và "ốt" đều là từ hợp lệ.
+        self.assertEqual(
+            mend_spacing("người đàn ông có thể tu ốt ra con rắn từ lớp da."),
+            "người đàn ông có thể tuốt ra con rắn từ lớp da.",
+        )
+
+        # Và những cụm KHÔNG được đụng tới: đây là các chuỗi ký tự gần giống ba ca trên
+        # nhưng hoàn toàn hợp lệ. Luật `(?<!\w)…(?!\w)` phải chặn chúng lại.
+        for intact in (
+            # Đây là lý do mục "tu ốt ra" phải lấy cả chữ "ra": "tu" là từ hợp lệ nên
+            # một mục "tu ốt" trần sẽ nuốt luôn câu này.
+            "vị ấy tu ốt đời trong rừng",
+            "nghĩa hội tụ",         # đã đúng sẵn, không được sửa thêm
+            "Dân chúng nói rằng:",  # đã đúng sẵn
+            "một tháng tu ở đó",    # "tu" đứng riêng
+        ):
+            self.assertEqual(mend_spacing(intact), intact, intact)
+
+
+class IndacandaWholePreviewTests(unittest.TestCase):
+    def test_volume_specific_heading_aliases_do_not_loosen_global_matching(self):
+        self.assertEqual(heading_stem("6. Dhammacariyasuttaṃ", "sn"), "kapilasuttam")
+        self.assertEqual(heading_stem("X. Suññakathā", "pts2"), "sunnatakatha")
+        self.assertEqual(heading_stem("I. Mahāpaññākathā", "pts2"), "pannakatha")
+        self.assertEqual(heading_stem("1. Ajitamāṇavapucchā", "sn"), "ajitasuttam")
+
+    def test_vietnamese_heading_offset_can_split_two_units_on_one_page(self):
+        unit = Unit("s2", "doc", "2. Tissametteyyamāṇavapucchā", 5, 1, 2, [])
+        page = (
+            "2. KINH TISSAMETTEYYA\n"
+            "1044. Nội dung bài thứ hai.\n"
+            "3. KINH PUṆṆAKA\n"
+            "1047. Nội dung bài thứ ba.\n"
+        )
+
+        cut = find_vietnamese_heading_offset(
+            "sn", unit, HeadingHit(358, "2. TISSAMETTEYYASUTTAṂ1", 1.0), page
+        )
+
+        self.assertIsNotNone(cut)
+        self.assertEqual(cut[0], 0)
+        self.assertEqual(cut[1], "2. KINH TISSAMETTEYYA")
+
+    def test_cleaner_drops_running_head_but_keeps_small_text(self):
+        raw = (
+            "Trường Bộ II - Đại Phẩm\n"
+            "120. Nội dung chính.\n\n"
+            "1 Chú thích chữ nhỏ thuộc bản gốc.\n"
+        )
+
+        cleaned = clean_vietnamese_page(raw, "dn2")
+
+        self.assertNotIn("Trường Bộ II", cleaned)
+        self.assertIn("120. Nội dung chính.", cleaned)
+        self.assertIn("Chú thích chữ nhỏ", cleaned)
+
     def test_mend_spacing_repairs_confirmed_pts2_glyph_and_name_splits(self):
         broken = (
             "Bất cứ tưỏ ng nào đều không có cốt lỏ i. "
@@ -187,6 +284,57 @@ class IndacandaPdfParsingTests(unittest.TestCase):
             "Bất cứ tưởng nào đều không có cốt lõi. "
             "Đại đức Sārī-putta, Sañjīva và Khāṇukoṇḍañña.",
         )
+
+
+class IndacandaWholeApplyTests(unittest.TestCase):
+    def test_verified_manifest_accepts_matching_hashes_and_rejects_tampered_txt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            volume_dir = root / "dn2"
+            volume_dir.mkdir()
+            pdf_path = root / "11_D_02.pdf"
+            pdf_path.write_bytes(b"test-pdf")
+            text = "Bản dịch tiếng Việt đã được kiểm tra."
+            text_path = volume_dir / "001_test.txt"
+            text_path.write_text(text + "\n", encoding="utf-8")
+            manifest = {
+                "schema_version": 1,
+                "mode": "preview_only_no_database_writes",
+                "volume": "dn2",
+                "source_pdf": str(pdf_path),
+                "source_pdf_sha256": hashlib.sha256(b"test-pdf").hexdigest(),
+                "total_units": 1,
+                "pass_units": 1,
+                "review_units": 0,
+                "review_text_pages": 0,
+                "items": [
+                    {
+                        "status": "PASS",
+                        "title": "Test",
+                        "section_id": "00000000-0000-0000-0000-000000000001",
+                        "document_id": "00000000-0000-0000-0000-000000000002",
+                        "start_sort_order": 1,
+                        "end_sort_order": 2,
+                        "vietnamese_pages": [2],
+                        "text_characters": len(text),
+                        "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        "output_file": text_path.name,
+                        "title_match_score": 1.0,
+                    }
+                ],
+            }
+            (volume_dir / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+            )
+
+            items, reviews, manifest_hash = load_verified_volume("dn2", root)
+
+            self.assertEqual(len(items), 1)
+            self.assertEqual(reviews, 0)
+            self.assertEqual(len(manifest_hash), 64)
+            text_path.write_text("đã bị sửa\n", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "TXT đã đổi"):
+                load_verified_volume("dn2", root)
 
 
 class SujatoCommentTests(unittest.TestCase):
@@ -212,6 +360,23 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertTrue(_is_reader_unit_title("2. Uposathakkhandhako"))
         self.assertTrue(_is_reader_unit_title("10. Nandasikkhāpadaṃ"))
         self.assertFalse(_is_reader_unit_title("3. Tikanipāta"))
+
+    def test_reader_unit_ignores_the_printed_ordinal_in_brackets(self):
+        """Jātaka in kèm số thứ tự trong phẩm ở cuối tên, che mất đuôi `jatakam`."""
+        from app.main import _is_reader_unit_title
+
+        self.assertTrue(_is_reader_unit_title("543. Bhūridattajātakaṃ (6)"))
+        self.assertTrue(_is_reader_unit_title("545. Mahānāradakassapajātakaṃ (8)"))
+        self.assertTrue(_is_reader_unit_title("537. Mahāsutasomajātakaṃ (5)"))
+
+        # Bỏ số trong ngoặc KHÔNG được kéo theo các chương vào: đuôi thật vẫn phải nằm
+        # trong danh sách đã audit, nếu không thì "toàn bộ bài kinh" hoá ra cả một phẩm.
+        self.assertFalse(_is_reader_unit_title("22. Mahānipāto (3)"))
+        self.assertFalse(_is_reader_unit_title("1. Ekakanipāto (1)"))
+        self.assertFalse(_is_reader_unit_title("4. Rājavaggo (2)"))
+        # Chỉ bỏ ở CUỐI, và chỉ khi trong ngoặc thuần chữ số.
+        self.assertFalse(_is_reader_unit_title("(6) 1. Puggalavaggo"))
+        self.assertFalse(_is_reader_unit_title("3. Tikanipāta (ii)"))
 
     @patch("app.main.official_translations_merged", return_value=[])
     @patch("app.main.fetch_all")
@@ -265,47 +430,157 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertEqual(fetch_all.call_args_list[1].args[1], ["doc", 4, 207])
 
 
+def _entry(source, text, whole=False, position=None):
+    """Một dòng như `official_translations_for` trả về."""
+    from app.translation_sources import SOURCE_TO_TRANSLATOR
+
+    return {
+        "source": source,
+        "translator": SOURCE_TO_TRANSLATOR.get(source, source),
+        "label": source,
+        "text": text,
+        "passageLevel": not whole,
+        "position": position,
+    }
+
+
 class TranslationCoverageTests(unittest.TestCase):
     def test_official_source_order_puts_ai_last(self):
         from app.translation_sources import AI_SOURCE, SOURCE_ORDER
 
+        # `indacanda_full` KHÔNG còn là một mục riêng ở giao diện: nó là hình dạng thứ
+        # hai của cùng dịch giả `indacanda`, gộp lại trong `TRANSLATOR_SOURCES`.
         self.assertEqual(
             SOURCE_ORDER,
-            ("indacanda", "indacanda_full", "minh_chau", "sujato", "brahmali", AI_SOURCE),
+            ("indacanda", "minh_chau", "sujato", "brahmali", AI_SOURCE),
         )
 
+    def test_legacy_indacanda_full_maps_back_to_the_translator(self):
+        from app.translation_sources import normalize_source
+
+        # Trang đang mở sẵn trong trình duyệt và bookmark cũ còn gửi giá trị này; rơi về
+        # AI thì người đọc bấm nút cũ lại thấy bản dịch máy thay cho bản của dịch giả.
+        self.assertEqual(normalize_source("indacanda_full"), "indacanda")
+        self.assertEqual(normalize_source("indacanda"), "indacanda")
+        self.assertEqual(normalize_source("khong-co-that"), "ai")
+
+    def test_label_states_the_shape_for_every_translator(self):
+        from app.translation_sources import EXCERPT_SHAPE, WHOLE_SHAPE, source_label
+
+        self.assertEqual(
+            source_label("indacanda", "vi", WHOLE_SHAPE),
+            "Bản dịch của Tỳ Khưu Indacanda (toàn bộ bài kinh)",
+        )
+        self.assertEqual(
+            source_label("indacanda", "vi", EXCERPT_SHAPE),
+            "Bản dịch của Tỳ Khưu Indacanda (trích đoạn ngắn trong bài kinh)",
+        )
+        # Khách yêu cầu áp cho cả bản tiếng Anh, không riêng Indacanda.
+        self.assertTrue(
+            source_label("sujato", "en", EXCERPT_SHAPE).endswith(" (short excerpt from the discourse)")
+        )
+        # Riêng AI giữ nguyên lối chia theo đoạn nên không mang hậu tố nào.
+        self.assertEqual(source_label("ai", "vi", WHOLE_SHAPE), source_label("ai", "vi"))
+        # Không biết hình dạng thì trả tên trần, dùng cho dropdown chọn nguồn.
+        self.assertEqual(source_label("indacanda", "vi"), "Bản dịch của Tỳ Khưu Indacanda")
+
     @patch("app.translation_sources.official_translations_for")
-    def test_passage_source_reports_partial_coverage(self, official_for):
+    def test_two_indacanda_shapes_collapse_into_one_option(self, official_for):
+        # Đúng cảnh khách báo: cùng một bài vừa có bản trọn bài vừa có bản cấp đoạn.
         official_for.return_value = {
-            "p1": [
-                {
-                    "source": "indacanda",
-                    "label": "Indacanda",
-                    "text": "Một",
-                    "passageLevel": True,
-                    "position": None,
-                }
-            ],
-            "p3": [
-                {
-                    "source": "indacanda",
-                    "label": "Indacanda",
-                    "text": "Ba",
-                    "passageLevel": True,
-                    "position": None,
-                }
-            ],
+            "p1": [_entry("indacanda", "Đoạn một"), _entry("indacanda_full", "Trọn bài", whole=True)],
+            "p2": [_entry("indacanda", "Đoạn hai")],
+        }
+
+        from app.translation_sources import official_translations_merged
+
+        result = official_translations_merged(["p1", "p2"], "vi")
+
+        self.assertEqual(len(result), 1, "một dịch giả chỉ được hiện một lần")
+        self.assertEqual(result[0]["source"], "indacanda")
+        self.assertTrue(result[0]["wholeSutta"])
+        self.assertEqual(result[0]["text"], "Trọn bài")
+        self.assertIn("(toàn bộ bài kinh)", result[0]["label"])
+
+    @patch("app.translation_sources.official_translations_for")
+    def test_translator_falls_back_to_passage_shape(self, official_for):
+        official_for.return_value = {"p1": [_entry("indacanda", "Đoạn một")]}
+
+        from app.translation_sources import official_translations_merged
+
+        result = official_translations_merged(["p1"], "vi")
+
+        # Chưa có bản trọn bài thì vẫn phải dùng được, không hiện "(chưa có dữ liệu)".
+        self.assertEqual(result[0]["source"], "indacanda")
+        self.assertFalse(result[0]["wholeSutta"])
+        self.assertIn("(trích đoạn ngắn trong bài kinh)", result[0]["label"])
+
+    @patch("app.translation_sources.official_translations_for")
+    def test_passage_source_marks_where_the_translation_is_missing(self, official_for):
+        official_for.return_value = {
+            "p1": [_entry("indacanda", "Một")],
+            "p3": [_entry("indacanda", "Ba")],
         }
 
         from app.translation_sources import official_translations_merged
 
         result = official_translations_merged(["p1", "p2", "p3"], "vi")
 
-        self.assertEqual(result[0]["text"], "Một\n\nBa")
+        # Nối thẳng "Một\n\nBa" khiến người đọc tưởng mạch văn liên tục; mốc phải nằm
+        # đúng chỗ đoạn 2 bị hụt.
+        self.assertEqual(result[0]["text"], "Một\n\n[… thiếu 1 đoạn chưa có bản dịch …]\n\nBa")
+        self.assertEqual(result[0]["missingPassages"], 1)
         self.assertEqual(result[0]["coverageCount"], 2)
         self.assertEqual(result[0]["coverageTotal"], 3)
         self.assertEqual(result[0]["coveragePercent"], 67)
         self.assertFalse(result[0]["complete"])
+
+    @patch("app.translation_sources.official_translations_for")
+    def test_complete_passage_assembly_is_labelled_whole_on_the_reader_page(self, official_for):
+        official_for.return_value = {
+            "p1": [_entry("sujato", "One")],
+            "p2": [_entry("sujato", "Two")],
+        }
+
+        from app.translation_sources import official_translations_merged
+
+        # Trang đọc truyền TOÀN BỘ đoạn của bài; phủ đủ 100% thì thứ hiện ra là trọn bài.
+        reader = official_translations_merged(["p1", "p2"], "vi", covers_whole_sutta=True)
+        self.assertIn("(toàn bộ bài kinh)", reader[0]["label"])
+        self.assertEqual(reader[0]["text"], "One\n\nTwo")
+        # `wholeSutta` vẫn False: nó nói về HÌNH DẠNG LƯU TRỮ, và trang đọc dựa vào nó để
+        # in "ghép từ N/N đoạn" thay vì "bản dịch trọn bài của dịch giả".
+        self.assertFalse(reader[0]["wholeSutta"])
+
+        # Trang kết quả truyền vài đoạn của trích dẫn - phủ đủ chúng KHÔNG phải phủ đủ bài.
+        card = official_translations_merged(["p1", "p2"], "vi")
+        self.assertIn("(trích đoạn ngắn trong bài kinh)", card[0]["label"])
+
+    @patch("app.translation_sources.official_translations_for")
+    def test_incomplete_assembly_stays_an_excerpt_even_on_the_reader_page(self, official_for):
+        official_for.return_value = {"p1": [_entry("sujato", "One")]}
+
+        from app.translation_sources import official_translations_merged
+
+        result = official_translations_merged(["p1", "p2"], "vi", covers_whole_sutta=True)
+        self.assertIn("(trích đoạn ngắn trong bài kinh)", result[0]["label"])
+        self.assertEqual(result[0]["missingPassages"], 1)
+
+    @patch("app.translation_sources.official_translations_for")
+    def test_gap_markers_merge_and_cover_both_ends(self, official_for):
+        official_for.return_value = {"p3": [_entry("sujato", "Giữa")]}
+
+        from app.translation_sources import official_translations_merged
+
+        result = official_translations_merged(["p1", "p2", "p3", "p4", "p5", "p6"], "en")
+
+        # Hai đoạn hụt liền nhau gộp thành MỘT mốc, không phải hai; và phần hụt ở đầu
+        # lẫn ở cuối đều phải được nói ra.
+        self.assertEqual(
+            result[0]["text"],
+            "[… 2 passage(s) not yet translated …]\n\nGiữa\n\n[… 3 passage(s) not yet translated …]",
+        )
+        self.assertEqual(result[0]["missingPassages"], 5)
 
 
 if __name__ == "__main__":
