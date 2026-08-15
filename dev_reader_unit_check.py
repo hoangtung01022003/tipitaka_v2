@@ -31,7 +31,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from app.db import fetch_all
-from app.main import _is_reader_unit_title, _source_path_is_prefix
+from app.main import (
+    READER_FALLBACK_MAX_PASSAGES,
+    _is_reader_unit_title,
+    _source_path_is_prefix,
+)
 
 
 def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
@@ -39,10 +43,10 @@ def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
 
     Gọi thẳng hàm thật thì tốn một truy vấn cho mỗi mục (hàng chục nghìn lượt). Ở đây
     nạp toàn bộ `sections` một lần rồi lọc trong bộ nhớ, nhưng phải giữ ĐÚNG thứ tự sắp
-    xếp của bản gốc - nhịp cuối cùng chọn ứng viên là `order by`, sai thứ tự thì số đo
-    không nói gì về hành vi thật.
+    xếp và ĐÚNG hai bậc của bản gốc - nếu bản sao lệch thì con số đo được không nói gì
+    về hành vi thật.
 
-    Trả về `None` khi không có ứng viên nào hợp lệ, tức là bản gốc sẽ rơi về mục con.
+    Trả về `None` khi cả hai bậc đều trượt, tức là bản gốc sẽ giữ nguyên mục con.
     """
     start = section["start_sort_order"]
     end = section["end_sort_order"]
@@ -57,11 +61,24 @@ def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
             -len(row["source_path"] or []),
         )
     )
-    for row in candidates:
-        if _is_reader_unit_title(str(row.get("title") or "")) and _source_path_is_prefix(
-            row.get("source_path"), section.get("source_path")
-        ):
+    within_tree = [
+        row
+        for row in candidates
+        if _source_path_is_prefix(row.get("source_path"), section.get("source_path"))
+    ]
+
+    # Bậc 1: tổ tiên có tiêu đề là đơn vị đọc thật.
+    for row in within_tree:
+        if _is_reader_unit_title(str(row.get("title") or "")):
             return row
+
+    # Bậc 2: tổ tiên gần nhất bất kể tiêu đề, miễn không vượt trần.
+    for row in within_tree:
+        if str(row["id"]) == str(section["id"]):
+            continue
+        if row["end_sort_order"] - row["start_sort_order"] + 1 <= READER_FALLBACK_MAX_PASSAGES:
+            return row
+        break
     return None
 
 

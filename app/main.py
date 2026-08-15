@@ -105,6 +105,14 @@ def _source_path_is_prefix(candidate: object, selected: object) -> bool:
     return bool(left and len(left) <= len(right) and right[: len(left)] == left)
 
 
+# Trần cho bậc rút lui ở dưới. Đo trên kho hiện có: leo lên tổ tiên gần nhất cho trung
+# vị 101 đoạn và p90 499 - đúng cỡ một bài kinh thật (Mahāpadānasutta ~204 đoạn) - nhưng
+# đuôi vươn tới 13.618 đoạn ở Jātaka Mahānipāta, nơi tổ tiên duy nhất là cả một nipāta.
+# Đổ ngần ấy vào một trang thì vừa sai nghĩa "bài kinh" vừa nặng trang, nên chặn lại và
+# thà giữ mục con còn hơn.
+READER_FALLBACK_MAX_PASSAGES = 1500
+
+
 def _canonical_reader_section(section: dict) -> dict:
     """Đưa một mục con lên đơn vị đọc hoàn chỉnh gần nhất trong cây section.
 
@@ -112,6 +120,23 @@ def _canonical_reader_section(section: dict) -> dict:
     `Pubbenivāsapaṭisaṃyuttakathā` (4-35), trong khi bài kinh thật là
     `Mahāpadānasuttaṃ` (4-207). Dựa vào tiền tố `source_path` giúp loại các section
     bao trùm do XML nhiễu nhưng không phải tổ tiên thật.
+
+    HAI BẬC, và bậc thứ hai mới là chỗ đáp ứng yêu cầu của khách:
+
+    1. Tổ tiên có tiêu đề qua được `_is_reader_unit_title` - đây là bài kinh thật.
+    2. Không có thì leo lên tổ tiên GẦN NHẤT bất kể tiêu đề, miễn không vượt
+       `READER_FALLBACK_MAX_PASSAGES`. Khách chốt "không có trọn bài thì lấy gần nhất
+       cũng được", và bậc này gỡ 6.180 đoạn: 86,0% -> 94,8% số đoạn có bản dịch mở ra
+       trọn vẹn. Trước đây thiếu bậc này nên code rơi thẳng về mục con sâu nhất - trung
+       vị chỉ 10 đoạn, tức người đọc bấm "toàn bộ bài kinh" mà nhận về một mẩu.
+
+    Kết quả mang theo cờ `_readerUnitExact` cho biết bậc nào đã trúng. Giao diện KHÔNG
+    dùng cờ này: khách chốt cột Pali luôn ghi "Bản gốc Pali trọn bài kinh" ở mọi trường
+    hợp. Giữ cờ lại vì nó là ranh giới hành vi thật, có test ghim, và đợt sửa importer
+    cho Jātaka sắp tới cần đọc nó.
+
+    Còn 2.267 đoạn vốn đã không có tổ tiên nào để leo - mục đó đã là cấp cao nhất của
+    tài liệu, tức đang hiện hết mức có thể chứ không phải hỏng.
     """
     candidates = fetch_all(
         """
@@ -126,13 +151,32 @@ def _canonical_reader_section(section: dict) -> dict:
         """,
         [section["document_id"], section["start_sort_order"], section["end_sort_order"]],
     )
-    valid = [
+    within_tree = [
         row
         for row in candidates
-        if _is_reader_unit_title(str(row.get("title") or ""))
-        and _source_path_is_prefix(row.get("source_path"), section.get("source_path"))
+        if _source_path_is_prefix(row.get("source_path"), section.get("source_path"))
     ]
-    return valid[0] if valid else section
+
+    for row in within_tree:
+        if _is_reader_unit_title(str(row.get("title") or "")):
+            row["_readerUnitExact"] = True
+            return row
+
+    for row in within_tree:
+        if str(row["id"]) == str(section["id"]):
+            continue
+        span = row["end_sort_order"] - row["start_sort_order"] + 1
+        if span <= READER_FALLBACK_MAX_PASSAGES:
+            row["_readerUnitExact"] = False
+            return row
+        # `candidates` đã sắp theo độ dài tăng dần, nên tổ tiên đầu tiên đã là nhỏ nhất;
+        # vượt trần thì mọi tổ tiên còn lại đều lớn hơn, không cần xét tiếp.
+        break
+
+    # Không nâng được: hoặc mục này đã là cấp cao nhất của tài liệu, hoặc tổ tiên duy
+    # nhất quá lớn. Cả hai đều KHÔNG phải bài kinh đã xác thực nên nhãn phải nói khác.
+    section["_readerUnitExact"] = False
+    return section
 
 
 def _reader_section_by_id(section_id: str) -> dict | None:

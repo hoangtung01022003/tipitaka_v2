@@ -378,6 +378,83 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertFalse(_is_reader_unit_title("(6) 1. Puggalavaggo"))
         self.assertFalse(_is_reader_unit_title("3. Tikanipāta (ii)"))
 
+    def test_falls_back_to_nearest_ancestor_when_no_title_qualifies(self):
+        """Khách chốt: không có trọn bài kinh thì lấy phần gần nhất cũng được."""
+        from app.main import _canonical_reader_section
+
+        child = {
+            "id": "c", "document_id": "d", "title": "Naārammaṇapaccayo",
+            "source_path": ["Paṭṭhānapāḷi-3", "10. Mahantaradukaṃ", "Naārammaṇapaccayo"],
+            "start_sort_order": 40, "end_sort_order": 44,
+        }
+        parent = {
+            "id": "p", "document_id": "d", "title": "10. Mahantaradukaṃ",
+            "source_path": ["Paṭṭhānapāḷi-3", "10. Mahantaradukaṃ"],
+            "start_sort_order": 10, "end_sort_order": 300,
+        }
+        book = {
+            "id": "b", "document_id": "d", "title": "Paṭṭhānapāḷi-3",
+            "source_path": ["Paṭṭhānapāḷi-3"],
+            "start_sort_order": 1, "end_sort_order": 9000,
+        }
+
+        with patch("app.main.fetch_all", return_value=[child, parent, book]):
+            resolved = _canonical_reader_section(dict(child))
+
+        # Không tiêu đề nào là bài kinh, nên leo lên tổ tiên GẦN NHẤT (291 đoạn), không
+        # phải cả cuốn sách 9.000 đoạn.
+        self.assertEqual(resolved["id"], "p")
+        self.assertFalse(resolved["_readerUnitExact"])
+
+    def test_fallback_refuses_an_ancestor_over_the_size_cap(self):
+        from app.main import _canonical_reader_section, READER_FALLBACK_MAX_PASSAGES
+
+        child = {
+            "id": "c", "document_id": "d", "title": "Ekakanipātavaṇṇanā",
+            "source_path": ["Jātakapāḷi-2", "22. Mahānipāto", "Ekakanipātavaṇṇanā"],
+            "start_sort_order": 500, "end_sort_order": 510,
+        }
+        huge = {
+            "id": "h", "document_id": "d", "title": "22. Mahānipāto",
+            "source_path": ["Jātakapāḷi-2", "22. Mahānipāto"],
+            "start_sort_order": 1,
+            "end_sort_order": READER_FALLBACK_MAX_PASSAGES + 5000,
+        }
+
+        with patch("app.main.fetch_all", return_value=[child, huge]):
+            resolved = _canonical_reader_section(dict(child))
+
+        # Nguyên một nipāta không phải "bài kinh" và đổ vào một trang thì quá nặng;
+        # thà giữ mục con còn hơn.
+        self.assertEqual(resolved["id"], "c")
+        self.assertFalse(resolved["_readerUnitExact"])
+
+    def test_real_reader_unit_still_wins_over_the_fallback(self):
+        from app.main import _canonical_reader_section
+
+        child = {
+            "id": "c", "document_id": "d", "title": "Kāyānupassanā",
+            "source_path": ["Mahāpadānasuttaṃ", "Kāyānupassanā"],
+            "start_sort_order": 40, "end_sort_order": 70,
+        }
+        noise = {
+            "id": "noise", "document_id": "d", "title": "Pubbenivāsakathā",
+            "source_path": ["Mahāpadānasuttaṃ", "Pubbenivāsakathā"],
+            "start_sort_order": 35, "end_sort_order": 75,
+        }
+        sutta = {
+            "id": "s", "document_id": "d", "title": "1. Mahāpadānasuttaṃ",
+            "source_path": ["Mahāpadānasuttaṃ"],
+            "start_sort_order": 4, "end_sort_order": 207,
+        }
+
+        # Mục nhiễu nhỏ hơn bài kinh, nhưng bài kinh phải thắng vì nó là đơn vị đọc thật.
+        with patch("app.main.fetch_all", return_value=[child, noise, sutta]):
+            resolved = _canonical_reader_section(dict(child))
+
+        self.assertEqual(resolved["id"], "s")
+        self.assertTrue(resolved["_readerUnitExact"])
+
     @patch("app.main.official_translations_merged", return_value=[])
     @patch("app.main.fetch_all")
     @patch("app.main.fetch_one")

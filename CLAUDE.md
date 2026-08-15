@@ -172,6 +172,21 @@ The selected language is threaded all the way through: `search_passages(..., lan
 
 Translation payloads carry both `text` (language-neutral) and `vi` (the original key name, kept so existing templates/JS keep working).
 
+### The whole-discourse reader unit (`_canonical_reader_section`)
+
+`passages.section_id` points at the deepest subsection, so "Xem toàn bộ bài kinh" has to climb before it can show a discourse. The climb is **two-tier**, and the second tier is what makes the button honest:
+
+1. The nearest ancestor whose title passes `_is_reader_unit_title` — a real discourse.
+2. Failing that, the nearest ancestor **regardless of title**, capped at `READER_FALLBACK_MAX_PASSAGES` (1500).
+
+Tier 2 exists because the client asked for "không có full thì gần full cũng được". Without it the function fell back to the deepest subsection — median **10** passages — so the reader pressed "whole discourse" and got a scrap. Climbing to the nearest ancestor gives median 101 / p90 499, which is discourse-sized (Mahāpadānasutta is ~204). The cap is not decoration: the only ancestor of a Jātaka in `s0514m` is the whole Mahānipāta at 13,618 passages, which is neither a discourse nor a page anyone can load.
+
+Measured on passages that actually have a translation (70,853): tier 1 alone reached 79.2%; the `(N)` ordinal fix took it to 86.0%; tier 2 takes it to **94.8%**. Of the remaining 5.2%, about 2,267 passages have **no ancestor at all** — that section already is the document's top level, so it is showing everything that exists, not failing.
+
+The returned row carries `_readerUnitExact` saying which tier fired. **The UI deliberately ignores it**: the client chose one fixed label, "Bản gốc Pali trọn bài kinh", for every case. Keep the flag anyway — it is a real behavioural boundary, the tests pin both tiers through it, and the pending Jātaka importer pass needs to read it.
+
+`dev_reader_unit_check.py` holds a hand-copied replica of this function so it can measure 30k sections without one query each. **If you change the tiers here, change the replica too** — a replica that has drifted reports numbers about code that no longer exists.
+
 ### Human translations
 
 `human_translations` (`../db/migrations/002_human_translations.sql`) stores translations by a **named translator**, keyed `(passage_id, source)` — as opposed to `translations`, which only models AI output keyed by `(passage_id, language, model, prompt_version)`. `human_translation_imports` logs each run so you can see coverage.
