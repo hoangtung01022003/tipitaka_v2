@@ -417,20 +417,22 @@ def official_translations_merged(
         coverage_percent = round(coverage_count * 100 / coverage_total) if coverage_total else 0
 
         # `shape` là hình dạng LƯU TRỮ; nhãn phải nói hình dạng NGƯỜI ĐỌC NHẬN ĐƯỢC.
-        # Hai thứ đó lệch nhau đúng một chỗ: trang đọc truyền vào toàn bộ đoạn của bài,
-        # nên một nguồn cấp đoạn phủ đủ 100% thì thứ hiện ra chính là trọn bài - gọi nó
-        # là "trích đoạn ngắn" là nói ngược với chữ đang nằm trên màn hình. Đo được:
-        # 3.513 bài có Sujato đều bị dán nhãn trích đoạn, mà 44/60 mẫu phủ đủ 100%.
-        # Trang kết quả KHÔNG bật cờ này vì ở đó `passage_ids` chỉ là mấy đoạn của trích
-        # dẫn, phủ đủ chúng không có nghĩa là phủ đủ bài.
-        label_shape = shape
-        if (
-            shape == EXCERPT_SHAPE
-            and covers_whole_sutta
-            and coverage_total
-            and coverage_count == coverage_total
-        ):
-            label_shape = WHOLE_SHAPE
+        # Trang đọc truyền vào TOÀN BỘ đoạn của bài, nên thứ hiện ra ở đó đã là tất cả
+        # những gì tồn tại của bản dịch ấy cho bài này - gọi nó là "trích đoạn ngắn" là
+        # nói ngược với chữ đang nằm trên màn hình.
+        #
+        # KHÔNG đòi phủ đủ 100%. Bản dịch bóc từ PDF có chỗ không lấy ra được, nên buộc
+        # phải tròn 100% thì gần như bài nào cũng bị dán nhãn "trích đoạn ngắn" dù đã
+        # ghép được 90-99% - đúng cái mâu thuẫn khách chỉ ra. Phủ 50%, 70%, 99% vẫn là
+        # trọn bài theo nghĩa "đã lấy tối đa những gì có".
+        #
+        # Nhãn không vì thế mà nói dối: ngay dưới nó `section.passageOfficialHint` in
+        # "ghép trong toàn bài · N/M đoạn (Z%)", và `_join_with_gap_markers` cắm mốc
+        # "[… thiếu N đoạn …]" đúng chỗ hụt. Nhãn nói PHẠM VI, hai thứ kia nói ĐỘ ĐẦY.
+        #
+        # Trang kết quả KHÔNG bật cờ này: ở đó `passage_ids` chỉ là mấy đoạn của trích
+        # dẫn, nên "trích đoạn ngắn" mới là mô tả đúng.
+        label_shape = WHOLE_SHAPE if covers_whole_sutta else shape
 
         items.append(
             {

@@ -660,14 +660,22 @@ class TranslationCoverageTests(unittest.TestCase):
         self.assertIn("(trích đoạn ngắn trong bài kinh)", card[0]["label"])
 
     @patch("app.translation_sources.official_translations_for")
-    def test_incomplete_assembly_stays_an_excerpt_even_on_the_reader_page(self, official_for):
+    def test_partial_assembly_is_still_labelled_whole_on_the_reader_page(self, official_for):
+        """Không đòi phủ 100%: bản bóc từ PDF gần như không bao giờ tròn.
+
+        Nhãn nói PHẠM VI (đây là tất cả những gì tồn tại cho bài này), còn ĐỘ ĐẦY do
+        `missingPassages` + dòng phần trăm + mốc "[… thiếu N đoạn …]" nói.
+        """
         official_for.return_value = {"p1": [_entry("sujato", "One")]}
 
         from app.translation_sources import official_translations_merged
 
         result = official_translations_merged(["p1", "p2"], "vi", covers_whole_sutta=True)
-        self.assertIn("(trích đoạn ngắn trong bài kinh)", result[0]["label"])
+        self.assertIn("(toàn bộ bài kinh)", result[0]["label"])
+        # Vẫn phải nói thật là thiếu chỗ nào - nhãn nới ra thì hai thứ này càng quan trọng.
         self.assertEqual(result[0]["missingPassages"], 1)
+        self.assertEqual(result[0]["coveragePercent"], 50)
+        self.assertIn("thiếu 1 đoạn", result[0]["text"])
 
     @patch("app.translation_sources.official_translations_for")
     def test_gap_markers_merge_and_cover_both_ends(self, official_for):
