@@ -112,6 +112,22 @@ def _source_path_is_prefix(candidate: object, selected: object) -> bool:
 # thà giữ mục con còn hơn.
 READER_FALLBACK_MAX_PASSAGES = 1500
 
+# Chỉ leo khi mục con thật sự là MẨU VỤN. Leo vô điều kiện là sai: có những mục con vốn
+# đã là một đơn vị lớn và đúng, leo lên chỉ đổi tên hiển thị thành thứ rộng hơn mà không
+# thêm được nội dung nào.
+#
+# Ca thật đã dựng lại: câu uddāna mở đầu Trường Bộ tập 2 (`sort_order` 1, s0102m) nằm ở
+# `Mahāvaggapāḷi` (1.361 đoạn). Không bài kinh nào chứa nó - uddāna là câu kệ tóm tắt cả
+# tập - nên bậc 1 trượt là ĐÚNG. Bậc 2 khi ấy bỏ qua chính nó rồi leo lên `Dīghanikāyo`,
+# vốn cũng đúng 1.361 đoạn vì hai mục trùng khít: không thêm gì, chỉ khiến người đọc thấy
+# tiêu đề "Dīghanikāyo" thay vì "Mahāvaggapāḷi".
+#
+# Ngưỡng 20 do đo mà ra, không phải ước lượng: nó giảm tỉ lệ đoạn rơi vào mẩu vụn từ 5,2%
+# xuống 0,7% - y hệt phương án leo vô điều kiện - nhưng chỉ sinh 76 trang trên 500 đoạn
+# thay vì 106, và 19 trang trên 1.000 đoạn thay vì 28. Nới lên 50/100/200 không giảm thêm
+# được mẩu vụn nào mà chỉ đẻ thêm trang nặng.
+READER_FALLBACK_MIN_PASSAGES = 20
+
 
 def _canonical_reader_section(section: dict) -> dict:
     """Đưa một mục con lên đơn vị đọc hoàn chỉnh gần nhất trong cây section.
@@ -124,11 +140,14 @@ def _canonical_reader_section(section: dict) -> dict:
     HAI BẬC, và bậc thứ hai mới là chỗ đáp ứng yêu cầu của khách:
 
     1. Tổ tiên có tiêu đề qua được `_is_reader_unit_title` - đây là bài kinh thật.
-    2. Không có thì leo lên tổ tiên GẦN NHẤT bất kể tiêu đề, miễn không vượt
-       `READER_FALLBACK_MAX_PASSAGES`. Khách chốt "không có trọn bài thì lấy gần nhất
-       cũng được", và bậc này gỡ 6.180 đoạn: 86,0% -> 94,8% số đoạn có bản dịch mở ra
-       trọn vẹn. Trước đây thiếu bậc này nên code rơi thẳng về mục con sâu nhất - trung
-       vị chỉ 10 đoạn, tức người đọc bấm "toàn bộ bài kinh" mà nhận về một mẩu.
+    2. Không có, VÀ mục con nhỏ hơn `READER_FALLBACK_MIN_PASSAGES`, thì leo lên tổ tiên
+       GẦN NHẤT bất kể tiêu đề, miễn không vượt `READER_FALLBACK_MAX_PASSAGES`. Khách
+       chốt "không có trọn bài thì lấy gần nhất cũng được". Bậc này kéo tỉ lệ đoạn rơi
+       vào mẩu vụn từ 5,2% xuống 0,7%. Trước khi có nó, code rơi thẳng về mục con sâu
+       nhất - trung vị chỉ 10 đoạn, tức người đọc bấm "toàn bộ bài kinh" mà nhận một mẩu.
+
+       Điều kiện "mục con quá bé" là bắt buộc, không phải tinh chỉnh: xem chú thích ở
+       `READER_FALLBACK_MIN_PASSAGES` về ca uddāna Trường Bộ.
 
     Kết quả mang theo cờ `_readerUnitExact` cho biết bậc nào đã trúng. Giao diện KHÔNG
     dùng cờ này: khách chốt cột Pali luôn ghi "Bản gốc Pali trọn bài kinh" ở mọi trường
@@ -162,16 +181,18 @@ def _canonical_reader_section(section: dict) -> dict:
             row["_readerUnitExact"] = True
             return row
 
-    for row in within_tree:
-        if str(row["id"]) == str(section["id"]):
-            continue
-        span = row["end_sort_order"] - row["start_sort_order"] + 1
-        if span <= READER_FALLBACK_MAX_PASSAGES:
-            row["_readerUnitExact"] = False
-            return row
-        # `candidates` đã sắp theo độ dài tăng dần, nên tổ tiên đầu tiên đã là nhỏ nhất;
-        # vượt trần thì mọi tổ tiên còn lại đều lớn hơn, không cần xét tiếp.
-        break
+    own_span = section["end_sort_order"] - section["start_sort_order"] + 1
+    if own_span < READER_FALLBACK_MIN_PASSAGES:
+        for row in within_tree:
+            if str(row["id"]) == str(section["id"]):
+                continue
+            span = row["end_sort_order"] - row["start_sort_order"] + 1
+            if span <= READER_FALLBACK_MAX_PASSAGES:
+                row["_readerUnitExact"] = False
+                return row
+            # `candidates` đã sắp theo độ dài tăng dần, nên tổ tiên đầu tiên đã là nhỏ
+            # nhất; vượt trần thì mọi tổ tiên còn lại đều lớn hơn, không cần xét tiếp.
+            break
 
     # Không nâng được: hoặc mục này đã là cấp cao nhất của tài liệu, hoặc tổ tiên duy
     # nhất quá lớn. Cả hai đều KHÔNG phải bài kinh đã xác thực nên nhãn phải nói khác.

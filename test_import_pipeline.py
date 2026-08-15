@@ -406,6 +406,32 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertEqual(resolved["id"], "p")
         self.assertFalse(resolved["_readerUnitExact"])
 
+    def test_fallback_keeps_a_subsection_that_is_already_substantial(self):
+        """Ca uddāna Trường Bộ: leo vô điều kiện làm hỏng, không phải làm tốt.
+
+        Câu kệ tóm tắt mở đầu tập nằm thẳng ở `Mahāvaggapāḷi` chứ không thuộc bài kinh
+        nào, nên bậc 1 trượt là đúng. `Mahāvaggapāḷi` và `Dīghanikāyo` trùng khít nhau,
+        nên leo lên không thêm một đoạn nội dung nào mà chỉ đổi tên hiển thị sang mục
+        rộng hơn - người đọc tìm Mahāpadāna lại thấy tiêu đề "Dīghanikāyo".
+        """
+        from app.main import _canonical_reader_section
+
+        vagga = {
+            "id": "v", "document_id": "d", "title": "Mahāvaggapāḷi",
+            "source_path": ["Suttapiṭaka", "Dīghanikāyo", "Mahāvaggapāḷi"],
+            "start_sort_order": 1, "end_sort_order": 1361,
+        }
+        nikaya = {
+            "id": "n", "document_id": "d", "title": "Dīghanikāyo",
+            "source_path": ["Suttapiṭaka", "Dīghanikāyo"],
+            "start_sort_order": 1, "end_sort_order": 1361,
+        }
+
+        with patch("app.main.fetch_all", return_value=[vagga, nikaya]):
+            resolved = _canonical_reader_section(dict(vagga))
+
+        self.assertEqual(resolved["title"], "Mahāvaggapāḷi")
+
     def test_fallback_refuses_an_ancestor_over_the_size_cap(self):
         from app.main import _canonical_reader_section, READER_FALLBACK_MAX_PASSAGES
 

@@ -33,6 +33,7 @@ from pathlib import Path
 from app.db import fetch_all
 from app.main import (
     READER_FALLBACK_MAX_PASSAGES,
+    READER_FALLBACK_MIN_PASSAGES,
     _is_reader_unit_title,
     _source_path_is_prefix,
 )
@@ -72,13 +73,15 @@ def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
         if _is_reader_unit_title(str(row.get("title") or "")):
             return row
 
-    # Bậc 2: tổ tiên gần nhất bất kể tiêu đề, miễn không vượt trần.
-    for row in within_tree:
-        if str(row["id"]) == str(section["id"]):
-            continue
-        if row["end_sort_order"] - row["start_sort_order"] + 1 <= READER_FALLBACK_MAX_PASSAGES:
-            return row
-        break
+    # Bậc 2: chỉ khi mục con là mẩu vụn thì mới leo lên tổ tiên gần nhất trong trần.
+    own = section["end_sort_order"] - section["start_sort_order"] + 1
+    if own < READER_FALLBACK_MIN_PASSAGES:
+        for row in within_tree:
+            if str(row["id"]) == str(section["id"]):
+                continue
+            if row["end_sort_order"] - row["start_sort_order"] + 1 <= READER_FALLBACK_MAX_PASSAGES:
+                return row
+            break
     return None
 
 

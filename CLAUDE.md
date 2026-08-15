@@ -177,11 +177,17 @@ Translation payloads carry both `text` (language-neutral) and `vi` (the original
 `passages.section_id` points at the deepest subsection, so "Xem toàn bộ bài kinh" has to climb before it can show a discourse. The climb is **two-tier**, and the second tier is what makes the button honest:
 
 1. The nearest ancestor whose title passes `_is_reader_unit_title` — a real discourse.
-2. Failing that, the nearest ancestor **regardless of title**, capped at `READER_FALLBACK_MAX_PASSAGES` (1500).
+2. Failing that, **and only if the landing section is smaller than `READER_FALLBACK_MIN_PASSAGES` (20)**, the nearest ancestor regardless of title, capped at `READER_FALLBACK_MAX_PASSAGES` (1500).
 
-Tier 2 exists because the client asked for "không có full thì gần full cũng được". Without it the function fell back to the deepest subsection — median **10** passages — so the reader pressed "whole discourse" and got a scrap. Climbing to the nearest ancestor gives median 101 / p90 499, which is discourse-sized (Mahāpadānasutta is ~204). The cap is not decoration: the only ancestor of a Jātaka in `s0514m` is the whole Mahānipāta at 13,618 passages, which is neither a discourse nor a page anyone can load.
+Tier 2 exists because the client asked for "không có full thì gần full cũng được". Without it the function fell back to the deepest subsection — median **10** passages — so the reader pressed "whole discourse" and got a scrap.
 
-Measured on passages that actually have a translation (70,853): tier 1 alone reached 79.2%; the `(N)` ordinal fix took it to 86.0%; tier 2 takes it to **94.8%**. Of the remaining 5.2%, about 2,267 passages have **no ancestor at all** — that section already is the document's top level, so it is showing everything that exists, not failing.
+**Both bounds on tier 2 are load-bearing, and each was put there by a failure, not by taste.**
+
+The upper cap: the only ancestor of a Jātaka in `s0514m` is the whole Mahānipāta at 13,618 passages — neither a discourse nor a page anyone can load.
+
+The lower bound is the subtler one, and tier 2 shipped without it and was wrong. A first version climbed unconditionally. QA then found that searching `Mahāpadāna` opened a page titled **`Dīghanikāyo`, 1,361 passages, showing Mahāparinibbānasutta**. The report diagnosed it as "tier 2 overriding tier 1"; that was the wrong diagnosis and worth understanding, because the real cause is easy to reintroduce. The matched passage is the *uddāna* at `sort_order` 1 of `s0102m` — `Mahāpadāna nidānaṃ, nibbānañca sudassanaṃ` — the verse that lists the volume's contents. It belongs to no sutta, so tier 1 finding nothing was **correct**. Its section is `Mahāvaggapāḷi` (1,361 passages), and `Dīghanikāyo` is **coextensive with it** — same 1,361. Climbing therefore added not one passage of content and only replaced a correct title with a broader one. Unconditional climbing made the page strictly worse than the pre-tier-2 behaviour.
+
+Threshold 20 was measured, not guessed. Fragments (a non-reader-unit result under 20 passages, i.e. the thing the client complained about) fall from **5.2% to 0.7%** of translated passages — identical to climbing unconditionally — while pages over 500 passages drop from 106 to **76** and pages over 1,000 from 28 to 19. Raising it to 50/100/200 removes no further fragments and only manufactures heavier pages.
 
 The returned row carries `_readerUnitExact` saying which tier fired. **The UI deliberately ignores it**: the client chose one fixed label, "Bản gốc Pali trọn bài kinh", for every case. Keep the flag anyway — it is a real behavioural boundary, the tests pin both tiers through it, and the pending Jātaka importer pass needs to read it.
 

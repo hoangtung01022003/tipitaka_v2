@@ -601,9 +601,21 @@ def _exact_quote_density(row: dict, analysis: dict) -> float:
     return min(1.0, matched / len(text))
 
 
-def _paragraph_no(row: dict, fallback_rank: int) -> str:
-    del fallback_rank
-    return str(row.get("display_paragraph_no") or row.get("xml_paragraph_no") or row.get("paragraph_no") or "N/A")
+def _paragraph_no(row: dict) -> str:
+    """Số đoạn in được, hoặc chuỗi rỗng nếu bản in không đánh số đoạn này.
+
+    Trước đây trả về chuỗi `"N/A"` và giao diện in thẳng ra "Ngữ cảnh quanh đoạn N/A".
+    Không phải đoạn nào cũng có số: thể kệ và các dòng không đánh số chiếm phần lớn ở
+    Bổn Sanh (402/600 đoạn của Bhūridattajātaka), nên đây là chuyện thường chứ không
+    phải dữ liệu hỏng.
+
+    Hàm này từng nhận thêm `fallback_rank` rồi `del` ngay - ý định cũ là lấy thứ hạng
+    kết quả làm số thay thế. Không làm vậy: thứ hạng không phải số đoạn, in ra một con
+    số sai còn tệ hơn là không in số nào. Trả rỗng để template bỏ hẳn mệnh đề đó.
+    """
+    return str(
+        row.get("display_paragraph_no") or row.get("xml_paragraph_no") or row.get("paragraph_no") or ""
+    )
 
 
 def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_types: list[str], pitaka_type: str | None, rank: int, analysis: dict, language: str = DEFAULT_LANGUAGE) -> dict:
@@ -613,7 +625,7 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
         "rank": rank,
         "score": round(score, 4),
         "sourcePath": _display_source(row, corpus_types, pitaka_type),
-        "paragraphNo": _paragraph_no(row, rank),
+        "paragraphNo": _paragraph_no(row),
         "paliText": row["pali_text"],
         "contextExpanded": False,
         "translation": {"vi": None, "fromCache": False},

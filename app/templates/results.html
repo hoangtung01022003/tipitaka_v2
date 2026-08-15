@@ -16,10 +16,14 @@
   {% for item in result.results %}
     <article class="result">
       <div class="resultTitle">{{ t('results.sourceTitle', rank=item.rank) }}</div>
+      {# Bản in không đánh số mọi đoạn - riêng Bổn Sanh có 402/600 đoạn là thể kệ không
+         số. Không có số thì bỏ hẳn mệnh đề "Đoạn …", đừng in "N/A" ra cho người đọc. #}
       <div class="source">
-        {{ item.sourcePath or t('results.noSourcePath') }} &gt;
-        {% if item.contextExpanded %}{{ t('results.contextAround') }}{% else %}{{ t('results.paragraph') }}{% endif %}
-        {{ item.paragraphNo }}
+        {{ item.sourcePath or t('results.noSourcePath') }}
+        {%- if item.paragraphNo %} &gt;
+          {% if item.contextExpanded %}{{ t('results.contextAround') }}{% else %}{{ t('results.paragraph') }}{% endif %}
+          {{ item.paragraphNo }}
+        {%- endif %}
       </div>
       <div class="meta">{{ t('results.meta', rank=item.rank, score=item.score) }}</div>
 
