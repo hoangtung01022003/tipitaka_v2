@@ -50,6 +50,23 @@
       </div>
       <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
 
+      {# Nút mở cả bài bằng AI. Vòng lặp dựng nút bên dưới chỉ chạy các DỊCH GIẢ - `main.py`
+         bỏ qua `AI_SOURCE` - nên nếu không đặt riêng ở đây thì trang đọc vẫn có tab AI mà
+         từ trang kết quả không có lối nào vào. Luôn bật, vì AI dịch được mọi đoạn nên
+         không có trạng thái "chưa có dữ liệu" như các dịch giả. #}
+      {% if item.canOpenSection and item.readerSectionId %}
+        <div class="sectionActions sourceAction">
+          <button
+            class="button secondary"
+            type="button"
+            data-section-id="{{ item.readerSectionId }}"
+            data-section-source="ai"
+          >
+            {{ t('results.openSectionAi') }}
+          </button>
+        </div>
+      {% endif %}
+
       {# Mỗi nút đọc toàn bài nằm ngay dưới bản dịch tương ứng, không gom thành một cụm
          ở cuối. Nhãn `entry.label` đã kèm sẵn hình dạng (trọn bài / trích đoạn ngắn). #}
       <div class="resultTitle">{{ t('translation.officialTitle') }}</div>

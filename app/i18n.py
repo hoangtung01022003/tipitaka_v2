@@ -52,6 +52,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "results.translationLoading": "Đang dịch đoạn này, bản Pali và nguồn đã hiển thị trước.",
         "results.openSection": "Bạn có muốn xem toàn bộ bài kinh này?",
         "results.openSectionWith": "Xem toàn bộ bài kinh · {source}",
+        # AI bị loại khỏi vòng lặp dựng nút ở `main.py` (vòng đó chỉ chạy các dịch giả),
+        # nên khối AI phải có nút riêng - thiếu nó thì trang đọc vẫn có tab AI mà từ
+        # trang kết quả không có lối vào.
+        "results.openSectionAi": "Xem toàn bộ bài kinh · Bản dịch AI",
         "results.openSectionLoading": "Đang tải toàn bộ bài kinh...",
         "results.empty": "Chưa tìm thấy ứng viên trong phạm vi đã chọn",
         "results.emptyHint": "Hãy thử đổi Tạng hoặc mở rộng phạm vi tìm kiếm. Nếu đang tìm Chú giải/Phụ chú giải, hãy chọn đúng phần dữ liệu tương ứng.",
@@ -150,6 +154,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "results.translationLoading": "Translating this passage; the Pali text and source are already shown.",
         "results.openSection": "Would you like to read the whole discourse?",
         "results.openSectionWith": "Read the whole discourse · {source}",
+        "results.openSectionAi": "Read the whole discourse · AI translation",
         "results.openSectionLoading": "Loading the whole discourse...",
         "results.empty": "No candidate found within the selected scope",
         "results.emptyHint": "Try another Piṭaka or widen the search scope. If you are looking for commentary/sub-commentary, select the matching collection.",
@@ -234,6 +239,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "results.translationLoading": "ဤအပိုဒ်ကို ဘာသာပြန်နေသည်။ ပါဠိစာသားနှင့် ရင်းမြစ်ကို ဦးစွာပြထားပါသည်။",
         "results.openSection": "ဤသုတ္တန်တစ်ခုလုံးကို ဖတ်လိုပါသလား",
         "results.openSectionWith": "သုတ္တန်အပြည့်အစုံ · {source}",
+        "results.openSectionAi": "သုတ္တန်အပြည့်အစုံ · AI ဘာသာပြန်",
         "results.openSectionLoading": "သုတ္တန်တစ်ခုလုံးကို ရယူနေသည်...",
         "results.empty": "ရွေးထားသော နယ်ပယ်အတွင်း ရလဒ် မတွေ့ပါ",
         "results.emptyHint": "အခြားပိဋကတ်ကို စမ်းကြည့်ပါ သို့မဟုတ် ရှာဖွေမှုနယ်ပယ်ကို ချဲ့ပါ။ အဋ္ဌကထာ/ဋီကာ ရှာနေပါက သက်ဆိုင်ရာအပိုင်းကို ရွေးပါ။",

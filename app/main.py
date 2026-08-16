@@ -686,7 +686,18 @@ def _section_payload(
     # Indacanda bien mat o moi bo kinh chua nap - giong het loi ben trang ket qua.
     with_data = {str(item["source"]) for item in official_list}
     is_abhidhamma = "abhidhammapitaka" in normalize_pali(" ".join(map(str, source_path)))
-    available = []
+    # Tab AI đứng đầu, LUÔN available: AI dịch được mọi đoạn nên không có trạng thái
+    # "chưa có dữ liệu" như các dịch giả. Thiếu tab này thì trang chỉ vào được AI ở lần
+    # tải đầu (mặc định `source=ai`); bấm sang bất kỳ dịch giả nào là hết đường quay lại,
+    # vì JS chỉ điều hướng qua nút có `data-section-tab`.
+    available = [
+        {
+            "source": AI_SOURCE,
+            "label": source_label(AI_SOURCE, language),
+            "available": True,
+            "unavailableReason": "",
+        }
+    ]
     for source_id in SOURCE_ORDER:
         if source_id == AI_SOURCE:
             continue
