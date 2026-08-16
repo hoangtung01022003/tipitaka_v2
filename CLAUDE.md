@@ -333,9 +333,7 @@ Two structural checks hold in both volumes and are the ones to run on any new vo
 
 `apply_indacanda_full_preview.py` is the separate reviewed-manifest importer. Default invocation is read-only dry-run; `--apply` is mandatory for a transaction. It rechecks PDF/TXT SHA-256, section/range/anchor and spacing/Unicode, imports PASS only, never overwrites `manual`, archives stale anchors for the exact same range, and refuses the whole transaction if a differently ranged `indacanda_full` row overlaps. Method `pdf_heading_boundary` ranks 45 via migration 006.
 
-**State as of 2026-08-16 (verified against the DB, not carried over from an earlier note):** `sn` + `dn2` + `pts2` are fully applied — 101 rows, and their dry-run reports `insert 0 | update 0 | unchanged 101`. An older version of this file claimed "89 inserts, 12 upgrades" were still pending; that had been true once and was stale, and it cost a session's work to rediscover. **Re-run the dry-run before believing any number written here.**
-
-`dn3` is extracted and dry-run clean (`insert 6 | update 5 | unchanged 0 | blocked 0`, 2 stale anchors to archive) but **not yet applied**.
+**State as of 2026-08-16 (verified against the DB, not carried over from an earlier note):** the whole Dīgha Nikāya is complete — `dn1` (13) + `dn2` (10) + `dn3` (11) = **34 suttas**, all `pdf_heading_boundary`, plus `sn` + `pts2` — and their dry-runs report `insert 0 | update 0 | unchanged` on every one of them. An older version of this file claimed "89 inserts, 12 upgrades" were still pending, and a later one said `dn3` was "not yet applied"; both had been true once and were stale, and it cost a session's work to rediscover. **Re-run the dry-run before believing any number written here.**
 
 Two traps this area has already sprung, both worth keeping in mind:
 

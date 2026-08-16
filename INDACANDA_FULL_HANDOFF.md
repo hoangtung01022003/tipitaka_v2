@@ -212,9 +212,7 @@ nidd1 nidd2 pts1 pts2 net pet mil
 dn1 dn2 dn3
 ```
 
-Đã áp dụng vào DB: `dn2 pts2 sn` — 101 dòng, dry-run ra `thêm 0 | cập nhật 0 | không đổi 101`.
-
-Đã bóc xong, **chưa áp dụng**: `dn3` — 11/11 PASS, dry-run `thêm 6 | cập nhật 5 | 0 bị chặn`, 2 neo cũ chờ lưu lịch sử.
+Đã áp dụng vào DB: toàn bộ **Trường Bộ** — `dn1` (13) + `dn2` (10) + `dn3` (11) = 34 bài, tất cả `pdf_heading_boundary` — cùng `pts2` và `sn`, dry-run ra `thêm 0 | cập nhật 0 | không đổi` ở mọi tập.
 
 Còn cần làm: 26 volume còn lại.
 
