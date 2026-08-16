@@ -65,8 +65,18 @@
         <div class="readerHeader">
           <div>
             <div class="resultTitle">{{ section.selectedTranslation.label }}</div>
+            {# Dòng cả bài KHÔNG in tỉ lệ phủ được: nó luôn ra 100% vì mọi đoạn trong
+               khoảng đều khớp vào đúng dòng đó, kể cả khi bản dịch hụt thật. Nên chỗ này
+               nói CÁCH DỰNG - bản ghép tự động phải tự nhận là có thể thiếu hoặc lẫn văn
+               bài lân cận, vì đo tay đã thấy cả hai. #}
             {% if section.selectedTranslation.wholeSutta %}
-              <p class="meta">{{ t('section.wholeOfficialHint') }}</p>
+              {% if section.selectedTranslation.matchMethod == 'pdf_heading_boundary' %}
+                <p class="meta">{{ t('section.wholeOfficialHintPdf') }}</p>
+              {% elif section.selectedTranslation.matchMethod == 'whole_unit' %}
+                <p class="meta">{{ t('section.wholeOfficialHintAnchor') }}</p>
+              {% else %}
+                <p class="meta">{{ t('section.wholeOfficialHint') }}</p>
+              {% endif %}
             {% else %}
               <p class="meta">{{ t('section.passageOfficialHint', translated=section.selectedTranslation.coverageCount, total=section.selectedTranslation.coverageTotal, percent=section.selectedTranslation.coveragePercent) }}</p>
             {% endif %}

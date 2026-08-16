@@ -1,0 +1,1567 @@
+[
+  {
+    "volume": "kn1",
+    "docs": [
+      "s0501m.mul.xml",
+      "s0502m.mul.xml",
+      "s0503m.mul.xml",
+      "s0504m.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 6,
+    "suggested_units": 103,
+    "suggested_suffixes": [
+      [
+        "arinnasuttam",
+        7
+      ],
+      [
+        "tthikasuttam",
+        3
+      ],
+      [
+        "asekhasuttam",
+        2
+      ],
+      [
+        "acittasuttam",
+        2
+      ]
+    ],
+    "suggested_overlaps": 1,
+    "levels": [
+      {
+        "level": 4,
+        "count": 47,
+        "median_span": 50,
+        "max_span": 493,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.13,
+        "top_suffixes": [
+          [
+            "amakavaggo",
+            1
+          ],
+          [
+            "ppamadavaggo",
+            1
+          ],
+          [
+            "cittavaggo",
+            1
+          ],
+          [
+            "upphavaggo",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Yamakavaggo",
+          "2. Appamādavaggo",
+          "3. Cittavaggo"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 107,
+        "median_span": 9,
+        "max_span": 1337,
+        "overlaps": 2,
+        "reader_suffix_ratio": 0.87,
+        "top_suffixes": [
+          [
+            "uddakanikaye",
+            4
+          ],
+          [
+            "addiyasuttam",
+            4
+          ],
+          [
+            "myuttasuttam",
+            4
+          ],
+          [
+            "abodhisuttam",
+            3
+          ]
+        ],
+        "sample_titles": [
+          "Khuddakanikāye",
+          "Khuddakanikāye",
+          "1. Paṭhamabodhisuttaṃ"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 103,
+        "median_span": 8,
+        "max_span": 1337,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.96,
+        "top_suffixes": [
+          [
+            "arinnasuttam",
+            7
+          ],
+          [
+            "tthikasuttam",
+            3
+          ],
+          [
+            "asekhasuttam",
+            2
+          ],
+          [
+            "acittasuttam",
+            2
+          ]
+        ],
+        "sample_titles": [
+          "Dhammapadapāḷi",
+          "Udānapāḷi",
+          "Itivuttakapāḷi"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "thag",
+    "docs": [
+      "s0508m.mul.xml",
+      "s0509m.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 6,
+    "suggested_units": 171,
+    "suggested_suffixes": [
+      [
+        "attheragatha",
+        151
+      ],
+      [
+        "ittheragatha",
+        13
+      ],
+      [
+        "uttheragatha",
+        4
+      ],
+      [
+        "erigathapali",
+        1
+      ]
+    ],
+    "suggested_overlaps": 1,
+    "levels": [
+      {
+        "level": 4,
+        "count": 37,
+        "median_span": 106,
+        "max_span": 727,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "dasakanipato",
+            4
+          ],
+          [
+            "kakanipato",
+            2
+          ],
+          [
+            "dukanipato",
+            2
+          ],
+          [
+            "tikanipato",
+            2
+          ]
+        ],
+        "sample_titles": [
+          "1. Ekakanipāto",
+          "2. Dukanipāto",
+          "3. Tikanipāto"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 187,
+        "median_span": 18,
+        "max_span": 4072,
+        "overlaps": 2,
+        "reader_suffix_ratio": 0.9,
+        "top_suffixes": [
+          [
+            "attheragatha",
+            86
+          ],
+          [
+            "tatherigatha",
+            11
+          ],
+          [
+            "ratherigatha",
+            9
+          ],
+          [
+            "matherigatha",
+            9
+          ]
+        ],
+        "sample_titles": [
+          "Khuddakanikāye",
+          "1. Aññatarātherīgāthā",
+          "2. Muttātherīgāthā"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 171,
+        "median_span": 3,
+        "max_span": 4072,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.99,
+        "top_suffixes": [
+          [
+            "attheragatha",
+            151
+          ],
+          [
+            "ittheragatha",
+            13
+          ],
+          [
+            "uttheragatha",
+            4
+          ],
+          [
+            "erigathapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Therīgāthāpāḷi",
+          "Theragāthāpāḷi",
+          "1. Subhūtittheragāthā"
+        ]
+      },
+      {
+        "level": 7,
+        "count": 1,
+        "median_span": 90,
+        "max_span": 90,
+        "overlaps": 0,
+        "reader_suffix_ratio": 1.0,
+        "top_suffixes": [
+          [
+            "idanagatha",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Nidānagāthā"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "pr",
+    "docs": [
+      "vin01m.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 5,
+    "suggested_units": 22,
+    "suggested_suffixes": [
+      [
+        "uuddanagatha",
+        9
+      ],
+      [
+        "nitavatthu",
+        9
+      ],
+      [
+        "rajikapali",
+        1
+      ],
+      [
+        "nnabhanavaro",
+        1
+      ]
+    ],
+    "suggested_overlaps": 1,
+    "levels": [
+      {
+        "level": 3,
+        "count": 5,
+        "median_span": 492,
+        "max_span": 914,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "eranjakandam",
+            1
+          ],
+          [
+            "rajikakandam",
+            1
+          ],
+          [
+            "disesakandam",
+            1
+          ],
+          [
+            "niyatakandam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Verañjakaṇḍaṃ",
+          "1. Pārājikakaṇḍaṃ",
+          "2. Saṅghādisesakaṇḍaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 53,
+        "median_span": 23,
+        "max_span": 2203,
+        "overlaps": 4,
+        "reader_suffix_ratio": 0.92,
+        "top_suffixes": [
+          [
+            "asikkhapadam",
+            41
+          ],
+          [
+            "isikkhapadam",
+            4
+          ],
+          [
+            "iyaparajikam",
+            2
+          ],
+          [
+            "nayapitake",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Paṭhamapārājikaṃ",
+          "2. Dutiyapārājikaṃ"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 22,
+        "median_span": 15.5,
+        "max_span": 2203,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.86,
+        "top_suffixes": [
+          [
+            "uuddanagatha",
+            9
+          ],
+          [
+            "nitavatthu",
+            9
+          ],
+          [
+            "rajikapali",
+            1
+          ],
+          [
+            "nnabhanavaro",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Pārājikapāḷi",
+          "Sudinnabhāṇavāro",
+          "Makkaṭīvatthu"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "pc1",
+    "docs": [
+      "vin02m1.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 5,
+    "suggested_units": 95,
+    "suggested_suffixes": [
+      [
+        "asikkhapadam",
+        94
+      ],
+      [
+        "acittiyapali",
+        1
+      ]
+    ],
+    "suggested_overlaps": 1,
+    "levels": [
+      {
+        "level": 3,
+        "count": 11,
+        "median_span": 95,
+        "max_span": 1418,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "hunivibhango",
+            7
+          ],
+          [
+            "ittiyakandam",
+            1
+          ],
+          [
+            "saniyakandam",
+            1
+          ],
+          [
+            "ekhiyakandam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "5. Pācittiyakaṇḍaṃ",
+          "6. Pāṭidesanīyakaṇḍaṃ",
+          "7. Sekhiyakaṇḍaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 153,
+        "median_span": 14,
+        "max_span": 3048,
+        "overlaps": 10,
+        "reader_suffix_ratio": 0.8,
+        "top_suffixes": [
+          [
+            "asikkhapadam",
+            115
+          ],
+          [
+            "isikkhapadam",
+            3
+          ],
+          [
+            "mandalavaggo",
+            2
+          ],
+          [
+            "adukavaggo",
+            2
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Musāvādavaggo",
+          "1. Musāvādasikkhāpadaṃ"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 95,
+        "median_span": 8,
+        "max_span": 3048,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.99,
+        "top_suffixes": [
+          [
+            "asikkhapadam",
+            94
+          ],
+          [
+            "acittiyapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Pācittiyapāḷi",
+          "1. Paṭhamasikkhāpadaṃ",
+          "2. Dutiyasikkhāpadaṃ"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 1,
+        "median_span": 1231,
+        "max_span": 1231,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "hunivibhango",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Bhikkhunīvibhaṅgo"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "pc2",
+    "docs": [
+      "vin02m1.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 5,
+    "suggested_units": 95,
+    "suggested_suffixes": [
+      [
+        "asikkhapadam",
+        94
+      ],
+      [
+        "acittiyapali",
+        1
+      ]
+    ],
+    "suggested_overlaps": 1,
+    "levels": [
+      {
+        "level": 3,
+        "count": 11,
+        "median_span": 95,
+        "max_span": 1418,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "hunivibhango",
+            7
+          ],
+          [
+            "ittiyakandam",
+            1
+          ],
+          [
+            "saniyakandam",
+            1
+          ],
+          [
+            "ekhiyakandam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "5. Pācittiyakaṇḍaṃ",
+          "6. Pāṭidesanīyakaṇḍaṃ",
+          "7. Sekhiyakaṇḍaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 153,
+        "median_span": 14,
+        "max_span": 3048,
+        "overlaps": 10,
+        "reader_suffix_ratio": 0.8,
+        "top_suffixes": [
+          [
+            "asikkhapadam",
+            115
+          ],
+          [
+            "isikkhapadam",
+            3
+          ],
+          [
+            "mandalavaggo",
+            2
+          ],
+          [
+            "adukavaggo",
+            2
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Musāvādavaggo",
+          "1. Musāvādasikkhāpadaṃ"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 95,
+        "median_span": 8,
+        "max_span": 3048,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.99,
+        "top_suffixes": [
+          [
+            "asikkhapadam",
+            94
+          ],
+          [
+            "acittiyapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Pācittiyapāḷi",
+          "1. Paṭhamasikkhāpadaṃ",
+          "2. Dutiyasikkhāpadaṃ"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 1,
+        "median_span": 1231,
+        "max_span": 1231,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "hunivibhango",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Bhikkhunīvibhaṅgo"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "mv1",
+    "docs": [
+      "vin02m2.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 3,
+    "suggested_units": 10,
+    "suggested_suffixes": [
+      [
+        "kakkhandhako",
+        2
+      ],
+      [
+        "nakkhandhako",
+        2
+      ],
+      [
+        "ahakhandhako",
+        1
+      ],
+      [
+        "hakkhandhako",
+        1
+      ]
+    ],
+    "suggested_overlaps": 0,
+    "levels": [
+      {
+        "level": 3,
+        "count": 10,
+        "median_span": 181.0,
+        "max_span": 616,
+        "overlaps": 0,
+        "reader_suffix_ratio": 1.0,
+        "top_suffixes": [
+          [
+            "kakkhandhako",
+            2
+          ],
+          [
+            "nakkhandhako",
+            2
+          ],
+          [
+            "ahakhandhako",
+            1
+          ],
+          [
+            "hakkhandhako",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Mahākhandhako",
+          "2. Uposathakkhandhako",
+          "3. Vassūpanāyikakkhandhako"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 283,
+        "median_span": 4,
+        "max_span": 2129,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.56,
+        "top_suffixes": [
+          [
+            "ssaddhikatha",
+            15
+          ],
+          [
+            "pannarasakam",
+            12
+          ],
+          [
+            "avivadakatha",
+            8
+          ],
+          [
+            "ikkhepakatha",
+            7
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Bodhikathā",
+          "2. Ajapālakathā"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 1,
+        "median_span": 2129,
+        "max_span": 2129,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "ahavaggapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Mahāvaggapāḷi"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "mv2",
+    "docs": [
+      "vin02m2.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 3,
+    "suggested_units": 10,
+    "suggested_suffixes": [
+      [
+        "kakkhandhako",
+        2
+      ],
+      [
+        "nakkhandhako",
+        2
+      ],
+      [
+        "ahakhandhako",
+        1
+      ],
+      [
+        "hakkhandhako",
+        1
+      ]
+    ],
+    "suggested_overlaps": 0,
+    "levels": [
+      {
+        "level": 3,
+        "count": 10,
+        "median_span": 181.0,
+        "max_span": 616,
+        "overlaps": 0,
+        "reader_suffix_ratio": 1.0,
+        "top_suffixes": [
+          [
+            "kakkhandhako",
+            2
+          ],
+          [
+            "nakkhandhako",
+            2
+          ],
+          [
+            "ahakhandhako",
+            1
+          ],
+          [
+            "hakkhandhako",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Mahākhandhako",
+          "2. Uposathakkhandhako",
+          "3. Vassūpanāyikakkhandhako"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 283,
+        "median_span": 4,
+        "max_span": 2129,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.56,
+        "top_suffixes": [
+          [
+            "ssaddhikatha",
+            15
+          ],
+          [
+            "pannarasakam",
+            12
+          ],
+          [
+            "avivadakatha",
+            8
+          ],
+          [
+            "ikkhepakatha",
+            7
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Bodhikathā",
+          "2. Ajapālakathā"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 1,
+        "median_span": 2129,
+        "max_span": 2129,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "ahavaggapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Mahāvaggapāḷi"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "cv1",
+    "docs": [
+      "vin02m3.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 3,
+    "suggested_units": 12,
+    "suggested_suffixes": [
+      [
+        "akkhandhakam",
+        10
+      ],
+      [
+        "ukkhandhakam",
+        1
+      ],
+      [
+        "ikkhandhakam",
+        1
+      ]
+    ],
+    "suggested_overlaps": 0,
+    "levels": [
+      {
+        "level": 3,
+        "count": 12,
+        "median_span": 230.5,
+        "max_span": 353,
+        "overlaps": 0,
+        "reader_suffix_ratio": 1.0,
+        "top_suffixes": [
+          [
+            "akkhandhakam",
+            10
+          ],
+          [
+            "ukkhandhakam",
+            1
+          ],
+          [
+            "ikkhandhakam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Kammakkhandhakaṃ",
+          "2. Pārivāsikakkhandhakaṃ",
+          "3. Samuccayakkhandhakaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 194,
+        "median_span": 6.0,
+        "max_span": 2463,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.14,
+        "top_suffixes": [
+          [
+            "madvadasakam",
+            16
+          ],
+          [
+            "attharasakam",
+            8
+          ],
+          [
+            "cattalisakam",
+            7
+          ],
+          [
+            "iyabhanavaro",
+            7
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Tajjanīyakammaṃ",
+          "Adhammakammadvādasakaṃ"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 1,
+        "median_span": 2463,
+        "max_span": 2463,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "ulavaggapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Cūḷavaggapāḷi"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "cv2",
+    "docs": [
+      "vin02m3.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 3,
+    "suggested_units": 12,
+    "suggested_suffixes": [
+      [
+        "akkhandhakam",
+        10
+      ],
+      [
+        "ukkhandhakam",
+        1
+      ],
+      [
+        "ikkhandhakam",
+        1
+      ]
+    ],
+    "suggested_overlaps": 0,
+    "levels": [
+      {
+        "level": 3,
+        "count": 12,
+        "median_span": 230.5,
+        "max_span": 353,
+        "overlaps": 0,
+        "reader_suffix_ratio": 1.0,
+        "top_suffixes": [
+          [
+            "akkhandhakam",
+            10
+          ],
+          [
+            "ukkhandhakam",
+            1
+          ],
+          [
+            "ikkhandhakam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Kammakkhandhakaṃ",
+          "2. Pārivāsikakkhandhakaṃ",
+          "3. Samuccayakkhandhakaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 194,
+        "median_span": 6.0,
+        "max_span": 2463,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.14,
+        "top_suffixes": [
+          [
+            "madvadasakam",
+            16
+          ],
+          [
+            "attharasakam",
+            8
+          ],
+          [
+            "cattalisakam",
+            7
+          ],
+          [
+            "iyabhanavaro",
+            7
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Tajjanīyakammaṃ",
+          "Adhammakammadvādasakaṃ"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 1,
+        "median_span": 2463,
+        "max_span": 2463,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "ulavaggapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Cūḷavaggapāḷi"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "par1",
+    "docs": [
+      "vin02m4.mul.xml"
+    ],
+    "verdict": "CHỈ THẤY CẤP CHƯƠNG",
+    "suggested_level": null,
+    "suggested_units": null,
+    "suggested_suffixes": null,
+    "suggested_overlaps": null,
+    "levels": [
+      {
+        "level": 3,
+        "count": 18,
+        "median_span": 87.0,
+        "max_span": 1067,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.06,
+        "top_suffixes": [
+          [
+            "hasanganikam",
+            3
+          ],
+          [
+            "lasamahavaro",
+            1
+          ],
+          [
+            "sisasankhepo",
+            1
+          ],
+          [
+            "tarapeyyalam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Soḷasamahāvāro",
+          "Samuṭṭhānasīsasaṅkhepo",
+          "Antarapeyyālaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 118,
+        "median_span": 11.0,
+        "max_span": 3114,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.02,
+        "top_suffixes": [
+          [
+            "asamutthanam",
+            14
+          ],
+          [
+            "atapattivaro",
+            4
+          ],
+          [
+            "pannattivaro",
+            3
+          ],
+          [
+            "mutthanavaro",
+            3
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Katthapaññattivāro",
+          "2. Katāpattivāro"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 118,
+        "median_span": 10.0,
+        "max_span": 3114,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "rajikakandam",
+            8
+          ],
+          [
+            "disesakandam",
+            4
+          ],
+          [
+            "aggiyakandam",
+            4
+          ],
+          [
+            "ittiyakandam",
+            4
+          ]
+        ],
+        "sample_titles": [
+          "Parivārapāḷi",
+          "1. Pārājikakaṇḍaṃ",
+          "2. Saṅghādisesakaṇḍaṃ"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 1,
+        "median_span": 7,
+        "max_span": 7,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "asapakaranam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Atthavasapakaraṇaṃ"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "par2",
+    "docs": [
+      "vin02m4.mul.xml"
+    ],
+    "verdict": "CHỈ THẤY CẤP CHƯƠNG",
+    "suggested_level": null,
+    "suggested_units": null,
+    "suggested_suffixes": null,
+    "suggested_overlaps": null,
+    "levels": [
+      {
+        "level": 3,
+        "count": 18,
+        "median_span": 87.0,
+        "max_span": 1067,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.06,
+        "top_suffixes": [
+          [
+            "hasanganikam",
+            3
+          ],
+          [
+            "lasamahavaro",
+            1
+          ],
+          [
+            "sisasankhepo",
+            1
+          ],
+          [
+            "tarapeyyalam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Soḷasamahāvāro",
+          "Samuṭṭhānasīsasaṅkhepo",
+          "Antarapeyyālaṃ"
+        ]
+      },
+      {
+        "level": 4,
+        "count": 118,
+        "median_span": 11.0,
+        "max_span": 3114,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.02,
+        "top_suffixes": [
+          [
+            "asamutthanam",
+            14
+          ],
+          [
+            "atapattivaro",
+            4
+          ],
+          [
+            "pannattivaro",
+            3
+          ],
+          [
+            "mutthanavaro",
+            3
+          ]
+        ],
+        "sample_titles": [
+          "Vinayapiṭake",
+          "1. Katthapaññattivāro",
+          "2. Katāpattivāro"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 118,
+        "median_span": 10.0,
+        "max_span": 3114,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "rajikakandam",
+            8
+          ],
+          [
+            "disesakandam",
+            4
+          ],
+          [
+            "aggiyakandam",
+            4
+          ],
+          [
+            "ittiyakandam",
+            4
+          ]
+        ],
+        "sample_titles": [
+          "Parivārapāḷi",
+          "1. Pārājikakaṇḍaṃ",
+          "2. Saṅghādisesakaṇḍaṃ"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 1,
+        "median_span": 7,
+        "max_span": 7,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "asapakaranam",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Atthavasapakaraṇaṃ"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "vvpv",
+    "docs": [
+      "s0506m.mul.xml",
+      "s0507m.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 6,
+    "suggested_units": 87,
+    "suggested_suffixes": [
+      [
+        "vimanavatthu",
+        84
+      ],
+      [
+        "navatthupali",
+        1
+      ],
+      [
+        "ttilavimanam",
+        1
+      ],
+      [
+        "tavatthupali",
+        1
+      ]
+    ],
+    "suggested_overlaps": 1,
+    "levels": [
+      {
+        "level": 4,
+        "count": 6,
+        "median_span": 910.0,
+        "max_span": 1839,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.33,
+        "top_suffixes": [
+          [
+            "itthivimanam",
+            1
+          ],
+          [
+            "urisavimanam",
+            1
+          ],
+          [
+            "uragavaggo",
+            1
+          ],
+          [
+            "bbarivaggo",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Itthivimānaṃ",
+          "2. Purisavimānaṃ",
+          "1. Uragavaggo"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 60,
+        "median_span": 37.0,
+        "max_span": 3047,
+        "overlaps": 2,
+        "reader_suffix_ratio": 0.85,
+        "top_suffixes": [
+          [
+            "kapetavatthu",
+            7
+          ],
+          [
+            "tapetavatthu",
+            6
+          ],
+          [
+            "rapetavatthu",
+            6
+          ],
+          [
+            "napetavatthu",
+            5
+          ]
+        ],
+        "sample_titles": [
+          "Khuddakanikāye",
+          "1. Pīṭhavaggo",
+          "2. Cittalatāvaggo"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 87,
+        "median_span": 27,
+        "max_span": 3047,
+        "overlaps": 1,
+        "reader_suffix_ratio": 0.98,
+        "top_suffixes": [
+          [
+            "vimanavatthu",
+            84
+          ],
+          [
+            "navatthupali",
+            1
+          ],
+          [
+            "ttilavimanam",
+            1
+          ],
+          [
+            "tavatthupali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Vimānavatthupāḷi",
+          "1. Paṭhamapīṭhavimānavatthu",
+          "2. Dutiyapīṭhavimānavatthu"
+        ]
+      }
+    ]
+  },
+  {
+    "volume": "ap1",
+    "docs": [
+      "s0510m1.mul.xml",
+      "s0510m2.mul.xml"
+    ],
+    "verdict": "CÓ ĐƠN VỊ ĐỌC",
+    "suggested_level": 5,
+    "suggested_units": 605,
+    "suggested_suffixes": [
+      [
+        "heraapadanam",
+        560
+      ],
+      [
+        "heriapadanam",
+        36
+      ],
+      [
+        "assaapadanam",
+        4
+      ],
+      [
+        "ddhaapadanam",
+        3
+      ]
+    ],
+    "suggested_overlaps": 2,
+    "levels": [
+      {
+        "level": 4,
+        "count": 60,
+        "median_span": 223.0,
+        "max_span": 2016,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "adayakavaggo",
+            6
+          ],
+          [
+            "upphiyavaggo",
+            5
+          ],
+          [
+            "uddhavaggo",
+            1
+          ],
+          [
+            "asaniyavaggo",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "1. Buddhavaggo",
+          "2. Sīhāsaniyavaggo",
+          "3. Subhūtivaggo"
+        ]
+      },
+      {
+        "level": 5,
+        "count": 605,
+        "median_span": 19,
+        "max_span": 13618,
+        "overlaps": 2,
+        "reader_suffix_ratio": 1.0,
+        "top_suffixes": [
+          [
+            "heraapadanam",
+            560
+          ],
+          [
+            "heriapadanam",
+            36
+          ],
+          [
+            "assaapadanam",
+            4
+          ],
+          [
+            "ddhaapadanam",
+            3
+          ]
+        ],
+        "sample_titles": [
+          "Khuddakanikāye",
+          "1. Buddhaapadānaṃ",
+          "2. Paccekabuddhaapadānaṃ"
+        ]
+      },
+      {
+        "level": 6,
+        "count": 4,
+        "median_span": 3107.5,
+        "max_span": 13618,
+        "overlaps": 2,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "rapadanapali",
+            2
+          ],
+          [
+            "thamobhago",
+            1
+          ],
+          [
+            "utiyobhago",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Therāpadānapāḷi",
+          "(Paṭhamo bhāgo)",
+          "(Dutiyo bhāgo)"
+        ]
+      },
+      {
+        "level": 7,
+        "count": 1,
+        "median_span": 4042,
+        "max_span": 4042,
+        "overlaps": 0,
+        "reader_suffix_ratio": 0.0,
+        "top_suffixes": [
+          [
+            "iapadanapali",
+            1
+          ]
+        ],
+        "sample_titles": [
+          "Therīapadānapāḷi"
+        ]
+      }
+    ]
+  }
+]

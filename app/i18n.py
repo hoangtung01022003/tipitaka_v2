@@ -68,6 +68,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "section.translationHint": "Các bài dài được chia theo đoạn/câu rồi ghép lại.",
         "section.officialHint": "Bản dịch của dịch giả, ghép từ các đoạn của mục này.",
         "section.wholeOfficialHint": "Bản dịch toàn bộ bài kinh của dịch giả.",
+        # Hai chuỗi dưới nói CÁCH DỰNG bản trọn bài, vì với dòng cả bài thì tỉ lệ phủ
+        # luôn ra 100% nên không dùng làm tín hiệu chất lượng được.
+        "section.wholeOfficialHintPdf": "Bản dịch toàn bộ bài kinh, cắt đúng theo tiêu đề in trong sách.",
+        "section.wholeOfficialHintAnchor": "Bản dịch toàn bộ bài kinh, ghép tự động theo các đoạn khớp được · có thể thiếu ở hai đầu hoặc lẫn văn của bài lân cận.",
         "section.passageOfficialHint": "Bản dịch cấp đoạn được ghép trong toàn bài · hiện có {translated}/{total} đoạn ({percent}%).",
         "section.translationLoadingFirst": "Đang dịch phần đầu tiên. Bạn có thể đọc bản Pali trước trong khi chờ.",
         "section.translatingPart": "Đang dịch phần {part}...",
@@ -85,7 +89,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.noOfficial": "Hiện không có bản dịch chính thức nào",
         # Chèn vào ĐÚNG chỗ bản dịch cấp đoạn bị hụt so với bản Pali. Con số phần trăm ở
         # tiêu đề chỉ nói thiếu bao nhiêu; mốc này nói thiếu ở đâu.
-        "translation.gapPassages": "[… thiếu {count} đoạn chưa có bản dịch …]",
+        #
+        # Chữ "chưa ghép được" là cố ý, KHÔNG được đổi lại thành "chưa có bản dịch": dịch
+        # giả đã dịch trọn tập, chỗ hụt là do importer chỉ ghi cặp nào xác định được duy
+        # nhất một vị trí. Kinh Tiểu Tụng phủ 23,7%, toàn kho 5,5-58,6% - nói "chưa có
+        # bản dịch" là đổ lỗi nhầm cho người dịch.
+        "translation.gapPassages": "[… {count} đoạn chưa ghép được bản dịch …]",
         "translation.officialTitle": "Bản dịch chính thức của bài kinh chứa đoạn kinh Pali trên",
         "translation.aiTitle": "Bản dịch AI của đoạn Pali trên",
         "translation.noData": " (chưa có dữ liệu)",
@@ -157,6 +166,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "section.translationHint": "Long sections are split into parts and joined back together.",
         "section.officialHint": "The translator's rendering, joined from this section's passages.",
         "section.wholeOfficialHint": "The translator's complete discourse translation.",
+        "section.wholeOfficialHintPdf": "Complete discourse translation, cut at the headings printed in the book.",
+        "section.wholeOfficialHintAnchor": "Complete discourse translation, assembled automatically from matched passages · may be short at either end or carry text from a neighbouring discourse.",
         "section.passageOfficialHint": "Passage-level translations joined across the discourse · {translated}/{total} passages available ({percent}%).",
         "section.translationLoadingFirst": "Translating the first part. You can read the Pali while waiting.",
         "section.translatingPart": "Translating part {part}...",
@@ -172,7 +183,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.aiWarning": "This is an AI translation and has not been verified.",
         "translation.sourceLabel": "Translation",
         "translation.noOfficial": "No official translation is available",
-        "translation.gapPassages": "[… {count} passage(s) not yet translated …]",
+        "translation.gapPassages": "[… {count} passage(s) not yet matched to a translation …]",
         "translation.officialTitle": "Official translations of the discourse containing the Pali passage above",
         "translation.aiTitle": "AI translation of the Pali passage above",
         "translation.noData": " (not imported yet)",
@@ -239,6 +250,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "section.translationHint": "ရှည်လျားသောအပိုင်းများကို ပိုင်းခြား၍ ပြန်လည်ပေါင်းစပ်ထားသည်။",
         "section.officialHint": "ကတိကြာင်းဗာသာပြန်။",
         "section.wholeOfficialHint": "ဘာသာပြန်ဆရာ၏ သုတ္တန်တစ်ခုလုံး ဘာသာပြန်။",
+        "section.wholeOfficialHintPdf": "သုတ္တန်တစ်ခုလုံး ဘာသာပြန် — စာအုပ်တွင် ပုံနှိပ်ထားသော ခေါင်းစဉ်အတိုင်း ဖြတ်ယူထားသည်။",
+        "section.wholeOfficialHintAnchor": "သုတ္တန်တစ်ခုလုံး ဘာသာပြန် — ကိုက်ညီသော အပိုဒ်များမှ အလိုအလျောက် ပေါင်းစပ်ထားသည် · အစွန်းနှစ်ဖက်တွင် လိုနေခြင်း သို့မဟုတ် အနီးရှိ သုတ္တန်၏ စာသား ရောနှောနိုင်သည်။",
         "section.passageOfficialHint": "သုတ္တန်တစ်ခုလုံးအတွက် အပိုဒ်လိုက်ဘာသာပြန် · {translated}/{total} အပိုဒ် ({percent}%)။",
         "section.translationLoadingFirst": "ပထမပိုင်းကို ဘာသာပြန်နေသည်။ စောင့်နေစဉ် ပါဠိကို ဖတ်နိုင်ပါသည်။",
         "section.translatingPart": "အပိုင်း {part} ကို ဘာသာပြန်နေသည်...",
@@ -254,7 +267,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "translation.aiWarning": "ဤသည်မှာ AI ဘာသာပြန်ဖြစ်ပြီး အတည်ပြုထားခြင်း မရှိသေးပါ။",
         "translation.sourceLabel": "ဘာသာပြန်",
         "translation.noOfficial": "တရားဝင်ဘာသာပြန် မရှိသေးပါ",
-        "translation.gapPassages": "[… ဘာသာပြန် မရှိသေးသော အပိုဒ် {count} ခု …]",
+        "translation.gapPassages": "[… ဘာသာပြန်နှင့် တွဲမမိသေးသော အပိုဒ် {count} ခု …]",
         "translation.officialTitle": "အထက်ပါ ပါဠိအပိုဒ်ပါဝင်သည့် သုတ္တန်၏ တရားဝင်ဘာသာပြန်များ",
         "translation.aiTitle": "အထက်ပါ ပါဠိအပိုဒ်၏ AI ဘာသာပြန်",
         "translation.noData": " (ဒေတာ မရှိသေးပါ)",

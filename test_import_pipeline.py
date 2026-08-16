@@ -535,11 +535,8 @@ class WholeSuttaReaderTests(unittest.TestCase):
 
 def _entry(source, text, whole=False, position=None):
     """Một dòng như `official_translations_for` trả về."""
-    from app.translation_sources import SOURCE_TO_TRANSLATOR
-
     return {
         "source": source,
-        "translator": SOURCE_TO_TRANSLATOR.get(source, source),
         "label": source,
         "text": text,
         "passageLevel": not whole,
@@ -551,45 +548,26 @@ class TranslationCoverageTests(unittest.TestCase):
     def test_official_source_order_puts_ai_last(self):
         from app.translation_sources import AI_SOURCE, SOURCE_ORDER
 
-        # `indacanda_full` KHÔNG còn là một mục riêng ở giao diện: nó là hình dạng thứ
-        # hai của cùng dịch giả `indacanda`, gộp lại trong `TRANSLATOR_SOURCES`.
+        # Khách chốt giữ nguyên 5 option riêng, hai dòng Indacanda đứng cạnh nhau.
         self.assertEqual(
             SOURCE_ORDER,
-            ("indacanda", "minh_chau", "sujato", "brahmali", AI_SOURCE),
+            ("indacanda", "indacanda_full", "minh_chau", "sujato", "brahmali", AI_SOURCE),
         )
 
-    def test_legacy_indacanda_full_maps_back_to_the_translator(self):
-        from app.translation_sources import normalize_source
-
-        # Trang đang mở sẵn trong trình duyệt và bookmark cũ còn gửi giá trị này; rơi về
-        # AI thì người đọc bấm nút cũ lại thấy bản dịch máy thay cho bản của dịch giả.
-        self.assertEqual(normalize_source("indacanda_full"), "indacanda")
-        self.assertEqual(normalize_source("indacanda"), "indacanda")
-        self.assertEqual(normalize_source("khong-co-that"), "ai")
-
-    def test_label_states_the_shape_for_every_translator(self):
-        from app.translation_sources import EXCERPT_SHAPE, WHOLE_SHAPE, source_label
+    def test_labels_are_the_fixed_strings_the_client_asked_for(self):
+        from app.translation_sources import source_label
 
         self.assertEqual(
-            source_label("indacanda", "vi", WHOLE_SHAPE),
+            source_label("indacanda", "vi"),
+            "Bản dịch của Tỳ Khưu Indacanda (trích đoạn ngắn)",
+        )
+        self.assertEqual(
+            source_label("indacanda_full", "vi"),
             "Bản dịch của Tỳ Khưu Indacanda (toàn bộ bài kinh)",
         )
-        self.assertEqual(
-            source_label("indacanda", "vi", EXCERPT_SHAPE),
-            "Bản dịch của Tỳ Khưu Indacanda (trích đoạn ngắn trong bài kinh)",
-        )
-        # Khách yêu cầu áp cho cả bản tiếng Anh, không riêng Indacanda.
-        self.assertTrue(
-            source_label("sujato", "en", EXCERPT_SHAPE).endswith(" (short excerpt from the discourse)")
-        )
-        # Riêng AI giữ nguyên lối chia theo đoạn nên không mang hậu tố nào.
-        self.assertEqual(source_label("ai", "vi", WHOLE_SHAPE), source_label("ai", "vi"))
-        # Không biết hình dạng thì trả tên trần, dùng cho dropdown chọn nguồn.
-        self.assertEqual(source_label("indacanda", "vi"), "Bản dịch của Tỳ Khưu Indacanda")
 
     @patch("app.translation_sources.official_translations_for")
-    def test_two_indacanda_shapes_collapse_into_one_option(self, official_for):
-        # Đúng cảnh khách báo: cùng một bài vừa có bản trọn bài vừa có bản cấp đoạn.
+    def test_both_indacanda_options_stay_separate(self, official_for):
         official_for.return_value = {
             "p1": [_entry("indacanda", "Đoạn một"), _entry("indacanda_full", "Trọn bài", whole=True)],
             "p2": [_entry("indacanda", "Đoạn hai")],
@@ -598,28 +576,46 @@ class TranslationCoverageTests(unittest.TestCase):
         from app.translation_sources import official_translations_merged
 
         result = official_translations_merged(["p1", "p2"], "vi")
+        by_source = {item["source"]: item for item in result}
 
-        self.assertEqual(len(result), 1, "một dịch giả chỉ được hiện một lần")
-        self.assertEqual(result[0]["source"], "indacanda")
-        self.assertTrue(result[0]["wholeSutta"])
-        self.assertEqual(result[0]["text"], "Trọn bài")
-        self.assertIn("(toàn bộ bài kinh)", result[0]["label"])
+        self.assertEqual(set(by_source), {"indacanda", "indacanda_full"})
+        self.assertTrue(by_source["indacanda_full"]["wholeSutta"])
+        self.assertFalse(by_source["indacanda"]["wholeSutta"])
 
     @patch("app.translation_sources.official_translations_for")
-    def test_translator_falls_back_to_passage_shape(self, official_for):
-        official_for.return_value = {"p1": [_entry("indacanda", "Đoạn một")]}
+    def test_whole_option_is_built_from_passage_rows_when_no_whole_row_exists(self, official_for):
+        """Mâu thuẫn khách chỉ ra: đã có trích đoạn thì phải đọc hết bài được.
+
+         chỉ phủ 251 bài trên 30.590 dòng cấp đoạn, nên nếu option toàn
+        bộ chỉ đọc đúng nguồn đó thì gần như bài nào cũng hiện "(chưa có dữ liệu)" ngay
+        cạnh một option trích đoạn đang chạy tốt.
+        """
+        official_for.return_value = {"p1": [_entry("indacanda", "Một")], "p3": [_entry("indacanda", "Ba")]}
 
         from app.translation_sources import official_translations_merged
 
-        result = official_translations_merged(["p1"], "vi")
+        # Trang đọc: option toàn bộ được dựng từ chính các dòng cấp đoạn.
+        reader = {i["source"]: i for i in official_translations_merged(
+            ["p1", "p2", "p3"], "vi", covers_whole_sutta=True)}
+        self.assertIn("indacanda_full", reader)
+        self.assertEqual(reader["indacanda_full"]["coveragePercent"], 67)
+        # Ghép được 67% vẫn cho đọc - không đòi tròn 100%. Khách đã chốt bỏ mốc chen giữa
+        # nội dung, nên mức phủ chỉ còn được nói qua con số ở tiêu đề: phải giữ bằng được.
+        self.assertNotIn("chưa ghép", reader["indacanda_full"]["text"])
+        self.assertEqual(reader["indacanda_full"]["missingPassages"], 1)
 
-        # Chưa có bản trọn bài thì vẫn phải dùng được, không hiện "(chưa có dữ liệu)".
-        self.assertEqual(result[0]["source"], "indacanda")
-        self.assertFalse(result[0]["wholeSutta"])
-        self.assertIn("(trích đoạn ngắn trong bài kinh)", result[0]["label"])
+        # Trang kết quả KHÔNG dựng, vì ở đó chỉ có mấy đoạn của trích dẫn nên bản ghép
+        # sẽ trùng khít option trích đoạn bên cạnh - hai dòng y hệt nhau.
+        card = {i["source"]: i for i in official_translations_merged(["p1", "p2", "p3"], "vi")}
+        self.assertNotIn("indacanda_full", card)
+
+    def test_whole_option_is_offered_wherever_passage_rows_exist(self):
+        from app.translation_sources import WHOLE_FALLBACK_SOURCE
+
+        self.assertEqual(WHOLE_FALLBACK_SOURCE["indacanda_full"], "indacanda")
 
     @patch("app.translation_sources.official_translations_for")
-    def test_passage_source_marks_where_the_translation_is_missing(self, official_for):
+    def test_passage_source_counts_the_missing_passages_without_marking_the_text(self, official_for):
         official_for.return_value = {
             "p1": [_entry("indacanda", "Một")],
             "p3": [_entry("indacanda", "Ba")],
@@ -629,9 +625,10 @@ class TranslationCoverageTests(unittest.TestCase):
 
         result = official_translations_merged(["p1", "p2", "p3"], "vi")
 
-        # Nối thẳng "Một\n\nBa" khiến người đọc tưởng mạch văn liên tục; mốc phải nằm
-        # đúng chỗ đoạn 2 bị hụt.
-        self.assertEqual(result[0]["text"], "Một\n\n[… thiếu 1 đoạn chưa có bản dịch …]\n\nBa")
+        # Khách chốt bỏ mốc chen giữa nội dung, nên đoạn 2 hụt KHÔNG để lại dấu vết nào
+        # trong văn bản - đo được là mốc cũ nói quá (xem docstring `_join_with_gap_markers`).
+        self.assertEqual(result[0]["text"], "Một\n\nBa")
+        # Nhưng phần đếm phải sống sót: đây là thứ duy nhất còn nói lên chỗ hụt.
         self.assertEqual(result[0]["missingPassages"], 1)
         self.assertEqual(result[0]["coverageCount"], 2)
         self.assertEqual(result[0]["coverageTotal"], 3)
@@ -639,59 +636,19 @@ class TranslationCoverageTests(unittest.TestCase):
         self.assertFalse(result[0]["complete"])
 
     @patch("app.translation_sources.official_translations_for")
-    def test_complete_passage_assembly_is_labelled_whole_on_the_reader_page(self, official_for):
-        official_for.return_value = {
-            "p1": [_entry("sujato", "One")],
-            "p2": [_entry("sujato", "Two")],
-        }
-
-        from app.translation_sources import official_translations_merged
-
-        # Trang đọc truyền TOÀN BỘ đoạn của bài; phủ đủ 100% thì thứ hiện ra là trọn bài.
-        reader = official_translations_merged(["p1", "p2"], "vi", covers_whole_sutta=True)
-        self.assertIn("(toàn bộ bài kinh)", reader[0]["label"])
-        self.assertEqual(reader[0]["text"], "One\n\nTwo")
-        # `wholeSutta` vẫn False: nó nói về HÌNH DẠNG LƯU TRỮ, và trang đọc dựa vào nó để
-        # in "ghép từ N/N đoạn" thay vì "bản dịch trọn bài của dịch giả".
-        self.assertFalse(reader[0]["wholeSutta"])
-
-        # Trang kết quả truyền vài đoạn của trích dẫn - phủ đủ chúng KHÔNG phải phủ đủ bài.
-        card = official_translations_merged(["p1", "p2"], "vi")
-        self.assertIn("(trích đoạn ngắn trong bài kinh)", card[0]["label"])
-
-    @patch("app.translation_sources.official_translations_for")
-    def test_partial_assembly_is_still_labelled_whole_on_the_reader_page(self, official_for):
-        """Không đòi phủ 100%: bản bóc từ PDF gần như không bao giờ tròn.
-
-        Nhãn nói PHẠM VI (đây là tất cả những gì tồn tại cho bài này), còn ĐỘ ĐẦY do
-        `missingPassages` + dòng phần trăm + mốc "[… thiếu N đoạn …]" nói.
-        """
-        official_for.return_value = {"p1": [_entry("sujato", "One")]}
-
-        from app.translation_sources import official_translations_merged
-
-        result = official_translations_merged(["p1", "p2"], "vi", covers_whole_sutta=True)
-        self.assertIn("(toàn bộ bài kinh)", result[0]["label"])
-        # Vẫn phải nói thật là thiếu chỗ nào - nhãn nới ra thì hai thứ này càng quan trọng.
-        self.assertEqual(result[0]["missingPassages"], 1)
-        self.assertEqual(result[0]["coveragePercent"], 50)
-        self.assertIn("thiếu 1 đoạn", result[0]["text"])
-
-    @patch("app.translation_sources.official_translations_for")
-    def test_gap_markers_merge_and_cover_both_ends(self, official_for):
+    def test_missing_count_covers_both_ends_not_just_the_middle(self, official_for):
         official_for.return_value = {"p3": [_entry("sujato", "Giữa")]}
 
         from app.translation_sources import official_translations_merged
 
         result = official_translations_merged(["p1", "p2", "p3", "p4", "p5", "p6"], "en")
 
-        # Hai đoạn hụt liền nhau gộp thành MỘT mốc, không phải hai; và phần hụt ở đầu
-        # lẫn ở cuối đều phải được nói ra.
-        self.assertEqual(
-            result[0]["text"],
-            "[… 2 passage(s) not yet translated …]\n\nGiữa\n\n[… 3 passage(s) not yet translated …]",
-        )
+        # Không còn mốc nào trong văn bản.
+        self.assertEqual(result[0]["text"], "Giữa")
+        # Phần hụt Ở ĐẦU (2 đoạn) và Ở CUỐI (3 đoạn) vẫn phải vào số đếm, không chỉ phần
+        # hụt kẹp giữa hai đoạn đã dịch - đếm sót hai đầu thì tỉ lệ phủ báo cao hơn thật.
         self.assertEqual(result[0]["missingPassages"], 5)
+        self.assertEqual(result[0]["coveragePercent"], 17)
 
 
 if __name__ == "__main__":

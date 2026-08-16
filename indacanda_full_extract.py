@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn2", "pts2")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -118,6 +118,10 @@ def heading_stem(value: str, volume: str) -> str:
         ("sn", "navasuttam"): "dhammanavasuttam",
         ("pts2", "sunnakatha"): "sunnatakatha",
         ("pts2", "mahapannakatha"): "pannakatha",
+        # Dị bản tên cổ điển: sách in "11. KEVAḌḌHA SUTTAṂ", DB ghi "11. Kevaṭṭasuttaṃ".
+        # Không dò được tên này thì mất HAI bài chứ không phải một - bài 10 Subha dùng
+        # tiêu đề của bài 11 làm điểm kết thúc nên cũng rơi xuống REVIEW theo.
+        ("dn1", "kevaddhasuttam"): "kevattasuttam",
     }
     if volume == "sn" and stem.endswith("manavapuccha"):
         # DB gọi các mục phẩm Pārāyana là “câu hỏi của ...”, sách in gọi là “kinh ...”.
@@ -128,7 +132,12 @@ def heading_stem(value: str, volume: str) -> str:
 def _is_unit(volume: str, row: dict) -> bool:
     level = int(row["level"])
     start = int(row["start_sort_order"])
-    if volume == "dn2":
+    if volume in ("dn1", "dn2", "dn3"):
+        # Cả ba tập Trường Bộ dùng chung một luật vì cấu trúc DB trùng khít - đã ĐẾM chứ
+        # không suy: `s0103m` (dn3) có đúng 11 mục cấp 4, `s0101m` (dn1) có 13, và trong
+        # cả hai thì 100% mục cấp 4 kết thúc bằng `suttaṃ`, còn cấp 5 (137 và 132 mục) là
+        # tiểu mục bên trong bài. Với tập mới thì đếm lại, đừng mặc định nó cũng vậy:
+        # `sn` cần cấp 5 kèm bảng alias, `pts2` còn phải chặn theo `sort_order`.
         return level == 4 and heading_stem(str(row["title"]), volume).endswith(
             ("sutta", "suttam")
         )
@@ -273,19 +282,58 @@ def find_last_boundary(
     start_page: int,
     pages: list[str],
     page_is_vietnamese: list[bool],
+    unit_stem: str | None = None,
 ) -> tuple[int | None, str | None]:
+    """Điểm kết thúc của đơn vị CUỐI tập - đơn vị duy nhất không có tiêu đề sau nó chặn lại.
+
+    `niṭṭhita` ("đã xong") một mình KHÔNG đủ để nhận là hết bài: sách in cả mốc nội bộ.
+    Ca thật ở Trường Bộ III - `11. Dasuttarasuttaṃ` có hai mốc, trang 529 ghi
+    `Paṭhamabhāṇavāro niṭṭhito.` (hết tụng phẩm thứ nhất) và trang 569 ghi
+    `Dasuttarasuttaṃ Niṭṭhitaṃ Ekādasamaṃ.` (hết bài). Luật cũ lấy mốc ĐẦU TIÊN nên cắt ở
+    529, mất non nửa bài - Việt/Pali còn 0.78 trong khi 10 bài kia của tập nằm gọn trong
+    1.45-1.71, và bản bóc vẫn PASS mọi cổng kiểm vì phần lấy được thì sạch.
+
+    Nên ưu tiên mốc có GỌI TÊN đơn vị. Không tìm thấy thì mới rơi về mốc `niṭṭhita` đầu
+    tiên, đúng hành vi cũ - nhánh dự phòng này giữ nguyên kết quả cho các tập đã chạy.
+
+    Tên đơn vị phải nằm CÙNG MỘT DÒNG với `niṭṭhita`, không phải cùng trang. Bản sửa đầu
+    tiên kiểm theo trang và không ăn thua, vì đầu trang Pāli nào của bài cũng in
+    `Dīghanikāye Pāthikavaggo 11. Dasuttarasuttaṃ (34)` - xét theo trang thì trang mốc nội
+    bộ cũng "gọi tên đơn vị", và luật mới thoái hoá về đúng luật cũ.
+    """
     config = VOLUMES[volume]
     if volume == "pts2":
         return int(config["pdf_end_page"]) + 1, "configured_body_end"
+
+    def _boundary_after(page_number: int) -> int | None:
+        paired_vietnamese = page_number + 1
+        if paired_vietnamese <= len(pages) and page_is_vietnamese[paired_vietnamese - 1]:
+            return paired_vietnamese + 1
+        return None
+
+    first_marker: int | None = None
     for page_number in range(start_page, len(pages) + 1):
         if page_is_vietnamese[page_number - 1]:
             continue
         compact = normalize_pali(pages[page_number - 1])
         if "nitthit" not in compact:
             continue
-        paired_vietnamese = page_number + 1
-        if paired_vietnamese <= len(pages) and page_is_vietnamese[paired_vietnamese - 1]:
-            return paired_vietnamese + 1, "printed_end_marker"
+        boundary = _boundary_after(page_number)
+        if boundary is None:
+            continue
+        # Mốc gọi đúng tên đơn vị TRÊN CÙNG MỘT DÒNG là mốc hết bài; nhận ngay.
+        if unit_stem and any(
+            "nitthit" in line and unit_stem in line
+            for line in (
+                re.sub(r"[^a-z0-9]+", "", normalize_pali(raw_line))
+                for raw_line in pages[page_number - 1].splitlines()
+            )
+        ):
+            return boundary, "printed_end_marker"
+        if first_marker is None:
+            first_marker = boundary
+    if first_marker is not None:
+        return first_marker, "printed_end_marker_unnamed"
     return None, None
 
 
@@ -501,7 +549,10 @@ def clean_vietnamese_page(text: str, volume: str) -> str:
             r"^phẩm .+ - giảng", folded
         ):
             continue
-        if volume == "dn2" and len(line) <= 120 and re.match(
+        # Đầu trang lẻ của bộ Trường Bộ in "6. Kinh Khơi Dậy Niềm Tin (29)" - số bài kèm
+        # số thứ tự toàn tạng trong ngoặc. Cả ba tập in y hệt nhau, đã thấy tận mắt khi
+        # đối chiếu PDF: bỏ sót nó thì mảnh "(29)" dính vào giữa câu và cắt đứt mạch văn.
+        if volume in ("dn1", "dn2", "dn3") and len(line) <= 120 and re.match(
             r"^\d+\.\s+.+\(\d+\)\s*$", line
         ):
             continue
@@ -545,7 +596,11 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
     if not heading_pages:
         raise RuntimeError(f"Không dò được tiêu đề nào trong PDF {config['file']}")
     audit_end, _audit_end_source = find_last_boundary(
-        volume, heading_pages[-1], pages, page_is_vietnamese
+        volume,
+        heading_pages[-1],
+        pages,
+        page_is_vietnamese,
+        heading_stem(units[-1].title, volume),
     )
     if audit_end is None:
         audit_end = min(len(pages) + 1, heading_pages[-1] + 2)
@@ -607,7 +662,7 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
                 boundary_viet_page, boundary_viet_offset, _line = next_viet_cut
         elif hit:
             boundary_page, boundary_source = find_last_boundary(
-                volume, hit.page, pages, page_is_vietnamese
+                volume, hit.page, pages, page_is_vietnamese, heading_stem(unit.title, volume)
             )
             if boundary_page is None:
                 problems.append("không dò được dấu kết thúc tập")

@@ -212,9 +212,25 @@ nidd1 nidd2 pts1 pts2 net pet mil
 dn1 dn2 dn3
 ```
 
-Đã xong: `dn2 pts2 sn`.
+Đã áp dụng vào DB: `dn2 pts2 sn` — 101 dòng, dry-run ra `thêm 0 | cập nhật 0 | không đổi 101`.
 
-Còn cần làm: 27 volume còn lại.
+Đã bóc xong, **chưa áp dụng**: `dn3` — 11/11 PASS, dry-run `thêm 6 | cập nhật 5 | 0 bị chặn`, 2 neo cũ chờ lưu lịch sử.
+
+Còn cần làm: 26 volume còn lại.
+
+`dn3` tốn rất ít vì cấu trúc trùng khít `dn2` (cấp 4, 11 mục, đều đuôi `suttaṃ`, đầu trang cùng dạng `N. Kinh ... (NN)`) — chỉ thêm tên tập vào `SUPPORTED_VOLUMES`, nới hai nhánh `dn2` thành `("dn2", "dn3")`, và một wrapper 8 dòng. **Đừng suy ra 26 tập kia cũng rẻ như vậy:** `sn` cần bảng alias riêng và cấp 5, `pts2` cần chặn theo `sort_order >= 1167`. Với mỗi tập mới, hãy ĐẾM cấp mục và hậu tố tiêu đề trong DB trước, đừng mặc định nó là một `dn2` nữa.
+
+**Lý do nên ưu tiên việc này, đo được chứ không phải cảm tính.** `dev_whole_unit_audit.py` cho thấy 50/150 dòng `whole_unit` thiếu trên 20% nội dung, ảnh hưởng 4.079 đoạn. Nhưng con số đó còn **báo nhẹ**, vì thước đo dựa trên độ dài nên dòng lấy THỪA lại được điểm cao: dòng `1. Pāthikasuttaṃ` không hề lọt vào danh sách 50 tệ nhất, trong khi quá nửa nội dung của nó là text của Udumbarikasutta và Cakkavattisutta. Bản cắt từ PDF làm nó ngắn đi 34% chính là sửa lỗi đó.
+
+Thứ tự nên làm tiếp, xếp theo số đoạn người đọc bị ảnh hưởng (từ `dev_whole_unit_audit.py`):
+
+| tập | PDF | dòng xấu/tổng | đoạn ảnh hưởng |
+|---|---|---|---|
+| `thag` | `31_Thag_Thig.pdf` | 10/19 | 794 |
+| `pr` | `ttpv_01_Pr.pdf` | 7/8 | 758 |
+| `ap1` | `ttpv_39_Ap_I.pdf` | 12/40 | 607 |
+| `dn1` | `10_D_01.pdf` | 2/4 | 206 |
+| `kn1` | `28_Khp-Dh-Ud-It.pdf` | 6/6 | 166 |
 
 ### PDF cache hiện có
 
