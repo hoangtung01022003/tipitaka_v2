@@ -45,6 +45,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "results.noSourcePath": "Chưa có source path",
         "results.contextAround": "Ngữ cảnh quanh đoạn",
         "results.paragraph": "Đoạn",
+        # Địa chỉ trích dẫn trùng - xem `_duplicate_path_ranks`. Chữ phải TRUNG TÍNH về
+        # vị trí, không được gọi là "bộ": phần lớn ca trùng KHÔNG phải hai công trình
+        # khác nhau mà là một tiêu đề tái xuất trong cùng một công trình
+        # (`1. Paccayānulomaṃ` xuất hiện 72 lần trong Paṭṭhāna).
+        "results.pathOccurrence": "chỗ {index}/{total}",
         "results.meta": "Rank {rank} · Score {score}",
         "results.originalTitle": "Trích đoạn bản gốc",
         "results.originalTitleExpanded": "Trích đoạn bản gốc / ngữ cảnh quanh đoạn",
@@ -150,6 +155,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "results.noSourcePath": "No source path",
         "results.contextAround": "Context around passage",
         "results.paragraph": "Passage",
+        "results.pathOccurrence": "occurrence {index}/{total}",
         "results.meta": "Rank {rank} · Score {score}",
         "results.originalTitle": "Original excerpt",
         "results.originalTitleExpanded": "Original excerpt / surrounding context",
@@ -238,6 +244,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "results.noSourcePath": "ရင်းမြစ်လမ်းကြောင်း မရှိပါ",
         "results.contextAround": "အပိုဒ်ပတ်ဝန်းကျင် အကြောင်းအရာ",
         "results.paragraph": "အပိုဒ်",
+        "results.pathOccurrence": "အနေရာ {index}/{total}",
         "results.meta": "အဆင့် {rank} · အမှတ် {score}",
         "results.originalTitle": "မူရင်းကောက်နုတ်ချက်",
         "results.originalTitleExpanded": "မူရင်းကောက်နုတ်ချက် / ပတ်ဝန်းကျင်အကြောင်းအရာ",

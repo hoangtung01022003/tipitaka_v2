@@ -377,6 +377,20 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertTrue(_is_reader_unit_row(row("Atītacakkhurūpādikathā", 6)))
         self.assertTrue(_is_reader_unit_row(row("Dhammuddesavārakathā", 20)))
 
+        # Mục CHÚ GIẢI (`...vaṇṇanā`) cũng không cần số, dù lõi mang hậu tố thuộc nhóm
+        # "đòi số". Ca khách báo: `Vaggumudātīriyabhikkhuvatthuvaṇṇanā` (lõi kết thúc
+        # `vatthu`) bị bỏ qua nên trang đọc mở ra cả `4. Catutthapārājikaṃ`. Bất nhất rõ
+        # nhất là trong CÙNG một mục lục: `Suddhikavārakathāvaṇṇanā` được nhận vì lõi kết
+        # thúc `kathā`, còn mục anh em kia thì không.
+        self.assertTrue(_is_reader_unit_row(row("Vaggumudātīriyabhikkhuvatthuvaṇṇanā", 14)))
+        self.assertTrue(_is_reader_unit_row(row("Vinītavatthuvaṇṇanā", 19)))
+        self.assertTrue(_is_reader_unit_row(row("Suddhikavārakathāvaṇṇanā", 4)))
+        # Nhưng KHÔNG được kéo chương vào, dù có đuôi `vaṇṇanā`.
+        self.assertFalse(_is_reader_unit_row(row("1. Bhūmivaggavaṇṇanā", 34)))
+        self.assertFalse(_is_reader_unit_row(row("Ganthārambhakathāvaṇṇanā", 130)))
+        # Và lõi không mang hậu tố nào thì vẫn không phải đơn vị.
+        self.assertFalse(_is_reader_unit_row(row("Nidānavaṇṇanā", 12)))
+
         # Tên bộ chú giải và lời tựa cũng kết thúc bằng `kathā` nhưng KHÔNG phải mục để đọc.
         self.assertFalse(_is_reader_unit_row(row("Dasakanipāta-aṭṭhakathā", 167)))
         self.assertFalse(_is_reader_unit_row(row("Ganthārambhakathā", 3815)))
@@ -402,6 +416,82 @@ class WholeSuttaReaderTests(unittest.TestCase):
         }
         with patch("app.main.fetch_all", return_value=[katha, sutta]):
             self.assertEqual(_canonical_reader_section(dict(katha))["id"], "sutta")
+
+    def test_source_path_drops_duplicates_and_fixes_the_work_name(self):
+        """Chỉ bỏ phần tử LẶP; KHÔNG bỏ theo phạm vi.
+
+        Luật "bỏ phần tử không chứa section này" đã bị thu hồi vì nó xoá cả tên sách hợp lệ
+        có phạm vi ghi thiếu (`Milindapañhapāḷi` ghi 16-117 nhưng mục con ở 1074-1109).
+        Xem chú thích ở `_fix_source_path`.
+        """
+        from app.main import _prune_path
+
+        path = [
+            "Vinayapiṭaka (Ṭīkā)", "Vajirabuddhi-Ṭīkā", "Ganthārambhakathā",
+            "Vinayapiṭake", "Vajirabuddhi-ṭīkā", "4. Catutthapārājikaṃ",
+            "Vaggumudātīriyabhikkhuvatthuvaṇṇanā",
+        ]
+        self.assertEqual(
+            _prune_path(path, 529, 530, path[-1], {}, []),
+            [
+                "Vinayapiṭaka (Ṭīkā)", "Vajirabuddhi-Ṭīkā", "Ganthārambhakathā",
+                "Vinayapiṭake", "4. Catutthapārājikaṃ",
+                "Vaggumudātīriyabhikkhuvatthuvaṇṇanā",
+            ],
+        )
+
+        # Tên sách có phạm vi ghi THIẾU phải đi qua nguyên vẹn - đây là ca khách phát hiện.
+        book = ["Suttapiṭaka", "Khuddakanikāya", "Milindapañhapāḷi",
+                "5. Anumānapañho", "3. Vessantaravaggo", "1. Vessantarapañho"]
+        self.assertEqual(
+            _prune_path(book, 1074, 1109, book[-1], {"Milindapañhapāḷi": [(16, 117)]}, []),
+            book,
+        )
+
+        # Tên công trình bị dán theo FILE: `abh02t` chứa hai công trình, nửa sau
+        # (864-1649) là anuṭīkā nhưng cả hai nửa đều mang nhãn `Vibhaṅga-Mūlaṭīkā`.
+        works = [
+            {"title": "Vibhaṅga-mūlaṭīkā", "start_sort_order": 0, "end_sort_order": 863},
+            {"title": "Vibhaṅga-anuṭīkā", "start_sort_order": 864, "end_sort_order": 1649},
+        ]
+        anu = ["Abhidhammapiṭaka (Ṭīkā)", "Vibhaṅga-Mūlaṭīkā", "6. Paṭiccasamuppādavibhaṅgo",
+               "Viññāṇapadaniddesavaṇṇanā"]
+        self.assertEqual(
+            _prune_path(anu, 1188, 1225, anu[-1], {}, works)[1],
+            "Vibhaṅga-anuṭīkā",
+        )
+        # Nửa mūlaṭīkā thì tên đã đúng -> KHÔNG được đổi.
+        self.assertEqual(_prune_path(anu, 308, 351, anu[-1], {}, works), anu)
+
+        # Đường dẫn sạch phải đi qua nguyên vẹn - đo trên 3.000 section ngẫu nhiên:
+        # 2.761 không đổi một ký tự.
+        clean = ["Suttapiṭaka", "Dīghanikāya", "1. Brahmajālasuttaṃ"]
+        self.assertEqual(_prune_path(clean, 1, 200, clean[-1], {}, []), clean)
+
+    def test_duplicate_citation_path_gets_an_occurrence_marker(self):
+        """Hai văn bản KHÁC NHAU không được mang cùng một địa chỉ trích dẫn.
+
+        `abh02t.tik.xml` chứa hai bộ chú giải nối nhau (đoạn 0-863 và 864-1649), nên có hai
+        section `Viññāṇapadaniddesavaṇṇanā` (308-351 và 1188-1225) nội dung khác nhau mà
+        `source_path` giống hệt. Toàn kho có 1.760 nhóm trùng như vậy.
+        """
+        from app.main import _with_path_occurrence
+
+        path = "Vibhaṅga-Mūlaṭīkā -> 1. Suttantabhājanīyaṃ -> Viññāṇapadaniddesavaṇṇanā"
+        self.assertEqual(
+            _with_path_occurrence(path, (2, 2), "vi"),
+            f"{path} (chỗ 2/2)",
+        )
+        # Không trùng thì KHÔNG được thêm gì - đo trên 4.000 section ngẫu nhiên: 3.237 mục
+        # không đổi một ký tự nào, chỉ 763 mục nằm trong nhóm trùng được gắn hậu tố.
+        self.assertEqual(_with_path_occurrence(path, None, "vi"), path)
+        # Chữ phải trung tính về VỊ TRÍ, không gọi là "bộ": phần lớn ca trùng là một tiêu đề
+        # tái xuất trong CÙNG một công trình (`1. Paccayānulomaṃ` 72 lần trong Paṭṭhāna),
+        # không phải hai công trình khác nhau.
+        self.assertEqual(
+            _with_path_occurrence(path, (37, 72), "vi"),
+            f"{path} (chỗ 37/72)",
+        )
 
     def test_overreaching_recorded_range_is_clipped_at_the_first_intruder(self):
         """Bản import XML ghi cho vài section phạm vi trọn cả tài liệu.
@@ -647,6 +737,55 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertEqual(resolved["id"], "s")
         self.assertTrue(resolved["_readerUnitExact"])
 
+    def test_commentary_corpora_take_the_deepest_section_but_mul_climbs(self):
+        """Chú giải đọc theo từng mục nhỏ; chánh kinh đọc trọn bài. Luật theo CORPUS.
+
+        Bốn ca khách báo liên tiếp đều là cùng một vấn đề dưới bốn quy ước đặt tên khác
+        nhau, nên kể tên từng hậu tố không bao giờ đủ. `att`/`tik`/`nrf` lấy thẳng mục sâu
+        nhất; `mul` giữ nguyên - ở đó `Pubbenivāsapaṭisaṃyuttakathā` phải leo lên bài kinh.
+        """
+        from app.main import _canonical_reader_section
+
+        child = {
+            "id": "child", "document_id": "doc",
+            "title": "Vaggumudātīriyabhikkhuvatthuvaṇṇanā",
+            "source_path": ["4. Catutthapārājikaṃ", "Vaggumudātīriyabhikkhuvatthuvaṇṇanā"],
+            "start_sort_order": 194, "end_sort_order": 201,
+        }
+        rule = {
+            "id": "rule", "document_id": "doc", "title": "4. Catutthapārājikaṃ",
+            "source_path": ["4. Catutthapārājikaṃ"],
+            "start_sort_order": 150, "end_sort_order": 205,
+        }
+
+        # Phụ chú giải: giữ mục sâu nhất. `fetch_all` chỉ còn được gọi bởi phép cắt phạm vi.
+        with patch("app.main.fetch_all", return_value=[]):
+            resolved = _canonical_reader_section(dict(child, corpus_type="tik"))
+        self.assertEqual(resolved["id"], "child")
+
+        # Chánh kinh: vẫn leo lên đơn vị đọc thật.
+        sutta_child = dict(child, corpus_type="mul", title="Pubbenivāsapaṭisaṃyuttakathā",
+                           source_path=["1. Mahāpadānasuttaṃ", "Pubbenivāsapaṭisaṃyuttakathā"])
+        sutta = dict(rule, id="sutta", title="1. Mahāpadānasuttaṃ",
+                     source_path=["1. Mahāpadānasuttaṃ"])
+        with patch("app.main.fetch_all", side_effect=[[sutta_child, sutta], []]):
+            resolved = _canonical_reader_section(dict(sutta_child))
+        self.assertEqual(resolved["id"], "sutta")
+
+        # Thiếu `corpus_type` thì phải giữ hành vi cũ, không được đoán sang nhánh mới. Dùng
+        # tiêu đề KHÔNG phải đơn vị đọc, vì `...vatthuvaṇṇanā` nay đã được nhận nên nó thắng
+        # ở tier 1 dù có `corpus_type` hay không - fixture như vậy sẽ không kiểm được gì.
+        scrap = dict(child, id="scrap", title="Naārammaṇapaccayo",
+                     source_path=["4. Catutthapārājikaṃ", "Naārammaṇapaccayo"])
+        with patch("app.main.fetch_all", side_effect=[[scrap, rule], []]):
+            resolved = _canonical_reader_section(dict(scrap))
+        self.assertEqual(resolved["id"], "rule")
+
+        # Nhưng cùng fixture đó ở phụ chú giải thì giữ mục sâu nhất.
+        with patch("app.main.fetch_all", return_value=[]):
+            resolved = _canonical_reader_section(dict(scrap, corpus_type="tik"))
+        self.assertEqual(resolved["id"], "scrap")
+
     def test_katha_is_its_own_unit_when_the_only_ancestor_is_a_khandhaka(self):
         """Ca khách báo: `42. Sikkhāpadakathā` phải hiện riêng, không mở ra cả khandhaka.
 
@@ -737,11 +876,14 @@ class WholeSuttaReaderTests(unittest.TestCase):
                 "hierarchy": {},
             }
         ]
-        # Thứ tự truy vấn: (1) tổ tiên cho `_canonical_reader_section`, (2) cắt phạm vi ghi
-        # quá rộng (`_clip_overreaching_range` - trả rỗng nghĩa là không có section lạ nào
-        # nằm trong phạm vi, tức phạm vi đúng), (3) các đoạn, (4) mục lục. Bài kinh này chỉ
-        # có một mục con nên mục lục rỗng - dưới 2 mục thì không hiện.
-        fetch_all.side_effect = [[parent, child], [], passages, [child]]
+        # Thứ tự truy vấn trong `_section_payload`:
+        #   1. tổ tiên cho `_canonical_reader_section`
+        #   2. `_clip_overreaching_range` - rỗng = không có section lạ trong phạm vi
+        #   3. các đoạn
+        #   4. `_fixed_paths_for_sections` metas - rỗng = trả về sớm, bỏ 2 truy vấn con
+        #   5. `_duplicate_path_ranks` - rỗng = địa chỉ này chỉ có một chỗ
+        #   6. `_section_outline` - bài này chỉ một mục con nên mục lục rỗng
+        fetch_all.side_effect = [[parent, child], [], passages, [], [], [child]]
 
         from app.main import _section_payload
 

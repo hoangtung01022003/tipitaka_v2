@@ -230,6 +230,60 @@ Measured: 5,910 sections stop climbing (21,287 passages), 2,436 of them one pass
 
 While sampling the Jātaka cases, a second instance of an already-documented bug surfaced: `_READER_TRAILING_ORDINAL` stripped `(6)` but not the **multi-level** printed form `(2-1-1)` (nipāta-vagga-position), so 264 Jātaka sections still had `jātakaṃ` masked and missed tier 1. Widening it to `\(\d+(?:[-–]\d+)*\)` gains those 264 and loses **0**, all in `mul` — `151. Rājovādajātakaṃ (2-1-1)` is now a tier-1 exact hit rather than relying on the enumerated-title fallback.
 
+#### Commentary corpora take the deepest section; only `mul` climbs
+
+Four consecutive client reports were the same problem wearing four different naming conventions (`kathā` numbered, `kathā` unnumbered, an over-wide recorded range, `vaṇṇanā` over a core in the needs-a-number group). Enumerating naming conventions never finishes on this corpus, so the rule is now by **corpus**: `att`/`tik`/`nrf` return the landing section as-is (`_READER_DEEPEST_CORPUS`), `mul` keeps the two-tier climb.
+
+The justification is how the texts are read, not convenience: a commentary is read section-by-section against the root text, so its reading unit is *finer* than the canon's. `Vaggumudātīriyabhikkhuvatthuvaṇṇanā` (14 passages) is a unit, not a scrap of `4. Catutthapārājikaṃ`; whereas `Pubbenivāsapaṭisaṃyuttakathā` really is a scrap inside `1. Mahāpadānasuttaṃ` and the client insisted on the sutta.
+
+Measured: passages opening an excerpt instead of a unit fall **223,863 → 39,280**; `att`/`tik`/`nrf` go to **0%** while `mul` stays exactly 24.7%. Pages under 50 passages rise 162,681 → 178,373. The 1500+ bucket does not move (35,704) — those are `nrf` books with **no subsections in the data at all** (`Jinavaṃsadīpaṃ`: one section for 9,896 passages), which only a re-import can split.
+
+A missing `corpus_type` must fall through to the `mul` path. Test fixtures omit it, and guessing the other way would silently change the canon.
+
+#### A citation must point at one place: duplicate `source_path` needs an occurrence marker
+
+`abh02t.tik.xml` holds **two complete commentaries back to back** (passages 0–863 and 864–1649), each covering all 18 vibhaṅgas. So it has two `Viññāṇapadaniddesavaṇṇanā` sections (308–351 and 1188–1225) with **different text and character-identical `source_path`** — the reader saw two different works under one address with no way to tell them apart. Corpus-wide: **1,760 groups** share document + title + full path; the worst is `1. Paccayānulomaṃ` **72 times** in `abh03m10.mul.xml`.
+
+`_duplicate_path_ranks` ranks them by `start_sort_order` (printed order, not arbitrary) and `_with_path_occurrence` appends `(chỗ N/M)`.
+
+**Scope, measured — this is a 6% problem, not a dominant one:** 1,760 groups covering 7,570 sections, but only **27,537 of 463,175 passages (5.95%)** of what readers actually touch. `mul` 18,599 · `tik` 7,925 · `nrf` 936 · `att` 77.
+
+**The wording must stay positional, and the reason is in that breakdown.** The two kinds of duplicate are not the same thing:
+- *Two separate works in one file* — `abh02t.tik.xml` really holds `Vibhaṅga-mūlaṭīkā` (0–863) and `Vibhaṅga-anuṭīkā` (864–1649). Only ~1,173 passages.
+- *One title recurring inside one work* — Paṭṭhāna's combinatorial structure: `1. Paccayānulomaṃ` ×72, `7. Pañhāvāro` ×59, `Paccayacatukkaṃ` ×59. This is the **majority** (~16,300 passages in `abh03m*`).
+
+So calling it "bộ" (a volume/work) would be actively wrong for most of it. `chỗ N/M` / `occurrence N/M` claims only position, which is all the data supports.
+
+Two things worth keeping:
+
+- **Batch it.** One query for the whole results page, not one per row; the results card resolves up to 10 paths.
+- **Append nothing when the path is unique.** Verified over 4,000 random sections: 763 got a marker (exactly those in duplicate groups) and **3,237 were byte-identical**. The test pins both directions.
+
+#### `source_path` is repaired at display time (`_fix_source_path` / `_prune_path`)
+
+The import leaves citation paths that **cannot be followed**. The client hit it exactly: walking `Vajirabuddhi-Ṭīkā -> Ganthārambhakathā -> Vinayapiṭake -> Vajirabuddhi-ṭīkā` finds no `4. Catutthapārājikaṃ` anywhere. Three repairs, each with a concrete cause:
+
+| rule | evidence | elements changed |
+|---|---|---:|
+| element **repeats** an earlier one (case-insensitively) | `Vajirabuddhi-ṭīkā` repeats `Vajirabuddhi-Ṭīkā` | 788 |
+| **work name assigned per file** | `abh02t.tik.xml` holds `Vibhaṅga-mūlaṭīkā` (0–863) *and* `Vibhaṅga-anuṭīkā` (864–1649), yet both halves were labelled `Vibhaṅga-Mūlaṭīkā` | 208 |
+
+The work-name repair only fires when the real work title and the path element **share a book stem** (`Vibhaṅga`) and the element itself ends in a work suffix — without that guard a valid book name could be replaced by an unrelated containing work. The real name comes from a section in the data, never invented.
+
+Measured before wiring it in: **34,133 sections unchanged, 3,040 repaired** (6.57% of reader-touched passages). Re-verified through the live function on 3,000 random sections: 2,761 byte-identical.
+
+**Two more rules were written, measured, and removed. Do not re-add either.**
+
+*"Drop elements that span the whole document"* — rejected before shipping. It removes `Vinayapiṭake`, but it also deleted **book names**: `Abhidhammapiṭaka -> Dhammasaṅgaṇīpāḷi -> Mātikā -> 1. Tikamātikā` became `Abhidhammapiṭaka -> Mātikā -> 1. Tikamātikā`. A book-level section legitimately spans its whole document.
+
+*"Drop elements that do not contain this section's range"* — **shipped, then reverted.** It cleaned 2,515 junk elements (`Ganthārambhakathā` 0–34 against a section at 529–530), and my verification only sampled the *changed* rows for the two reported cases — so it missed that the same shape deletes **legitimate book names whose range is truncated**. The client found both: `Milindapañhapāḷi` recorded 16–117 while its child `1. Vessantarapañho` sits at 1074–1109, and `Abhidhammatthasaṅgaho` recorded 0–743 with a child at 1188–1225. Rescuing them with a corrected extent (run to just before the next same-or-shallower-level section) does **not** work — both stay at 16–117 and 0–743 because a same-level section follows immediately. With the available data there is **no signal separating "book with a truncated range" from "bogus preface"**; they are the same shape. Leaving one redundant element beats deleting a book name.
+
+**Lesson for measuring this kind of change:** counting how many rows changed is not verification. Sample the *dropped* items and ask whether each deserved to go — the 2,515 number looked like a win precisely because nobody looked at what was inside it.
+
+**Known residual:** a preface whose recorded range genuinely *does* contain the target survives — `vin09t.nrf.xml` has two `Ganthārambhakathā` sections (0–413 and 414–1626) and the second really contains `1. Musāvādavaggo` (1074–1098), so the range test keeps it. Separating that from real nesting needs a signal none of these three rules provide. `Vinayapiṭake` also stays for the same reason: it is a true ancestor by range, merely redundant with the corpus label.
+
+Both display points go through the batched `_fixed_paths_for_sections` (two queries per page, and it looks up **only the titles present in the paths** — a Paṭṭhāna document has thousands of sections while a path has under ten elements).
+
 #### Commentary titles must be read *through* their `vaṇṇanā` suffix
 
 Aṭṭhakathā and Ṭīkā name a section "the explanation of X": `Mettāsahagatasutta` becomes `Mettāsahagatasuttavaṇṇanā`. That suffix hides the real one, so before this was fixed **no commentary section counted as a reader unit at all** — 374 of them in `att`, 538 in `tik`, across 189,533 passages. The client hit it directly: paragraph 235 sits in `4. Mettāsahagatasuttavaṇṇanā` (8 passages), tier 1 missed, tier 2 climbed to `6. Sākacchavaggo` (66 passages), and the outline offered all six sutta commentaries of the vagga.

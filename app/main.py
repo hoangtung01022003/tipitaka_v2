@@ -1,5 +1,6 @@
 import re
 import secrets
+from collections import defaultdict
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, status
@@ -125,6 +126,12 @@ def _reader_core(title: str) -> tuple[str, str]:
     return raw, normalized
 
 
+def _is_commentary_section(title: str) -> bool:
+    """Tiêu đề có phải một MỤC CHÚ GIẢI (`...vaṇṇanā`) - tức `_reader_core` đã bỏ đuôi ấy."""
+    raw = _READER_TRAILING_ORDINAL.sub("", str(title or "").strip())
+    return normalize_pali(raw).replace(" ", "").endswith(_READER_COMMENTARY_SUFFIXES)
+
+
 def _is_reader_unit_title(title: str) -> bool:
     raw, core = _reader_core(title)
     if core.endswith(_READER_SUTTA_SUFFIXES):
@@ -192,7 +199,28 @@ def _is_reader_unit_row(row: dict) -> bool:
     if _is_reader_unit_title(title):
         return True
     core = _reader_core(title)[1]
-    if core.endswith(_READER_NOT_UNIT_CORES) or not core.endswith(_READER_CONTEXT_SUFFIXES):
+    if core.endswith(_READER_NOT_UNIT_CORES):
+        return False
+    # Bỏ yêu cầu "phải có số" trong hai trường hợp:
+    #
+    # a) lõi mang hậu tố LỚP NGỮ CẢNH (`kathā`...) - ca Kathāvatthu ở trên;
+    # b) tiêu đề là MỘT MỤC CHÚ GIẢI (`...vaṇṇanā`) và lõi mang bất kỳ hậu tố đơn vị nào.
+    #
+    # (b) có lý do riêng: đuôi `vaṇṇanā` tự nó đã là dấu người biên tập đánh "đây là một mục
+    # chú giải riêng", và chú giải được đọc theo từng mục nhỏ - mịn hơn đơn vị của bản gốc.
+    # Ca khách báo: `Vaggumudātīriyabhikkhuvatthuvaṇṇanā` (14 đoạn) bị bỏ qua vì lõi kết thúc
+    # `vatthu` (nhóm đòi số) và không có số, nên trang đọc mở ra cả `4. Catutthapārājikaṃ`
+    # (109 đoạn). Tệ hơn: trong CÙNG một mục lục, `Suddhikavārakathāvaṇṇanā` lại được nhận vì
+    # lõi kết thúc `kathā` - hai mục anh em xử sự khác nhau chỉ vì hậu tố của lõi.
+    #
+    # Đo trên toàn kho: **165 mục có trang nhỏ đi (1.540 đoạn), 0 ca to ra thật** - 3 ca đổi
+    # nhãn nhưng GIỮ NGUYÊN độ dài (`Dvepabbajitavatthuvaṇṇanā` 5->5, 7->7, 10->10). Chỉ ảnh
+    # hưởng `att`/`tik`; `mul` không có tiêu đề nào kiểu này nên chánh kinh không chạm tới.
+    unnumbered_ok = core.endswith(_READER_CONTEXT_SUFFIXES) or (
+        _is_commentary_section(title)
+        and (core.endswith(_READER_SUTTA_SUFFIXES) or core.endswith(_READER_NUMBERED_SUFFIXES))
+    )
+    if not unnumbered_ok:
         return False
     span = row["end_sort_order"] - row["start_sort_order"] + 1
     return span <= READER_FALLBACK_MAX_PASSAGES
@@ -233,6 +261,10 @@ READER_FALLBACK_MAX_PASSAGES = 1500
 # thay vì 106, và 19 trang trên 1.000 đoạn thay vì 28. Nới lên 50/100/200 không giảm thêm
 # được mẩu vụn nào mà chỉ đẻ thêm trang nặng.
 READER_FALLBACK_MIN_PASSAGES = 20
+
+# Các corpus lấy thẳng mục sâu nhất làm đơn vị đọc - xem chú thích trong
+# `_canonical_reader_section`. `mul` (chánh kinh) KHÔNG nằm đây: ở đó đơn vị đọc là bài kinh.
+_READER_DEEPEST_CORPUS = ("att", "tik", "nrf")
 
 # Bậc 2 chỉ leo khi KHÔNG có bằng chứng nào về đơn vị đọc. Số thứ tự đầu tiêu đề chính là
 # bằng chứng đó: người biên tập đã xếp mục này vào một DÃY ĐÁNH SỐ, tức nó là một đơn vị
@@ -293,6 +325,29 @@ def _canonical_reader_section(section: dict) -> dict:
     Còn 2.267 đoạn vốn đã không có tổ tiên nào để leo - mục đó đã là cấp cao nhất của
     tài liệu, tức đang hiện hết mức có thể chứ không phải hỏng.
     """
+    # CHÚ GIẢI / PHỤ CHÚ GIẢI / SÁCH PHỤ: lấy thẳng mục sâu nhất, không leo.
+    #
+    # Lý lẽ nằm ở cách người ta đọc: chú giải được đọc theo từng mục nhỏ bám sát bản gốc,
+    # nên đơn vị đọc của nó MỊN HƠN đơn vị của chánh kinh - `Vaggumudātīriyabhikkhu-
+    # vatthuvaṇṇanā` (14 đoạn) là một mục để đọc, không phải mẩu cắt của
+    # `4. Catutthapārājikaṃ`. Chánh kinh thì ngược lại: `Pubbenivāsapaṭisaṃyuttakathā` là
+    # mẩu bên trong `1. Mahāpadānasuttaṃ` và khách chốt phải leo lên bài kinh.
+    #
+    # Vì sao thành luật theo CORPUS chứ không kể thêm hậu tố: bốn ca khách báo liên tiếp đều
+    # là cùng một vấn đề dưới bốn quy ước đặt tên khác nhau (`kathā` có số, `kathā` không số,
+    # phạm vi ghi sai, `vaṇṇanā` + lõi thuộc nhóm đòi số). Cách kể tên từng quy ước không
+    # bao giờ đủ với kho này; luật theo corpus thì dứt điểm cho cả tầng chú giải.
+    #
+    # Đo được: đoạn mở ra trang dưới 50 đoạn tăng 162.681 -> 178.373; trang 500-1499 giảm
+    # 48.723 -> 43.590. Nhóm 1500+ không đổi (35.704) vì đó là các sách `nrf` KHÔNG có mục
+    # con nào trong dữ liệu - chỉ nạp lại XML mới chia nhỏ được, không phải việc của luật này.
+    #
+    # `corpus_type` thiếu (fixture test, hoặc caller cũ) thì coi như chánh kinh, tức giữ
+    # nguyên hành vi cũ - không được đoán sang nhánh mới.
+    if str(section.get("corpus_type") or "") in _READER_DEEPEST_CORPUS:
+        section["_readerUnitExact"] = _is_reader_unit_row(section)
+        return _clip_overreaching_range(section)
+
     candidates = fetch_all(
         """
         select id, document_id, title, source_path, start_sort_order,
@@ -345,6 +400,236 @@ def _canonical_reader_section(section: dict) -> dict:
     return _clip_overreaching_range(section)
 
 
+# Đuôi nhận ra một section là TÊN CÔNG TRÌNH (bộ chú giải / phụ chú giải).
+_WORK_TITLE_SUFFIX = re.compile(r"(ṭīkā|tika|aṭṭhakathā|atthakatha)$", re.I)
+
+
+def _book_stem(title: str) -> str:
+    """Gốc sách: phần trước dấu gạch đầu tiên. `Vibhaṅga-anuṭīkā` -> `vibhaṅga`."""
+    return re.split(r"[-–]", str(title or "").strip(), 1)[0].strip().casefold()
+
+
+def _fix_source_path(section: dict, siblings: list[dict]) -> list[str]:
+    """Sửa `source_path` lúc HIỂN THỊ: bỏ phần tử không phải tổ tiên, sửa tên công trình.
+
+    Bản import XML để lại hai loại rác trong đường dẫn trích dẫn, và cả hai đều làm địa chỉ
+    KHÔNG dò được - khách báo đúng ca này: đi theo
+    `Vajirabuddhi-Ṭīkā -> Ganthārambhakathā -> Vinayapiṭake -> Vajirabuddhi-ṭīkā` thì không
+    tìm ra `4. Catutthapārājikaṃ` ở đâu cả.
+
+    A. **Phần tử LẶP LẠI** một phần tử trước đó: `Vajirabuddhi-ṭīkā` lặp `Vajirabuddhi-Ṭīkā`
+       (chỉ khác hoa/thường). So khớp CHÍNH XÁC (không phân biệt hoa/thường) nên an toàn.
+       (788 ca)
+    B. **Tên công trình bị dán theo FILE.** `abh02t.tik.xml` chứa hai công trình -
+       `Vibhaṅga-mūlaṭīkā` (0-863) và `Vibhaṅga-anuṭīkā` (864-1649) - nhưng cả hai nửa đều
+       mang nhãn `Vibhaṅga-Mūlaṭīkā`, tức nửa sau bị gọi sai tên. Tên thật có sẵn trong DB
+       dưới dạng section cấp công trình, nên thay vào chứ không phải đoán. (208 ca)
+
+    Chốt chặn cho (B): chỉ thay khi hai tên **cùng gốc sách** (`Vibhaṅga`) và phần tử đang có
+    cũng mang đuôi tên công trình. Không có chốt này thì một tên bộ hợp lệ có thể bị thay bằng
+    tên công trình chứa nó ở tài liệu khác.
+
+    **LUẬT THỨ BA ĐÃ BỊ THU HỒI - đừng cài lại.** "Bỏ phần tử KHÔNG CHỨA section này theo
+    phạm vi" chữa được 2.515 phần tử rác (`Ganthārambhakathā` 0-34 với section ở 529-530),
+    nhưng nó **xoá luôn tên sách hợp lệ có phạm vi ghi thiếu**: `Milindapañhapāḷi` ghi 16-117
+    trong khi mục con `1. Vessantarapañho` ở 1074-1109, và `Abhidhammatthasaṅgaho` ghi 0-743
+    với mục con ở 1188-1225. Khách phát hiện cả hai.
+
+    Đã thử cứu bằng phạm vi hiệu chỉnh (chạy tới trước section cấp bằng/nông hơn kế tiếp) -
+    KHÔNG cứu được: cả hai vẫn ra `16-117` và `0-743` vì có section cùng cấp ngay sau. Với dữ
+    liệu hiện có **không có tín hiệu nào tách được "sách bị ghi thiếu" khỏi "lời tựa rác"** -
+    hai thứ có hình dạng y hệt nhau. Nên thà để lại một phần tử dư còn hơn xoá tên sách.
+
+    Phần tử KHÔNG khớp section nào thì luôn giữ - đó là nhãn do importer gán (tên corpus, tên
+    bộ), không kiểm được bằng phạm vi nên không được đoán.
+    """
+    start, end = section["start_sort_order"], section["end_sort_order"]
+    path = [str(x) for x in (section.get("source_path") or [])]
+    ranges_by_title: dict[str, list[tuple[int, int]]] = {}
+    works: list[dict] = []
+    for row in siblings:
+        title = str(row.get("title") or "")
+        ranges_by_title.setdefault(title, []).append(
+            (row["start_sort_order"], row["end_sort_order"])
+        )
+        if _WORK_TITLE_SUFFIX.search(title):
+            works.append(row)
+    return _prune_path(path, start, end, str(section.get("title") or ""), ranges_by_title, works)
+
+
+def _prune_path(
+    path: list[str],
+    start: int,
+    end: int,
+    own_title: str,
+    ranges_by_title: dict[str, list[tuple[int, int]]],
+    works: list[dict],
+) -> list[str]:
+    """Phần thuần tính toán của `_fix_source_path`, để gọi được theo lô mà không truy vấn lại."""
+    section = {"start_sort_order": start, "end_sort_order": end, "title": own_title}
+    # CHỈ bỏ phần tử LẶP. Phép kiểm "phần tử không chứa section này thì bỏ" đã được cài,
+    # đo, rồi THU HỒI - xem chú thích ở `_fix_source_path`.
+    del ranges_by_title
+    kept: list[str] = []
+    seen: set[str] = set()
+    for index, element in enumerate(path):
+        last = index == len(path) - 1
+        key = element.casefold()
+        if not last and key in seen:
+            continue
+        kept.append(element)
+        seen.add(key)
+
+    containing = [
+        row
+        for row in works
+        if row["start_sort_order"] <= start
+        and row["end_sort_order"] >= end
+        and str(row.get("title") or "").casefold() != str(section.get("title") or "").casefold()
+    ]
+    if containing:
+        real = min(containing, key=lambda row: row["end_sort_order"] - row["start_sort_order"])
+        real_title = str(real.get("title") or "")
+        if real_title.casefold() not in {x.casefold() for x in kept}:
+            stem = _book_stem(real_title)
+            for index in range(len(kept) - 1):
+                element = kept[index]
+                if _book_stem(element) == stem and _WORK_TITLE_SUFFIX.search(element):
+                    kept[index] = real_title
+                    break
+    return kept
+
+
+def _fixed_paths_for_sections(section_ids: list[str]) -> dict[str, list[str]]:
+    """Đường dẫn đã sửa cho một LÔ section - hai truy vấn cho cả trang, không phải mỗi dòng.
+
+    Cố ý chỉ tra những tiêu đề CÓ trong đường dẫn, thay vì nạp mọi section của tài liệu: một
+    tài liệu Paṭṭhāna có hàng nghìn section, mà mỗi đường dẫn chỉ có dưới 10 phần tử.
+    """
+    ids = [str(x) for x in section_ids if x]
+    if not ids:
+        return {}
+    metas = fetch_all(
+        """
+        select id, document_id, title, source_path, start_sort_order,
+               coalesce(end_sort_order, start_sort_order) as end_sort_order
+        from sections where id = any(%s)
+        """,
+        [ids],
+    )
+    if not metas:
+        return {}
+    documents = sorted({str(row["document_id"]) for row in metas})
+    titles = sorted({
+        str(element)
+        for row in metas
+        for element in (row["source_path"] or [])
+    })
+    ranges = defaultdict(list)
+    if titles:
+        for row in fetch_all(
+            """
+            select document_id, title, start_sort_order,
+                   coalesce(end_sort_order, start_sort_order) as end_sort_order
+            from sections
+            where document_id = any(%s) and title = any(%s)
+            """,
+            [documents, titles],
+        ):
+            ranges[(str(row["document_id"]), str(row["title"]))].append(
+                (row["start_sort_order"], row["end_sort_order"])
+            )
+    works = defaultdict(list)
+    for row in fetch_all(
+        """
+        select document_id, title, start_sort_order,
+               coalesce(end_sort_order, start_sort_order) as end_sort_order
+        from sections
+        where document_id = any(%s)
+          and (title ~* %s or title ~* %s)
+        """,
+        [documents, "ṭīkā$|tika$", "aṭṭhakathā$|atthakatha$"],
+    ):
+        works[str(row["document_id"])].append(row)
+
+    out: dict[str, list[str]] = {}
+    for row in metas:
+        doc = str(row["document_id"])
+        path = [str(x) for x in (row["source_path"] or [])]
+        by_title = {
+            title: ranges.get((doc, title), [])
+            for title in path
+        }
+        out[str(row["id"])] = _prune_path(
+            path,
+            row["start_sort_order"],
+            row["end_sort_order"],
+            str(row["title"] or ""),
+            {k: v for k, v in by_title.items() if v},
+            works.get(doc, []),
+        )
+    return out
+
+
+def _duplicate_path_ranks(section_ids: list[str]) -> dict[str, tuple[int, int]]:
+    """Với section nào bị TRÙNG cả tiêu đề lẫn `source_path` trong cùng tài liệu, trả về
+    (thứ tự xuất hiện, tổng số). Không trùng thì không có khoá.
+
+    Vì sao cần: `abh02t.tik.xml` chứa HAI bộ chú giải hoàn chỉnh nối nhau (đoạn 0-863 và
+    864-1649), mỗi bộ đi hết 18 vibhaṅga. Nên có hai section `Viññāṇapadaniddesavaṇṇanā`
+    (308-351 và 1188-1225) với nội dung KHÁC NHAU nhưng `source_path` giống hệt từng chữ -
+    người đọc thấy hai văn bản khác nhau dưới cùng một địa chỉ trích dẫn, không cách nào
+    biết mình đang ở bộ nào.
+
+    Không phải ca lẻ: đo toàn kho có **1.760 nhóm** section trùng cả tài liệu + tiêu đề +
+    đường dẫn, nặng nhất là Paṭṭhāna với `1. Paccayānulomaṃ` xuất hiện **72 lần** cùng một
+    đường dẫn trong `abh03m10.mul.xml`.
+
+    Thứ tự lấy theo `start_sort_order` - tức thứ tự in trong sách, không phải thứ tự tuỳ ý.
+    Một truy vấn cho cả trang; gọi từng dòng thì trang kết quả tốn 10 lượt.
+    """
+    ids = [str(x) for x in section_ids if x]
+    if not ids:
+        return {}
+    rows = fetch_all(
+        """
+        with target as (
+            select distinct document_id, title, source_path
+            from sections where id = any(%s)
+        ),
+        peers as (
+            select s.id,
+                   row_number() over (
+                       partition by s.document_id, s.title, s.source_path
+                       order by s.start_sort_order
+                   ) as idx,
+                   count(*) over (
+                       partition by s.document_id, s.title, s.source_path
+                   ) as total
+            from sections s
+            join target t
+              on t.document_id = s.document_id
+             and t.title is not distinct from s.title
+             and t.source_path is not distinct from s.source_path
+        )
+        select id, idx, total from peers where total > 1 and id = any(%s)
+        """,
+        [ids, ids],
+    )
+    return {str(row["id"]): (int(row["idx"]), int(row["total"])) for row in rows}
+
+
+def _with_path_occurrence(source_path: str, rank: tuple[int, int] | None, language: str) -> str:
+    """Gắn "bộ N/M" vào cuối đường dẫn khi địa chỉ bị trùng.
+
+    Gắn vào CUỐI chuỗi vì tiêu đề của chính section luôn là phần tử cuối của `source_path`.
+    """
+    if not rank:
+        return source_path
+    index, total = rank
+    return f"{source_path} ({t(language, 'results.pathOccurrence', index=index, total=total)})"
+
+
 def _clip_overreaching_range(row: dict) -> dict:
     """Cắt phạm vi ghi QUÁ RỘNG, tại chỗ section không-phải-con-cháu bắt đầu.
 
@@ -387,9 +672,11 @@ def _clip_overreaching_range(row: dict) -> dict:
 def _reader_section_by_id(section_id: str) -> dict | None:
     section = fetch_one(
         """
-        select id, document_id, title, source_path, start_sort_order,
-               coalesce(end_sort_order, start_sort_order) as end_sort_order
-        from sections where id = %s
+        select s.id, s.document_id, s.title, s.source_path, s.start_sort_order,
+               coalesce(s.end_sort_order, s.start_sort_order) as end_sort_order,
+               d.corpus_type
+        from sections s join documents d on d.id = s.document_id
+        where s.id = %s
         """,
         [section_id],
     )
@@ -527,6 +814,26 @@ def search_page(
         # đoạn tìm kiếm đang nằm trong đó.
         reader_section = _reader_section_by_id(str(item.get("sectionId"))) if item.get("sectionId") else None
         item["readerSectionId"] = str(reader_section["id"]) if reader_section else item.get("sectionId")
+
+    # Địa chỉ trích dẫn phải chỉ được MỘT chỗ. Một tài liệu có thể chứa hai bộ chú giải nối
+    # nhau, sinh ra hai section trùng cả tiêu đề lẫn đường dẫn - xem `_duplicate_path_ranks`.
+    # Làm theo lô cho cả trang: một truy vấn thay vì một truy vấn mỗi dòng.
+    section_ids = [item.get("sectionId") for item in results]
+    path_ranks = _duplicate_path_ranks(section_ids)
+    # Đường dẫn đã lọc rác + sửa tên công trình, xem `_fix_source_path`. Giữ nhãn corpus mà
+    # `_display_source` gắn ở đầu (`Ṭīkā`...) - nó không thuộc `source_path`.
+    fixed_paths = _fixed_paths_for_sections(section_ids)
+    for item in results:
+        fixed = fixed_paths.get(str(item.get("sectionId")))
+        if fixed:
+            parts = str(item.get("sourcePath") or "").split(" -> ")
+            prefix = parts[:1] if parts and parts[0] not in fixed else []
+            item["sourcePath"] = " -> ".join([*prefix, *fixed])
+        item["sourcePath"] = _with_path_occurrence(
+            str(item.get("sourcePath") or ""),
+            path_ranks.get(str(item.get("sectionId"))),
+            language,
+        )
 
     # Tra độ phủ theo BÀI KINH CHA. `passages.section_id` thường là mục con, nên tra
     # theo section cũ làm Sujato/Indacanda có ở phần khác của bài bị báo nhầm là trống.
@@ -976,10 +1283,11 @@ def _section_payload(
     selected = normalize_source(source)
     section = fetch_one(
         """
-        select id, document_id, title, source_path, start_sort_order,
-               coalesce(end_sort_order, start_sort_order) as end_sort_order
-        from sections
-        where id = %s
+        select s.id, s.document_id, s.title, s.source_path, s.start_sort_order,
+               coalesce(s.end_sort_order, s.start_sort_order) as end_sort_order,
+               d.corpus_type
+        from sections s join documents d on d.id = s.document_id
+        where s.id = %s
         """,
         [section_id],
     )
@@ -1066,7 +1374,16 @@ def _section_payload(
         "selectedSource": selected,
         "selectedTranslation": chosen,
         "title": section["title"],
-        "sourcePath": " -> ".join(source_path) if isinstance(source_path, list) else "",
+        # Cùng lý do như trang kết quả: địa chỉ phải chỉ được một chỗ duy nhất, và phải sạch
+        # rác + gọi đúng tên công trình (xem `_fix_source_path`).
+        "sourcePath": _with_path_occurrence(
+            " -> ".join(
+                _fixed_paths_for_sections([str(section["id"])]).get(str(section["id"]))
+                or (source_path if isinstance(source_path, list) else [])
+            ),
+            _duplicate_path_ranks([str(section["id"])]).get(str(section["id"])),
+            language,
+        ),
         "passageCount": len(rows),
         "paliText": pali_text,
         # Khối có neo, để nhảy tới đúng đoạn vừa khớp tìm kiếm. `paliText` giữ nguyên vì

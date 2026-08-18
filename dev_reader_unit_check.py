@@ -33,6 +33,7 @@ from pathlib import Path
 from app.db import fetch_all
 from app.main import (
     READER_FALLBACK_MAX_PASSAGES,
+    _READER_DEEPEST_CORPUS,
     READER_FALLBACK_MIN_PASSAGES,
     _is_context_dependent_reader_title,
     _is_enumerated_title,
@@ -51,6 +52,10 @@ def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
 
     Trả về `None` khi cả hai bậc đều trượt, tức là bản gốc sẽ giữ nguyên mục con.
     """
+    # Chú giải/phụ chú giải/sách phụ: lấy thẳng mục sâu nhất, xem `_READER_DEEPEST_CORPUS`.
+    if str(section.get("corpus_type") or "") in _READER_DEEPEST_CORPUS:
+        return section
+
     start = section["start_sort_order"]
     end = section["end_sort_order"]
     candidates = [
