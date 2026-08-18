@@ -14,7 +14,12 @@
   {% endif %}
 
   {% for item in result.results %}
-    <article class="result">
+    {# `data-passage-id` trên chính thẻ kết quả: nút "Xem toàn bộ bài kinh" nằm sâu trong
+       thẻ, nên nó cần một TỔ TIÊN mang id đoạn để `closest()` tìm ra và nhảy tới đúng đoạn
+       vừa khớp. Khối `.translationMount` bên dưới cũng có thuộc tính này nhưng là phần tử
+       NGANG CẤP với nút, `closest()` không bao giờ thấy. Việc chọn thẻ để dịch đi theo
+       `[data-translation-card]` nên không bị ảnh hưởng. #}
+    <article class="result" data-passage-id="{{ item.id }}">
       <div class="resultTitle">{{ t('results.sourceTitle', rank=item.rank) }}</div>
       {# Bản in không đánh số mọi đoạn - riêng Bổn Sanh có 402/600 đoạn là thể kệ không
          số. Không có số thì bỏ hẳn mệnh đề "Đoạn …", đừng in "N/A" ra cho người đọc. #}

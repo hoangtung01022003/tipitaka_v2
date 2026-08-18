@@ -33,6 +33,11 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Kiểm export_data.sql trước khi nạp VPS.")
     parser.add_argument("--file", default="export_data.sql")
+    parser.add_argument(
+        "--against-db",
+        action="store_true",
+        help="So số dòng trong file với DB đang chạy - bắt được bản xuất CŨ. Cần cho deploy.",
+    )
     args = parser.parse_args()
 
     path = Path(args.file)
@@ -94,6 +99,43 @@ def main() -> None:
         f"có {methods.get('pdf_heading_boundary', 0):,} dòng `pdf_heading_boundary`",
         "KHÔNG có dòng `pdf_heading_boundary` nào - bản xuất cũ hơn đợt nạp PDF",
     ))
+
+    # 4b. So với DB ------------------------------------------------------------------
+    # `> 0` một mình KHÔNG đủ, và chuyện đó đã xảy ra thật: bản xuất 2026-08-16 mang 125
+    # dòng `pdf_heading_boundary` trong khi DB đã có 174 (thiếu trọn 49 dòng của `pr` sau
+    # đợt sửa ranh giới), mà mọi mục vẫn ĐẠT và script in "sẵn sàng nạp VPS". Ca năm 2026-08-14
+    # mà script này được viết ra để chặn là ca thiếu HẲN (0 dòng), nên `> 0` bắt được; thiếu
+    # MỘT PHẦN thì nó không thấy gì.
+    #
+    # Chỉ so được với DB, vì một file cũ tự nó vẫn nhất quán - không có dấu hiệu nội tại nào
+    # để phát hiện. Vì thế `--against-db` là cờ RIÊNG: mặc định vẫn giữ đúng cam kết "chỉ đọc
+    # file, không chạm DB", nhưng trước khi nạp VPS thì phải chạy kèm cờ này.
+    if args.against_db:
+        from app.db import fetch_all
+
+        db_methods = {
+            str(row["match_method"]): row["n"]
+            for row in fetch_all(
+                "select match_method, count(*) as n from human_translations"
+                " where match_method is not null group by match_method"
+            )
+        }
+        db_sources = {
+            str(row["source"]): row["n"]
+            for row in fetch_all("select source, count(*) as n from human_translations group by source")
+        }
+        print("\nso với DB đang chạy:")
+        for label, in_file, in_db in (
+            *[(f"method {m}", methods.get(m, 0), db_methods.get(m, 0)) for m in sorted(db_methods)],
+            *[(f"source {s}", sources.get(s, 0), db_sources.get(s, 0)) for s in sorted(db_sources)],
+        ):
+            mark = "khớp" if in_file == in_db else "LỆCH"
+            print(f"  {label:34} file {in_file:>7,}  DB {in_db:>7,}  {mark}")
+            checks.append((
+                in_file == in_db,
+                f"{label}: file khớp DB ({in_db:,})",
+                f"{label}: file có {in_file:,} nhưng DB có {in_db:,} - BẢN XUẤT CŨ, phải chạy lại export_data.py",
+            ))
 
     # 5. Chuỗi có hợp lệ không ------------------------------------------------------
     odd = sum(1 for line in stripped if line.startswith(("insert", "delete")) and line.count("'") % 2)

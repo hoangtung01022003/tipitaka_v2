@@ -40,11 +40,25 @@ def resolve_corpus_types(value: str | list[str] | None) -> list[str]:
 
 
 def resolve_pitaka_type(value: str | None) -> str | None:
-    """"all" hoặc rỗng đều nghĩa là không lọc theo Tạng."""
+    """"all" hoặc rỗng đều nghĩa là không lọc theo Tạng.
+
+    Giá trị KHÔNG có trong `PITAKA_PREFIXES` cũng trả `None`, vì trước đây nó cho qua và
+    làm sập toàn bộ tìm kiếm: `_pitaka_sql` sinh `like any(%s)` nhưng
+    `PITAKA_PREFIXES.get(...)` ra rỗng nên tham số bị bỏ, và psycopg báo "the query has 2
+    placeholders but 1 parameters were passed". `pitaka_type` là form field thường, nên chỉ
+    cần một trang cũ còn mở, một client gọi `/search`, hay một key bị đổi tên là sập.
+
+    Chọn `None` (tìm mọi Tạng) chứ không phải báo lỗi, và cố ý KHÔNG casefold: cả hai đều
+    là suy diễn ý người gửi. `None` là hướng duy nhất không thể hiện ÍT dữ liệu hơn hiện
+    tại - trước bản sửa các giá trị ấy trả về lỗi, tức không có kết quả nào.
+
+    Mọi giá trị UI thật (`all`/`vinaya`/`sutta`/`abhidhamma`) đi qua nhánh dưới y như
+    trước; đã so từng id tài liệu trên 30 tổ hợp corpus × Tạng, không đổi một mã nào.
+    """
     candidate = str(value or "").strip()
     if not candidate or candidate == SEARCH_ALL:
         return None
-    return candidate
+    return candidate if candidate in PITAKA_PREFIXES else None
 
 SNIPPET_MIN_CHARS = 900
 SNIPPET_MAX_CHARS = 2600

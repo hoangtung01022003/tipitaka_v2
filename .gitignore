@@ -72,3 +72,18 @@ temp/
 .tmp/
 indacanda_full_preview/
 export_data_before_spacing_fix.sql
+
+# Kết quả các script `dev_*.py` ghi ra JSON. Chúng là ẢNH CHỤP một lần đo, phụ thuộc trạng
+# thái DB lúc chạy, nên đưa vào kho mã nguồn chỉ gây nhiễu diff và dễ bị đọc như số liệu
+# hiện hành. Chạy lại script là có bản mới.
+reader_unit_check*.json
+dev_*_report.json
+dev_*_audit.json
+coverage_report.json
+
+# Bản dump DB nội bộ (tipitaka-data.dump ~104 MB). Chuyển bằng tay như export_data.sql.
+*.dump
+
+# 5 file rỗng từng bị commit do lỡ gõ lệnh (`cd`, `git`) hoặc lỡ dán chữ (`rẳng`, `tuốt`,
+# `nghĩahội`) - đã `git rm`. Không có mẫu nào chặn được loại này, nên khi thấy file lạ
+# 0 byte trong `git status` thì xoá, đừng commit.

@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -122,6 +122,24 @@ def heading_stem(value: str, volume: str) -> str:
         # Không dò được tên này thì mất HAI bài chứ không phải một - bài 10 Subha dùng
         # tiêu đề của bài 11 làm điểm kết thúc nên cũng rơi xuống REVIEW theo.
         ("dn1", "kevaddhasuttam"): "kevattasuttam",
+        # `pr`: sách in đặt TIỀN TỐ VỊ TRÍ `PAṬHAMA`/`DUTIYA` lên tên gốc dùng chung cho
+        # hai điều học liền nhau, còn CST/DB đặt tên trơn cho điều thứ nhất và `Dutiya-`
+        # cho điều thứ nhì; hai chỗ sách in còn gọi hẳn tên khác. Không tự suy được bằng
+        # khớp mờ, và khớp mờ ở đây KHÔNG PHẢI vô hại - nó gán tiêu đề của điều 11 cho
+        # điều 10 rồi đẩy nội dung điều 10 vào bản dịch của điều 9 (xem chú thích ở
+        # `EXACT_HEADING_SCORE`). Mỗi dòng dưới đây đã đối chiếu tay với trang PDF ghi kèm.
+        #
+        # Vì sao khớp mờ trượt chứ không phải vì ngưỡng quá chặt: tiêu đề ĐÚNG của điều 10
+        # ở trang 494 đạt 0.8627 nhưng cách á quân chỉ 0.0479 (loạt tên `Paṭhama...
+        # sikkhāpadaṃ` khác đầy trong tập), nên guard nhập nhằng loại nó; tiêu đề SAI ở
+        # trang 502 đạt 0.8800 cách á quân 0.0723 nên được nhận. Nới ngưỡng chỉ làm ca sai
+        # dễ vào hơn - phải khai tên, không phải nới guard.
+        ("pr", "pathamasanghadiseso"): "sukkavissatthisikkhapadam",  # tr 302
+        ("pr", "pathamadutthadosasikkhapadam"): "dutthadosasikkhapadam",  # tr 462
+        ("pr", "pathamasanghabhedasikkhapadam"): "sanghabhedasikkhapadam",  # tr 494
+        ("pr", "dutiyasanghabhedasikkhapadam"): "bhedanuvattakasikkhapadam",  # tr 502
+        ("pr", "dutiyakathinasikkhapadam"): "udositasikkhapadam",  # tr 548
+        ("pr", "pathamaupakkhatasikkhapadam"): "upakkhatasikkhapadam",  # tr 582
     }
     if volume == "sn" and stem.endswith("manavapuccha"):
         # DB gọi các mục phẩm Pārāyana là “câu hỏi của ...”, sách in gọi là “kinh ...”.
@@ -153,6 +171,21 @@ def _is_unit(volume: str, row: dict) -> bool:
         return level == 5 and start >= 1167 and heading_stem(
             str(row["title"]), volume
         ).endswith("katha")
+    if volume == "pr":
+        # Đơn vị đọc KHÔNG đồng nhất một cấp như dn/sn - đo trực tiếp bằng
+        # `_canonical_reader_section` (hàm quyết định "toàn bộ bài kinh" thật của trang
+        # đọc, không phải suy diễn): 61/66 mục lá của vin01m leo đúng tier 1 (khớp tiêu
+        # đề), và điểm đến LUÔN là cấp 4 mang một trong hai hậu tố:
+        #   - 45 `sikkhāpadaṃ` (điều học) - phần lớn nội dung.
+        #   - 4 `parajikaṃ` (chương) - chỉ khi đoạn nằm TRƯỚC điều học đầu tiên (chuyện
+        #     khởi đầu chưa có số riêng), ví dụ `1. Paṭhamapārājikaṃ` phủ luôn phần mở đầu.
+        # `vaggo` (3 mục) và mọi mục cấp 5 (`Vinītavatthu`...) KHÔNG bao giờ là điểm đến -
+        # `_is_reader_unit_title` đòi tiêu đề bắt đầu bằng chữ số, mà các mục đó không có,
+        # nên bị leo qua tự nhiên. Root `Vinayapiṭake` (phủ cả tài liệu) cũng tự loại vì
+        # không mang hậu tố nào ở trên - không cần loại trừ riêng.
+        return level == 4 and heading_stem(str(row["title"]), volume).endswith(
+            ("sikkhapadam", "parajikam")
+        )
     return False
 
 
@@ -207,6 +240,75 @@ def _candidate_lines(text: str) -> Iterable[str]:
         yield line
 
 
+# Mục lục in lại đúng tiêu đề (chữ hoa, có số) của mọi đơn vị trước khi thân bài bắt đầu.
+# Không loại phạm vi này thì mỗi tiêu đề in HAI lần - một ở mục lục, một ở thân bài -
+# nên đếm "xuất hiện đúng N lần cho N đơn vị cùng tên" luôn sai và tiêu đề bị coi là
+# "không duy nhất" dù bản thân thân bài hoàn toàn rõ ràng. Đo trực tiếp trên PDF: mục
+# lục `pr` (Pārājikakaṇḍa) chiếm trang in 37-46 (1-based), thân bài bắt đầu trang 47.
+HEADING_SEARCH_START_PAGE: dict[str, int] = {"pr": 47}
+
+# Ngưỡng "tiêu đề khớp TRÙNG KHÍT, không phải khớp mờ".
+EXACT_HEADING_SCORE = 0.995
+
+_PRINTED_ROMAN = {
+    "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9,
+    "x": 10, "xi": 11, "xii": 12, "xiii": 13, "xiv": 14, "xv": 15, "xvi": 16, "xvii": 17,
+    "xviii": 18, "xix": 19, "xx": 20,
+}
+
+
+def _printed_local_number(line: str) -> int | None:
+    """Số thứ tự ĐỊA PHƯƠNG in ở đầu dòng tiêu đề - số CUỐI của chuỗi số ghép nhiều cấp.
+
+    Sách in đánh số ghép: `pr` in "5. 2. 1. KOSIYASIKKHĀPADAṂ" (chương.phẩm.điều) trong
+    khi DB chỉ ghi "1. Kosiyasikkhāpadaṃ", nên chỉ số cuối mới so được với DB. `pts2` dùng
+    số La Mã. Cùng phép lấy số này đã có trong `find_vietnamese_heading_offset`; cố tình
+    KHÔNG gộp lại vì hàm đó so số giữa hai TRANG (Pāli với Việt) còn ở đây so số in với số
+    DB - gộp sẽ buộc một trong hai bên đổi hành vi trên các tập đã nạp.
+    """
+    match = re.match(r"^\s*((?:\(?\d+\)?\s*\.\s*)+)", line)
+    if match:
+        numbers = re.findall(r"\d+", match.group(1))
+        return int(numbers[-1]) if numbers else None
+    match = re.match(r"^\s*([IVXLCDM]+)\s*[\.\)]", line, flags=re.I)
+    return _PRINTED_ROMAN.get(match.group(1).casefold()) if match else None
+
+
+def _db_local_number(title: str) -> int | None:
+    match = re.match(r"^\s*(\d+)\s*[\.\-]", str(title or ""))
+    return int(match.group(1)) if match else None
+
+
+def _numbers_agree(printed_line: str, db_title: str) -> bool:
+    """Tiêu đề in có mang ĐÚNG số của mục DB không.
+
+    Đây là lưới chặn cho khớp mờ, và nó dùng bằng chứng có SẴN TRONG TRANG SÁCH thay vì
+    một điểm tương đồng. Ca thật đã ghi DB rồi mới phát hiện (`pr`, đợt
+    pdf_heading_boundary-20260817): tên DB `Saṅghabhedasikkhāpadaṃ` (điều **10**) khớp mờ
+    0.88 vào tiêu đề in của điều **11** (`3. 11. DUTIYA SAṄGHABHEDASIKKHĀPADAṂ`, trang
+    502) thay vì tiêu đề thật của nó ở trang 494 - và trang 494 bị guard nhập nhằng loại
+    vì chỉ cách á quân 0.0479, trong khi trang 502 cách 0.0723 nên được nhận. Điều 10 vẫn
+    REVIEW nên không bị ghi, nhưng điều **9** lấy hit lệch ấy làm điểm kết thúc và nuốt
+    trọn nội dung điều 10: PASS mọi cổng kiểm, văn bản sạch, chỉ sai chủ sở hữu.
+    Số in `11` khác số DB `10` phát hiện được ngay, còn điểm tương đồng thì không.
+
+    Vì sao KHÔNG dùng ngưỡng điểm làm guard: đo trên 5 tập đã nạp thì dn1/dn3/sn/pts2 có 5
+    hit khớp mờ hợp lệ (dị bản chính tả: `Cūḷabyūha`/`Cūḷaviyūha`...), chặn theo điểm sẽ
+    phá cả bốn tập. Chặn theo số thì cả 5 hit ấy đều khớp số nên đi qua.
+
+    Chỉ áp cho khớp mờ, không áp cho khớp trùng khít: `pts2` có một lỗi SỐ IN thật -
+    `8. Lokuttarakathā` in là `VI. LOKUTTARAKATHĀ` - nhưng tên khớp tuyệt đối nên không
+    cần tới lưới này. Đo toàn bộ: 153/153 hit đúng ở dn1/dn2/dn3/sn/pr đều khớp số, và
+    ca lệch duy nhất trong pts2 là lỗi in đã ghi nhận.
+
+    Thiếu số ở một trong hai bên thì coi là KHÔNG khớp: mục không đánh số hiện đều có hit
+    trùng khít nên luật này không đổi gì hôm nay, và thà REVIEW hơn nhận một hit mờ không
+    có gì kiểm chứng được.
+    """
+    printed = _printed_local_number(printed_line)
+    return printed is not None and printed == _db_local_number(db_title)
+
+
 def find_headings(
     volume: str, units: list[Unit], pages: list[str], page_is_vietnamese: list[bool]
 ) -> dict[str, HeadingHit]:
@@ -214,9 +316,12 @@ def find_headings(
     stems = [heading_stem(unit.title, volume) for unit in units]
     candidates: dict[int, list[HeadingHit]] = {index: [] for index in range(len(units))}
     exact_printed: dict[str, list[HeadingHit]] = {}
+    search_start = HEADING_SEARCH_START_PAGE.get(volume, 1)
     for page_number, (text, vietnamese) in enumerate(
         zip(pages, page_is_vietnamese), start=1
     ):
+        if page_number < search_start:
+            continue
         if vietnamese:
             continue
         for line in _candidate_lines(text):
@@ -236,6 +341,13 @@ def find_headings(
             best_score, best_index = scored[-1]
             second_score = scored[-2][0] if len(scored) > 1 else 0.0
             if best_score < 0.84 or best_score - second_score < 0.06:
+                continue
+            # Khớp mờ còn phải mang ĐÚNG số của mục DB. Loại ở đây chứ không lọc lúc dùng:
+            # một hit lệch không chỉ làm sai mục của nó mà còn thành ranh giới của mục
+            # LIỀN TRƯỚC, nên phải chặn ngay chỗ sinh ra. Xem `_numbers_agree`.
+            if best_score < EXACT_HEADING_SCORE and not _numbers_agree(
+                line, units[best_index].title
+            ):
                 continue
             candidates[best_index].append(
                 HeadingHit(page=page_number, line=line, score=best_score)
@@ -268,7 +380,7 @@ def find_headings(
         hits = candidates[index]
         if not hits:
             continue
-        exact = [hit for hit in hits if hit.score >= 0.995]
+        exact = [hit for hit in hits if hit.score >= EXACT_HEADING_SCORE]
         pool = exact or hits
         unique_pages = sorted({hit.page for hit in pool})
         if len(unique_pages) != 1:
@@ -488,9 +600,26 @@ def find_vietnamese_heading_offset(
     """Tìm đúng dòng nhan đề Việt trên trang đối diện để cắt được giữa trang."""
     if volume == "pts2":
         prefix_match = re.match(r"^\s*([IVXLCDM]+)\s*\.", pali_hit.line, flags=re.I)
+        prefix = prefix_match.group(1).casefold() if prefix_match else None
     else:
-        prefix_match = re.match(r"^\s*(\d+)\s*\.", unit.title)
-    prefix = prefix_match.group(1).casefold() if prefix_match else None
+        # Lấy số ĐỊA PHƯƠNG - số CUỐI trong chuỗi số ghép đầu dòng đã khớp Pāli - chứ
+        # không lấy thẳng từ `unit.title`. Một số bản in đánh số ghép nhiều cấp trước
+        # tên đơn vị: `pr` in "5. 2. 1. KOSIYASIKKHĀPADAṂ" (chương.nhóm.điều) trong khi
+        # DB chỉ ghi "1. Kosiyasikkhāpadaṃ". Số cuối cùng luôn khớp đúng số DB dùng, bất
+        # kể sách in ghép mấy cấp phía trước - đã kiểm bằng trang Việt đối diện thật:
+        # "5. 2. 1. ĐIỀU HỌC VỀ TƠ TẰM:" cùng số ghép, số cuối vẫn là 1.
+        # Với `dn`/`sn` (số đơn, không ghép cấp) phép lấy này cho kết quả y hệt cách cũ
+        # vì chuỗi chỉ có một số - không đổi hành vi ở các tập đã chạy tốt.
+        prefix_match = re.match(r"^\s*((?:\(?\d+\)?\s*\.\s*)+)", pali_hit.line)
+        prefix_nums = re.findall(r"\d+", prefix_match.group(1)) if prefix_match else []
+        prefix = prefix_nums[-1] if prefix_nums else None
+
+    def _local_number(line: str) -> str | None:
+        match = re.match(r"^\s*((?:\(?\d+\)?\s*\.\s*)+)", line)
+        if not match:
+            return None
+        nums = re.findall(r"\d+", match.group(1))
+        return nums[-1] if nums else None
 
     candidates: list[tuple[int, str]] = []
     all_candidates: list[tuple[int, str]] = []
@@ -501,9 +630,10 @@ def find_vietnamese_heading_offset(
         if prefix:
             if volume == "pts2":
                 match = re.match(r"^\s*([IVXLCDM]+)\s*\.", line, flags=re.I)
+                ok = bool(match) and match.group(1).casefold() == prefix
             else:
-                match = re.match(r"^\s*(\d+)\s*\.", line)
-            if not match or match.group(1).casefold() != prefix:
+                ok = _local_number(line) == prefix
+            if not ok:
                 continue
         candidates.append((offset, line))
 
@@ -635,6 +765,10 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
     volume_dir.mkdir(parents=True, exist_ok=True)
 
     previews: list[Preview] = []
+    # Trạng thái đã dựng được của đơn vị LIỀN TRƯỚC - dùng làm điểm BẮT ĐẦU khi đơn vị
+    # hiện tại không có tiêu đề mở đầu riêng nhưng sách đóng khung nó bằng mốc kết thúc
+    # kiểu "Dứt Phần"/`niṭṭhitaṃ`. Xem hai nhánh "dò lùi" bên dưới.
+    carry_end: tuple[int, int, int] | None = None  # (trang Pāli, trang Việt, offset Việt)
     for index, unit in enumerate(units, start=1):
         hit = headings.get(unit.section_id)
         next_hit = headings.get(units[index].section_id) if index < len(units) else None
@@ -647,13 +781,66 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
         boundary_viet_page: int | None = None
         boundary_viet_offset: int | None = None
         problems: list[str] = []
+
+        # DÒ LÙI #1 - đơn vị không có tiêu đề MỞ ĐẦU riêng. Một số điều học không được in
+        # tiêu đề đậm ở đầu, chỉ có dòng ĐÓNG "X niṭṭhitaṃ." ở cuối - cùng sách in cả hai
+        # kiểu tuỳ chương (`Nissaggiya` có tiêu đề đầy đủ, `Saṅghādisesa` một số điều học
+        # thì không). Khi tiêu đề riêng không tìm được nhưng đơn vị TRƯỚC đã dựng xong
+        # (`carry_end`), coi đơn vị này bắt đầu ngay sau chỗ đơn vị trước kết thúc, rồi
+        # tìm CHÍNH mốc kết thúc của nó bằng `find_last_boundary` - hàm vốn viết cho đơn
+        # vị cuối tập, dùng lại nguyên vẹn vì cùng một việc: tìm dòng "tên đơn vị + niṭṭhita".
+        #
+        # CHỈ nhận mốc GỌI ĐÚNG TÊN (`marker_source == "printed_end_marker"`), không nhận
+        # nhánh dự phòng "mốc đầu tiên không tên" của `find_last_boundary` - nhánh đó được
+        # thiết kế cho đơn vị CUỐI TẬP, nơi không còn ứng viên nào khác để so; ở giữa tập
+        # nhận một mốc không tên có thể là mốc của một đơn vị KHÁC, nuốt oan nội dung.
+        if not hit and carry_end is not None:
+            marker_page, marker_source = find_last_boundary(
+                volume, carry_end[0], pages, page_is_vietnamese, heading_stem(unit.title, volume)
+            )
+            if marker_page is not None and marker_source == "printed_end_marker":
+                hit = HeadingHit(
+                    page=carry_end[0],
+                    line='(nối tiếp từ đơn vị trước, dò bằng mốc "Dứt Phần")',
+                    score=1.0,
+                )
+                viet_cut = (carry_end[1], carry_end[2], "")
+                boundary_page = marker_page
+                boundary_source = "closing_marker_backfill"
+                boundary_viet_page = marker_page
+                boundary_viet_offset = 0
+
         if not hit:
             problems.append("không dò được tiêu đề duy nhất trong PDF")
         elif not viet_cut:
             problems.append("không dò được dòng tiêu đề Việt trên trang đối diện")
-        if index < len(units):
+
+        if boundary_page is not None:
+            pass  # DÒ LÙI #1 đã cho đủ điểm kết thúc - khỏi cần next_hit nữa
+        elif index < len(units):
             if not next_hit:
-                problems.append("thiếu tiêu đề của đơn vị kế tiếp nên chưa biết điểm kết thúc")
+                # DÒ LÙI #2 - trước khi bó tay vì đơn vị KẾ TIẾP thiếu tiêu đề, thử chính
+                # mốc kết thúc của ĐƠN VỊ NÀY. Đây là lý do "4. Catutthapārājikaṃ" từng
+                # REVIEW dù bản thân nó có đủ tiêu đề mở đầu: lỗi chỉ vì đơn vị số 5 thiếu
+                # tiêu đề, không phải vì đơn vị này thiếu gì - không nên bắt một đơn vị
+                # lành REVIEW theo lỗi của đơn vị khác.
+                # `hit.score >= EXACT_HEADING_SCORE` bắt buộc, không phải thận trọng thừa:
+                # đo tay ca thật ở `pr` - "10. Saṅghabhedasikkhāpadaṃ" khớp mờ 0.88 vào
+                # tiêu đề in của điều **11** thay vì tiêu đề thật của nó, nên một khớp mờ
+                # SAI biến thành PASS mang nội dung mục #11 dán nhãn mục #10 - im lặng và
+                # sai, còn tệ hơn REVIEW. Nguyên nhân gốc nay đã chữa bằng alias tên in;
+                # guard giữ lại làm lưới cho các tập chưa khai alias.
+                if hit and hit.score >= EXACT_HEADING_SCORE:
+                    marker_page, marker_source = find_last_boundary(
+                        volume, hit.page, pages, page_is_vietnamese, heading_stem(unit.title, volume)
+                    )
+                    if marker_page is not None and marker_source == "printed_end_marker":
+                        boundary_page = marker_page
+                        boundary_source = "own_closing_marker"
+                        boundary_viet_page = marker_page
+                        boundary_viet_offset = 0
+                if boundary_page is None:
+                    problems.append("thiếu tiêu đề của đơn vị kế tiếp nên chưa biết điểm kết thúc")
             elif not next_viet_cut:
                 problems.append("thiếu dòng tiêu đề Việt của đơn vị kế tiếp")
             else:
@@ -669,6 +856,16 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
             else:
                 boundary_viet_page = boundary_page
                 boundary_viet_offset = 0
+
+        # Bàn giao điểm kết thúc cho đơn vị KẾ TIẾP dùng ở DÒ LÙI #1, nếu vòng lặp sau
+        # cũng thiếu tiêu đề mở đầu. Không bàn giao khi đơn vị này không xác định được
+        # biên gì cả - trạng thái không chắc chắn thì không nên làm điểm neo cho đơn vị
+        # sau.
+        carry_end = (
+            (boundary_page, boundary_viet_page, boundary_viet_offset or 0)
+            if boundary_viet_page is not None
+            else None
+        )
 
         vietnamese_pages: list[int] = []
         paired_ratio = 0.0

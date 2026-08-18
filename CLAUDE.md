@@ -58,6 +58,14 @@ tại vì một bản dump cũ nhìn từ ngoài không khác gì bản đúng: 
 migration 006, thiếu 101 dòng `pdf_heading_boundary` và thiếu `set client_encoding`, mà
 không câu lệnh nào báo lỗi khi nạp.
 
+**Chạy kèm `--against-db` trước khi nạp VPS, không thì nó vẫn cho qua bản xuất cũ.** Phép
+kiểm dòng `pdf_heading_boundary` vốn chỉ là `> 0`, đủ để bắt ca 2026-08-14 (thiếu HẲN) nhưng
+không thấy ca thiếu MỘT PHẦN - đo thật ngày 2026-08-17: `export_data.sql` mang 125 dòng khi
+DB đã có 174 (thiếu trọn 49 dòng `pr`), `indacanda_full` 264 so với 305, mà mọi mục vẫn ĐẠT
+và script in "sẵn sàng nạp VPS". Một file cũ tự nó vẫn nhất quán nên không có dấu hiệu nội
+tại nào để phát hiện; chỉ so với DB mới thấy. Cờ này để riêng nên mặc định vẫn giữ đúng cam
+kết "chỉ đọc file, không chạm DB".
+
 `dev_reader_unit_check.py` trả lời một câu mà phần còn lại không trả lời được:
 `_canonical_reader_section` **âm thầm rơi về mục con** khi không tiêu đề nào qua được
 `_is_reader_unit_title`, nên nút "toàn bộ bài kinh" có thể mở ra một trích đoạn mà không
@@ -199,6 +207,116 @@ The returned row carries `_readerUnitExact` saying which tier fired. **The UI de
 
 `dev_reader_unit_check.py` holds a hand-copied replica of this function so it can measure 30k sections without one query each. **If you change the tiers here, change the replica too** — a replica that has drifted reports numbers about code that no longer exists.
 
+It also measures the wrong axis for the bug below: it reports *which tier fired*, never *how big the returned page is*. A tier-1 "confident" hit can still be a 616-passage chapter, so a clean report from it is not evidence the reader got a discourse.
+
+#### A numbered landing section is a unit, not a fragment (tier 2 must not climb past it)
+
+Tier 2 only runs when *no* ancestor is a recognised unit — i.e. when there is no evidence at all about where the reading unit is. A leading number in the landing section's own title is that evidence: the editor placed it in an **enumerated series**, so it is one member of that series.
+
+The client's case: paragraph 659 sits at `13. Appamaññāvibhaṅgo -> 1. Suttantabhājanīyaṃ -> 2. Karuṇā`. `1. Suttantabhājanīyaṃ` (53 passages) holds exactly four children — `1. Mettā` / `2. Karuṇā` / `3. Muditā` / `4. Upekkhā`, 13 passages each, the four immeasurables. `2. Karuṇā` is complete in itself, but 13 < `READER_FALLBACK_MIN_PASSAGES` so tier 2 climbed and the reader got all four.
+
+**No size floor here, and that is the lesson this session already paid for once.** A floor recreates exactly the sibling inconsistency `_READER_SIZE_SENSITIVE_SUFFIXES` produced: measured, `2. Vedanākkhandhaniddeso` (16) would stay while `4. Saṅkhārakkhandhaniddeso` (1) would climb, though both are members of the same five-aggregate series and differ only because the commentary is terse in one place. A label that matches its content is correct even at one passage.
+
+Measured: 5,910 sections stop climbing (21,287 passages), 2,436 of them one passage long; they previously opened a page of **median 73 passages**. Samples confirm the direction — the five aggregates now open individually instead of as one 53-passage block, `151. Rājovādajātakaṃ` opens the jātaka instead of `1. Daḷhavaggo` (72 passages, ~10 jātakas), and Paṭṭhāna opens one pair-combination instead of a 273-passage table. Dīgha is untouched: `Pubbenivāsapaṭisaṃyuttakathā` → `1. Mahāpadānasuttaṃ`, `Paribbājakakathā` → `1. Brahmajālasuttaṃ`, both still tier 1.
+
+**`dev_reader_unit_check.py` reports this change as a regression, and that is a flaw in the metric, not in the change.** It counts "fell back to a subsection" as a failure, so a section that deliberately stays put is scored as broken: `mul` reads 20.2% → 26.7% "hỏng". Judge this behaviour by sampling real sections, not by that percentage.
+
+While sampling the Jātaka cases, a second instance of an already-documented bug surfaced: `_READER_TRAILING_ORDINAL` stripped `(6)` but not the **multi-level** printed form `(2-1-1)` (nipāta-vagga-position), so 264 Jātaka sections still had `jātakaṃ` masked and missed tier 1. Widening it to `\(\d+(?:[-–]\d+)*\)` gains those 264 and loses **0**, all in `mul` — `151. Rājovādajātakaṃ (2-1-1)` is now a tier-1 exact hit rather than relying on the enumerated-title fallback.
+
+#### Commentary titles must be read *through* their `vaṇṇanā` suffix
+
+Aṭṭhakathā and Ṭīkā name a section "the explanation of X": `Mettāsahagatasutta` becomes `Mettāsahagatasuttavaṇṇanā`. That suffix hides the real one, so before this was fixed **no commentary section counted as a reader unit at all** — 374 of them in `att`, 538 in `tik`, across 189,533 passages. The client hit it directly: paragraph 235 sits in `4. Mettāsahagatasuttavaṇṇanā` (8 passages), tier 1 missed, tier 2 climbed to `6. Sākacchavaggo` (66 passages), and the outline offered all six sutta commentaries of the vagga.
+
+`_reader_core` strips a trailing `vaṇṇanā` and the existing rules are re-applied to the core — **the suffix lists are not widened**, which is what keeps chapters out:
+
+| title | core | verdict |
+|---|---|---|
+| `4. Mettāsahagatasuttavaṇṇanā` | `…sutta` | unit, decisive class |
+| `1. Suddhabrahmacariyakathāvaṇṇanā` | `…kathā` | unit, context class |
+| `1. Bhūmivaggavaṇṇanā` | `…vagga` | refused — a chapter is still a chapter |
+
+Measured: units go att 374 → **2,953**, tik 538 → **2,169**, nrf 688 → 707, and **`mul` does not change at all** (the canon does not use this naming, so the canon carries no risk). Zero chapter titles admitted, checked explicitly against `vagga`/`nipāta`/`saṃyutta`/`kaṇḍa`/`paṇṇāsaka` + `vaṇṇanā`. Passages opening an excerpt instead of a unit: 265,734 → **231,975**, with `att` falling 75.4% → 48.7% and `tik` 61.5% → 55.7%.
+
+`_is_context_dependent_reader_title` has to use the same core, or `…kathāvaṇṇanā` would outrank the `…suttavaṇṇanā` that contains it.
+
+#### Why the tier-1 suffix list has two classes (`kathā`/`khandhaka` are context-dependent)
+
+`kathā` and `khandhaka` mean different things depending on where they sit, so a single flat suffix list cannot place them:
+
+- In the Dīgha Nikāya a `kathā` is a **subsection of a sutta** (`Pubbenivāsapaṭisaṃyuttakathā`, 32 passages, inside `1. Mahāpadānasuttaṃ`, 204). Treat it as a unit and the reader presses "toàn bộ bài kinh" and gets a fragment.
+- In the Mahāvagga a `kathā` **is** the unit. All 69 level-4 children of `1. Mahākhandhako` are `kathā` or `vatthu`, spanning 1 passage (`42. Sikkhāpadakathā`) to 69 (`5. Brahmayācanakathā`). There is nothing finer to climb to.
+
+So tier 1 runs **two passes over the same ancestor list** (still sorted shortest-first): the first accepts only decisive suffixes (`sutta`/`sikkhāpadaṃ`/`jātaka`/`vatthu`/…), the second accepts `_READER_CONTEXT_SUFFIXES`. A `kathā` inside a sutta therefore loses to the sutta even though the sutta is far larger — **size must not decide this**, which is the trap the previous attempt fell into.
+
+**The previous attempt was a size floor, and it produced the exact bug it cited.** `_READER_SIZE_SENSITIVE_SUFFIXES` gave `kathā` a floor of `READER_FALLBACK_MIN_PASSAGES`; the 1-passage `42. Sikkhāpadakathā` was therefore skipped in tier 1 and the loop climbed to `1. Mahākhandhako` — 616 passages, 234,250 characters of Pāli, **76 AI translation chunks**, and an assembled Indacanda text covering only 255/616 (41%) so the rest is gap markers. The client reported it twice, the second time after the floor was in place. Its own code comment named this case as its motivation.
+
+The tell was never size, it was **sibling inconsistency** — three consecutive printed sections, all visible in one client screenshot:
+
+| section | span | before | after |
+|---|---:|---|---|
+| `41. Rāhulavatthu` | 3 | itself | itself |
+| `42. Sikkhāpadakathā` | 1 | `1. Mahākhandhako` (616) | itself |
+| `43. Daṇḍakammavatthu` | 4 | itself | itself |
+
+31 of those 69 children climbed to the 616-passage page and 38 did not, decided by `vatthu` (no floor) vs `kathā` (floor). 1-passage `vatthu` units had shipped all along and were never complained about.
+
+Measured before changing, and this is the check that matters: **501 sections change reader unit (2,989 passages), and none of them are in the Dīgha Nikāya.** `s0101m`/`s0102m`/`s0103m` do not appear at all, because every `kathā` there has a sutta ancestor in the decisive class. The changes land exactly where `kathā` really is the unit — `abh03m3` (Kathāvatthu) 197, `vin12t` 166, `vin02m2` 91, `vin02m3` 14, `s0517m` (Paṭisambhidāmagga) 13. Corpus-wide the size distribution barely moves (600+ pages 16.6% → 16.5%) because those books are a small share of 463,175 passages; for the affected books it is decisive.
+
+`dev_reader_unit_check.py` moves in the right direction on every axis: sections that are themselves the unit 6,503 → **7,039**, sections falling back to a subsection 3,302 → **3,267**, passages opening an excerpt 266,126 → **265,734**. Also checked against applied data: all 20 `indacanda_full` rows in `s0517m` still line up with a reader unit exactly, and none of the narrowed units sits inside a wider applied row — so no row became unreachable or over-wide.
+
+`khandhako`/`khandhakam` moved into the context class rather than out of the suffix list, because `_is_reader_unit_title("2. Uposathakkhandhako")` is pinned by a test and is right: when a passage lands directly on a khandhaka with nothing named inside, the khandhaka *is* the only unit.
+
+**Do not reach for the printed `niṭṭhita` colophon as a completeness signal — it is not in the DB.** The idea is tempting (CST prints `Sikkhāpadakathā niṭṭhitā.` right after paragraph 106, the same marker `indacanda_full_extract.find_last_boundary` keys on) but passage 492 ends at `…sāmaṇerehi sikkhitunti.` and only 22 passages in all of `vin02m2` contain `niṭṭhit`. The importer kept headings and dropped colophons, so any such rule means re-reading the source XML. What *is* in the DB is the section row: a named 1-passage section is the editor's own statement that it is a unit.
+
+**Two unit definitions still disagree.** On those 69 sections `main._is_reader_unit_title` accepts 53 while `import_indacanda._is_whole_unit_title` accepts 31 — the 22 `kathā` titles are reader units but not importer units. The rejection list further down this file is the *importer's*. Reconcile them before `mv1`/`mv2` are imported, or PDF-cut rows will be keyed to ranges the reader never displays.
+
+**Still open from the same client report:** the results card shows "có bản dịch ở phần khác của bài kinh" via `elsewhereOnly`, computed over the reader range. With the range down from 616 passages to 1, that notice becomes "chưa có bản dịch" instead. The client asked for the opposite: use AI to pick the passage-level translation that best matches the displayed Pāli snippet and render it inline. `align_minhchau.py` is the existing groundwork.
+
+### Reader navigation: jump to the match, and an outline built from the section tree
+
+The client asked for "AI tóm tắt từng phân đoạn rồi tạo nút bấm" over the large page. Measured before building it, that shape is the expensive way to get the small part of it that readers need: **888 reader pages of ≥50 passages in `mul` hold 32.2M characters of Pāli, so summarising the bodies is ~8,957 Gemini calls** — to restate what the printed headings already say, with scripture as the thing being paraphrased. Three cheaper layers cover the same need, and they ship independently:
+
+1. **Jump to the matched passage** — free, works on every page. This is the client's own Ctrl+F analogy, and it was the missing piece: the results card already carried `data-passage-id`, but only `data-section-id` was passed to `openSection`, and `section.html` had no anchors at all. `_section_paragraphs` now returns per-block `{anchor, passageIds, sortOrder}` and the template emits one `<p class="pali" id="doan-N">` per block.
+2. **Outline from the section tree** (`_section_outline`) — free, no AI, no hallucination, because the entries *are* the editor's printed headings. Covers 295 of those 888 pages; `1. Ñāṇakathā` (499 passages) yields 48 entries, `1. Mahākhandhako` (616) yields 68.
+3. **Vietnamese labels** (`_outline_labels`, `GET /api/sections/{id}/outline-labels`) — the part the client actually needed, since `1. Bodhikathā` is unreadable for the intended audience. **One batched call per page, not one per entry**, cached by `translate_text_cached`: 68 labels in a single request, 29s cold → **93ms warm**. Fetched lazily on first outline expand, so opening a long discourse costs nothing unless the reader opens the outline. Output matches what the client asked for almost verbatim — they wrote "đoạn 1 nói về sự giác ngộ", it returns "1. Câu chuyện về sự giác ngộ (Bodhikathā)".
+
+Four things here are load-bearing and easy to undo by accident:
+
+- **`paliText` must stay a flat string.** It is the input to `_chunk_section_text` for AI translation, so changing it changes how chunks are cut. `_join_section_passages` is now derived from `_section_paragraphs` precisely so the gāthā-merge rule lives in one place — verified byte-identical against the old implementation on 60 random sections, 52 of which contain gāthā rows.
+- **A merged gāthā block must keep every `passage_id` it swallowed.** The matched passage can be the third verse line inside one block; a block carrying only its first id silently fails to resolve and the button does nothing.
+- **`revealReaderBlock` has to un-collapse `.readerBody` first.** It ships `collapsed` (max-height 62vh), so scrolling to a target inside it looks like a dead button.
+- **`data-passage-id` belongs on `<article class="result">`, not only on `.translationMount`.** The mount is a *sibling* of the "Xem toàn bộ bài kinh" button, so `closest()` never sees it. Card selection for translation goes through `[data-translation-card]`, so the extra attribute is inert there.
+
+`_outline_labels` returns `{}` when the model's line count disagrees with the title count, and the UI then keeps the Pāli headings. A mislabeled outline is worse than an untranslated one: the reader taps "the part about X" and lands somewhere else.
+
+**Pre-existing crash found while testing this, now fixed.** `resolve_pitaka_type` passed any unrecognised string straight through, and `_pitaka_sql` then emitted `like any(%s)` while dropping the parameter, so the *whole search* 500'd with `the query has 2 placeholders but 1 parameters were passed`. `pitaka_type` is a plain form field, so a stale open page, a renamed key, or `Vinaya` with a capital V was enough. Valid keys are `vinaya`/`sutta`/`abhidhamma`; unknown values now resolve to `None`.
+
+Two things about that fix are deliberate. **`None` rather than an error, and no case-folding:** both alternatives guess at what the sender meant, and `None` is the only direction that cannot show *less* than before — those inputs previously returned an exception, i.e. nothing. **The invariant to test is `sql.count("%s") == len(params)`**, not the resolved string; that is what actually broke, and the test pins it in both directions.
+
+Proven, not assumed: document ids were captured for 30 combinations (3 corpus sets × 10 pitaka values) before and after — **21 identical id-for-id, 9 crashes fixed, 0 changed results.** Verify that way again if this function is ever touched.
+
+`_params_with_pitaka` is the one function that could have mis-filtered *silently* instead of crashing, by shifting parameter positions. It is **dead code** — defined, never called. Leave it alone or delete it, but do not start calling it without re-checking the placeholder/parameter count.
+
+**Not built, and deliberately so:** AI summaries of passage bodies.
+
+#### The giant reader pages are uddāna, not readers losing their place
+
+Worth reading before "fixing" them, because the first description of this (written one turn earlier in this file) was wrong twice. It said tier 2 "refuses to climb because they exceed `READER_FALLBACK_MAX_PASSAGES`" — tier 2 never runs at all, since it requires the landing section to be *under* `READER_FALLBACK_MIN_PASSAGES` and these are thousands of passages. And it implied readers were landing on 4,000-passage pages in numbers.
+
+Measured instead: **637 of 159,007 `mul` passages (0.4%) resolve to a reader page of ≥1,000 passages**, and the count per page is nothing like the page size — `Pācittiyapāḷi` displays 3,048 passages and exactly **one** passage leads there; `Therīapadānapāḷi` 4,042 displayed, 25 leading; `Suttanipātapāḷi` 3,892 displayed, 90 leading.
+
+What those passages are is not a guess — they read `Tassuddānaṃ –` followed by short verse lines listing unit names, i.e. **uddāna**, the mnemonic index. The `Pācittiyapāḷi` one is the Pātimokkha recitation preamble (`Uddiṭṭhaṃ kho, āyasmanto, nidānaṃ…`). Most are untranslated, consistent with `import_brahmali`'s note that SuttaCentral does not translate uddāna because it is an index, not prose. This file already reached the same verdict for the Dīgha uddāna case: tier 1 finding no discourse is **correct**, because the verse belongs to no discourse.
+
+So the present failure mode is **over-showing** — a 41-character index verse rendered with the whole book as its context — not the truncation it resembles. Narrowing the range here would mean inventing a unit for text the editor never put in one.
+
+Root cause of the huge span, for whoever does take this on: the XML import produced **noise wrapper sections** that span an entire document while their `source_path` sits *below* a real subsection and their title repeats an ancestor. `s0505m` has a 0–3891 section titled `Khuddakanikāye` whose path is `[…, 'Suttanipātapāḷi', '1. Uragavaggo', 'Khuddakanikāye']` — a whole-book range claiming to live inside the first vagga. `vin02m1` has the same shape. The uddāna passages' `section_id` points at these wrappers, and `_source_path_is_prefix` correctly refuses to treat them as ancestors of real content — which is also why no outline can be built for them.
+
+**Built, additively:** those pages now get an outline from the document's real top-level sections instead of from the wrapper's (non-existent) descendants — `_section_outline` falls back to `_flat_outline_layer(smaller, require_disjoint=True)`. The passages shown are untouched; only navigation is added. `Suttanipātapāḷi` gets 5 vaggas, `Pācittiyapāḷi` 11 kaṇḍas, `Parivārapāḷi` 18, `Therīapadānapāḷi` 4.
+
+**`require_disjoint` is on for that fallback only, and the asymmetry is measured, not stylistic.** In the fallback the parent/child relation has already broken down, so same-depth entries can overlap or run past the page: `s0510m2` at its shallowest depth yields ranges totalling **10,015 passages inside a 4,042-passage page**. On the prefix-verified descendant path the tree is real, and turning the guard on there cost **19 pages some outline entries and one page its whole outline** (`e1007n/Sūrassatīnīti`, 2 entries → 0) — two sections that overlap there are still two real sections, each with a correct jump target.
+
+Proven additive across all 37,173 sections: **36,702 unchanged, 459 pages gained an outline, 0 pages lost an entry.** 12 pages changed only the *order* of the same entries (identical sets), because ties on `start_sort_order` are now broken by `end_sort_order` instead of by whatever order the DB returned. Compare sets, not lists, if you re-measure this — an unsorted comparison reported 166 false differences.
+
 ### Human translations
 
 `human_translations` (`../db/migrations/002_human_translations.sql`) stores translations by a **named translator**, keyed `(passage_id, source)` — as opposed to `translations`, which only models AI output keyed by `(passage_id, language, model, prompt_version)`. `human_translation_imports` logs each run so you can see coverage.
@@ -218,6 +336,7 @@ That makes importing **cumulative across passes** instead of "whatever the last 
 Two consequences to respect:
 - **`--force` must never mean "delete then rebuild".** In `import_indacanda` it only bypasses the already-imported skip. Deleting first would have cost 12,093 rows that the current rules cannot reproduce.
 - **Rows written before this column existed must be backfilled**, otherwise `match_method is null` ranks 0 and any pass overwrites them. Done once for `indacanda` (→ `strict_unique`) and `indacanda_full` (→ `whole_unit`).
+- **An *invented* `match_method` string ranks 0 too, and that is the same trap by another door.** A one-off repair script must write `manual` (rank 50) or its rows are unprotected. Live example found 2026-08-17: `fix_indacanda_label_swap.py` wrote 3 `indacanda` rows with `match_method='label_boundary_fix'`, and `human_translation_method_rank('label_boundary_fix')` returns **0** — so even a `heuristic` pass (rank 10) would overwrite three hand-corrected rows silently. Current DB state to be aware of: 12,809 rows still carry `match_method = null` (also rank 0) alongside those 3.
 
 `export_data.py` carries migrations 004 and 006 *and* the provenance columns. Omitting them makes the VPS copy rank-less, so the next import there would flatten it. **Check the generated file, not just the script** — `export_data.sql` dated 2026-08-14 listed 006 in the script but carried only 002/003/004/005, because it had been generated before 006 existed. A stale dump looks identical from the outside.
 
@@ -333,7 +452,39 @@ Two structural checks hold in both volumes and are the ones to run on any new vo
 
 `apply_indacanda_full_preview.py` is the separate reviewed-manifest importer. Default invocation is read-only dry-run; `--apply` is mandatory for a transaction. It rechecks PDF/TXT SHA-256, section/range/anchor and spacing/Unicode, imports PASS only, never overwrites `manual`, archives stale anchors for the exact same range, and refuses the whole transaction if a differently ranged `indacanda_full` row overlaps. Method `pdf_heading_boundary` ranks 45 via migration 006.
 
-**State as of 2026-08-16 (verified against the DB, not carried over from an earlier note):** the whole Dīgha Nikāya is complete — `dn1` (13) + `dn2` (10) + `dn3` (11) = **34 suttas**, all `pdf_heading_boundary`, plus `sn` + `pts2` — and their dry-runs report `insert 0 | update 0 | unchanged` on every one of them. An older version of this file claimed "89 inserts, 12 upgrades" were still pending, and a later one said `dn3` was "not yet applied"; both had been true once and were stale, and it cost a session's work to rediscover. **Re-run the dry-run before believing any number written here.**
+#### `pr`: printed positional prefixes, four rows of spillover, fixed 2026-08-17
+
+`pr` was first applied as batch `pdf_heading_boundary-20260817-172714-635169` at 44 PASS / 5 REVIEW, and **four of those 44 rows carried a neighbour's text.** Re-extracting reproduced the same bytes, so it was a live extractor defect, not a stale preview. The repair is applied as batch `pdf_heading_boundary-20260817-233403-083470` (11 rows: 5 insert + 6 update, 1 stale anchor archived then removed) — see the verification at the end of this section.
+
+Root cause, one shape hit from several directions: **the printed edition prefixes `PAṬHAMA `/`DUTIYA ` onto a base name shared by two consecutive rules, and twice names a rule differently from CST.** DB says `Saṅghabhedasikkhāpadaṃ` / `Bhedānuvattakasikkhāpadaṃ`; the book prints `PAṬHAMASAṄGHABHEDASIKKHĀPADAṂ` (p494) / `DUTIYA SAṄGHABHEDASIKKHĀPADAṂ` (p502). Fuzzy matching then failed in the worst possible way — it **kept the wrong page and discarded the right one**:
+
+```
+unit 10 `Saṅghabhedasikkhāpadaṃ` vs p494 (its own heading) : 0.8627, margin 0.0479 -> REFUSED (ambiguity guard)
+unit 10 `Saṅghabhedasikkhāpadaṃ` vs p502 (unit 11's)       : 0.8800, margin 0.0723 -> ACCEPTED
+```
+
+The margin decided it, and the margin only differs because `dutiya` is one character shorter than `pathama`. Unit 10 stayed REVIEW so it was never written on its own — but unit **9** took that hit as its `next_hit` boundary and swallowed the whole of unit 10. A row that passed every gate, with clean text, under the wrong name.
+
+The fix is **volume-scoped aliases in `heading_stem`** (six for `pr`, each hand-checked against the printed page) plus one guard: **a fuzzy hit must carry the DB unit's own printed number** (`_numbers_agree`). The number is right there on the page — p502 reads `3. 11.` while the DB unit is `10.` — and it is the evidence a similarity score cannot see. A score threshold was tried first and rejected: dn1/dn3/sn/pts2 hold five *legitimate* fuzzy hits (spelling variants like `Cūḷabyūha`/`Cūḷaviyūha`), so thresholding breaks four applied volumes, whereas all five agree on number and pass. Measured across the six volumes: 153/153 correct hits agree on number; the single disagreement is pts2's already-documented printed `VI`/`VIII` typo, which matches by name exactly and so never reaches the guard.
+
+Result: **49/49 PASS, 0 REVIEW** (five units gained, including two that had no reachable heading at all), and the boundaries now **tile the volume exactly** — 74→140→198→238→302→338→…→688, every unit ending where the next begins. That tiling is the check worth running on any new volume; it is what makes spillover visible.
+
+The four repaired rows:
+
+| unit | before | after |
+|---|---|---|
+| `9. Dutiyaduṭṭhadosasikkhāpadaṃ` | →502, 28,627 chars (all of unit 10 appended) | →494, 18,351 |
+| `8. Upakkhaṭasikkhāpadaṃ` | →588, 7,926 (partial unit 9, cut mid-sentence) | →586, 5,922 |
+| `8. Duṭṭhadosasikkhāpadaṃ` | →482, 29,106 | →480, 28,001 |
+| `1. Paṭhamakathinasikkhāpadaṃ` | →550, 8,101 | →548, 6,669 |
+
+`10. Pariṇatasikkhāpadaṃ`, the last unit, still carries the chapter's uddāna verses and `DỨT BỘ PĀRĀJIKAPĀḶI`; no successor heading exists to stop it. Cosmetic by comparison — decide separately. It is still the one `vin01m` row the audit flags (1.28x), and that is now expected rather than unexplained.
+
+**Verified after the apply** (all read-only): `pdf_heading_boundary` 169 → **174**, `whole_unit` 132 → **131** (the Catuttha row upgraded), total 305; **0 duplicate ranges, 0 null/inverted ranges**; all 49 `pr` rows byte-match their preview TXT; the two rows that had swallowed a neighbour no longer contain that neighbour's text at all. The audit's suspect list lost `9. Dutiyaduṭṭhadosasikkhāpadaṃ` (1.72x) and `8. Upakkhaṭasikkhāpadaṃ` (1.30x), and `4. Catutthapārājikaṃ` left the worst-20 list (it was 83% as `whole_unit`). The control group's median tightened 115% → 113% — removing spillover makes the yardstick itself more honest.
+
+**Two lessons that generalise.** First, `dev_whole_unit_audit.py` flagged only two of the four (`1. Paṭhamakathina` and `8. Duṭṭhadosa` sat inside their volume's normal length band), so its "THỪA" list is a floor, not a census. Second, the `Paṭhama-`/bare vs `Dutiya-` naming pair repeats throughout Nissaggiya/Pācittiya — assume `thag`, `ap1`, `kn1` and the rest carry it, and check number agreement and boundary tiling before trusting PASS.
+
+**State as of 2026-08-17 (verified against the DB, not carried over from an earlier note):** six volumes are applied — the whole Dīgha Nikāya `dn1` (13) + `dn2` (10) + `dn3` (11) = **34 suttas**, plus `sn` (71 of 73), `pts2` (20) and `pr` (**49 of 49**) — for **174 `pdf_heading_boundary` rows**, and a dry-run over all six reports `insert 0 | update 0 | unchanged 174 | blocked 0`. 24 of the 30 configured volumes remain. An older version of this file claimed "89 inserts, 12 upgrades" were still pending, and a later one said `dn3` was "not yet applied"; both had been true once and were stale, and it cost a session's work to rediscover. **Re-run the dry-run before believing any number written here.**
 
 Two traps this area has already sprung, both worth keeping in mind:
 

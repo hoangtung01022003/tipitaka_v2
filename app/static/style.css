@@ -258,6 +258,77 @@ body.modalOpen {
   color: #211b15;
 }
 
+/* Trang đọc in mỗi khối thành một <p> riêng để neo được nút nhảy. Có reset `* {margin:0}`
+   nên phải tự bù khoảng cách - trước đây cả bài là MỘT <p> và `pre-wrap` lo việc này. */
+.pali + .pali {
+  margin-top: 1.05em;
+}
+
+/* Tô sáng tạm thời khi vừa nhảy tới, để mắt bắt được chỗ vừa nhảy. Dùng nền chứ không
+   dùng outline: outline nhảy layout trên khối nhiều dòng. */
+.pali.passageHighlight {
+  background: #fff2c8;
+  box-shadow: 0 0 0 6px #fff2c8;
+  border-radius: 3px;
+  transition: background 0.5s ease, box-shadow 0.5s ease;
+}
+
+.readerOutline {
+  margin: 10px 0 14px;
+  border: 1px solid var(--line, #e6dcc8);
+  border-radius: 8px;
+  background: #fffdf7;
+}
+
+.readerOutlineToggle {
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--soft, #6b6152);
+  text-align: left;
+  cursor: pointer;
+}
+
+.readerOutlineList {
+  margin: 0;
+  padding: 0 12px 10px 12px;
+  max-height: 42vh;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.readerOutlineList li + li {
+  border-top: 1px solid #f0e8d6;
+}
+
+.readerOutlineList a {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 7px 2px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.readerOutlineList a:hover .readerOutlineLabel {
+  text-decoration: underline;
+}
+
+.readerOutlineLabel {
+  font-size: 15px;
+}
+
+.readerOutlineCount {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--soft, #6b6152);
+}
+
 .translation {
   white-space: pre-wrap;
   background: #fff8ed;

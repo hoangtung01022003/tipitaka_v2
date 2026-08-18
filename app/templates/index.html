@@ -394,17 +394,22 @@
         }
       }
 
-      async function openSection(sectionId, button, source = "ai") {
+      // `focusPassageId`: đoạn vừa khớp tìm kiếm. KHÔNG nướng vào HTML cache được vì cùng
+      // một bài kinh mở từ hai kết quả khác nhau sẽ cần nhảy tới hai chỗ khác nhau - nên
+      // luôn áp SAU khi HTML đã vào DOM.
+      async function openSection(sectionId, button, source = "ai", focusPassageId = null) {
         if (!sectionId) return;
         const key = `${sectionId}::${source}`;
         const originalText = button?.textContent || tr("results.openSection");
         if (activeSectionId === key && !sectionModal.classList.contains("hidden")) {
+          revealMatchedPassage(sectionModalBody, focusPassageId);
           return;
         }
         if (sectionHtmlCache.has(key)) {
           activeSectionId = key;
           openModal(sectionHtmlCache.get(key));
           hydrateSectionTranslation(sectionModalBody);
+          revealMatchedPassage(sectionModalBody, focusPassageId);
           return;
         }
         if (sectionLoadingSet.has(key)) {
@@ -436,6 +441,7 @@
           sectionHtmlCache.set(key, html);
           sectionModalBody.innerHTML = html;
           hydrateSectionTranslation(sectionModalBody);
+          revealMatchedPassage(sectionModalBody, focusPassageId);
         } catch (error) {
           sectionModalBody.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
         } finally {
@@ -454,6 +460,61 @@
 
         const isCollapsed = body.classList.toggle("collapsed");
         button.textContent = isCollapsed ? tr("reader.expand") : tr("reader.collapse");
+      }
+
+      // Đưa người đọc tới đúng khối văn bản. Dùng cho cả hai đường: đoạn vừa khớp tìm
+      // kiếm, và một dòng trong mục lục.
+      function revealReaderBlock(root, target) {
+        if (!root || !target) return false;
+        // Thân bài mặc định `collapsed` (chỉ hiện vài dòng đầu). Không mở ra trước thì
+        // cuộn tới một phần tử đang bị cắt khỏi khung - trông như nút không ăn.
+        const body = target.closest(".readerBody");
+        if (body && body.classList.contains("collapsed")) {
+          body.classList.remove("collapsed");
+          const toggle = body.closest(".readerBlock")?.querySelector("[data-toggle-reader]");
+          if (toggle) toggle.textContent = tr("reader.collapse");
+        }
+        target.classList.add("passageHighlight");
+        window.setTimeout(() => target.classList.remove("passageHighlight"), 2600);
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        return true;
+      }
+
+      // Tiêu đề mục lục là tiếng Pāli (`1. Bodhikathā`) - độc giả Việt không đọc được.
+      // Nạp nhãn đã dịch một lượt cho cả trang. Thất bại thì giữ nguyên tiêu đề Pāli:
+      // mục lục Pāli vẫn nhảy đúng chỗ, còn nhãn sai thì dẫn người đọc đi lạc.
+      async function loadOutlineLabels(outline) {
+        if (!outline || outline.dataset.labelsState) return;
+        outline.dataset.labelsState = "loading";
+        const viewer = outline.closest("[data-section-viewer]");
+        const sectionId = viewer?.dataset.sectionId;
+        if (!sectionId) return;
+        try {
+          const params = new URLSearchParams({ lang: LANG });
+          const res = await fetch(`/api/sections/${sectionId}/outline-labels?${params}`);
+          if (!res.ok) throw new Error("outline labels unavailable");
+          const data = await res.json();
+          const labels = data?.labels || {};
+          outline.querySelectorAll("[data-outline-label]").forEach((node) => {
+            const translated = labels[node.textContent.trim()];
+            if (translated) node.textContent = translated;
+          });
+          outline.dataset.labelsState = "done";
+        } catch (_error) {
+          outline.dataset.labelsState = "failed";
+        }
+      }
+
+      // Đoạn khớp có thể là dòng kệ thứ ba trong một khối đã gộp, nên tra theo danh sách
+      // id của khối chứ không theo id khối.
+      function revealMatchedPassage(root, passageId) {
+        if (!root || !passageId) return false;
+        const blocks = root.querySelectorAll("[data-passage-ids]");
+        for (const block of blocks) {
+          const ids = (block.dataset.passageIds || "").split(" ");
+          if (ids.includes(passageId)) return revealReaderBlock(root, block);
+        }
+        return false;
       }
 
       // Chỉ hiện lại bảng thông báo khi nội dung đổi (version tăng), không hiện mỗi lần vào.
@@ -521,10 +582,14 @@
         if (!sectionButton) return;
         event.preventDefault();
         event.stopPropagation();
+        // Thẻ kết quả mang sẵn `data-passage-id` của đoạn đã khớp; truyền sang để trang
+        // đọc nhảy thẳng tới đó thay vì bắt người đọc tự dò cả bài.
+        const card = sectionButton.closest("[data-passage-id]");
         window.openSectionModal(
           sectionButton.dataset.sectionId,
           sectionButton,
           sectionButton.dataset.sectionSource || "ai",
+          card?.dataset.passageId || null,
         );
       });
 
@@ -536,6 +601,31 @@
           if (viewer && tab.dataset.sectionTab !== viewer.dataset.sectionSource) {
             openSection(viewer.dataset.sectionId, null, tab.dataset.sectionTab);
           }
+          return;
+        }
+
+        const outlineToggle = event.target.closest("[data-outline-toggle]");
+        if (outlineToggle) {
+          event.preventDefault();
+          const outline = outlineToggle.closest("[data-reader-outline]");
+          const list = outline?.querySelector("[data-outline-list]");
+          if (list) {
+            list.hidden = !list.hidden;
+            outlineToggle.setAttribute("aria-expanded", String(!list.hidden));
+            // Nhãn tiếng Việt chỉ nạp khi người đọc thật sự mở mục lục, và chỉ một lần.
+            if (!list.hidden) loadOutlineLabels(outline);
+          }
+          return;
+        }
+
+        const outlineJump = event.target.closest("[data-outline-jump]");
+        if (outlineJump) {
+          event.preventDefault();
+          const anchor = outlineJump.dataset.outlineJump;
+          revealReaderBlock(
+            sectionModalBody,
+            sectionModalBody.querySelector(`[id="${anchor}"]`),
+          );
           return;
         }
 

@@ -74,8 +74,8 @@ _READER_NUMBERED_SUFFIXES = (
     "khandhako",
     "khandhakam",
     "puccha",
+    "katha",
 )
-
 
 # Số thứ tự in trong ngoặc ở CUỐI tiêu đề, ví dụ `543. Bhūridattajātakaṃ (6)` - số 6 là
 # vị trí trong Mahānipāta, không phải một phần của tên bài. Nó che mất đuôi thật khiến
@@ -88,15 +88,81 @@ _READER_NUMBERED_SUFFIXES = (
 #
 # Bỏ đuôi này chỉ làm THÊM tiêu đề được nhận, không nới danh sách đuôi: `22. Mahānipāto
 # (3)` sau khi bỏ vẫn kết thúc bằng `nipato` nên vẫn bị loại đúng như trước.
-_READER_TRAILING_ORDINAL = re.compile(r"\s*\(\d+\)\s*$")
+# Nhận cả dạng NHIỀU CẤP `(2-1-1)` (nipāta-phẩm-vị trí), không chỉ `(6)`. Bản sửa trước chỉ
+# xử lý dạng một số nên 264 mục Jātaka vẫn bị đuôi ngoặc che mất hậu tố `jātakaṃ` và trượt
+# bậc 1 - `151. Rājovādajātakaṃ (2-1-1)` mở ra cả `1. Daḷhavaggo` 72 đoạn (khoảng 10 bổn
+# sanh) thay vì chính bổn sanh 8 đoạn. Đo khi nới: thêm 264 mục, **mất 0 mục**, toàn bộ ở `mul`.
+_READER_TRAILING_ORDINAL = re.compile(r"\s*\(\d+(?:[-–]\d+)*\)\s*$")
+
+
+# Chú giải và Phụ chú giải đặt tên theo lối "phần GIẢI THÍCH của X": `Mettāsahagatasutta`
+# thành `Mettāsahagatasuttavaṇṇanā`. Đuôi `vaṇṇanā` che mất hậu tố thật, nên TRƯỚC bản sửa
+# này KHÔNG mục nào của Chú giải/Phụ chú giải được nhận là đơn vị đọc - đo được: att chỉ 374
+# mục trên toàn bộ, tik 538. Kết quả là ca khách vừa báo: đoạn 235 nằm trong
+# `4. Mettāsahagatasuttavaṇṇanā` (8 đoạn) nhưng bậc 1 trượt, bậc 2 leo lên
+# `6. Sākacchavaggo` (66 đoạn) và mục lục hiện ra cả 6 bài chú giải của phẩm.
+#
+# Bỏ đuôi rồi áp LẠI đúng luật cũ trên phần lõi, không nới danh sách hậu tố. Nhờ vậy:
+#   `Mettāsahagatasuttavaṇṇanā` -> `...sutta`  -> nhận, lớp dứt khoát
+#   `Suddhabrahmacariyakathāvaṇṇanā` -> `...kathā` -> nhận, lớp phụ thuộc ngữ cảnh
+#   `1. Bhūmivaggavaṇṇanā` -> `...vagga` -> vẫn TỪ CHỐI, vì chương thì vẫn là chương
+# Đo trên toàn kho: att 374 -> 2.953, tik 538 -> 2.169, nrf 688 -> 707, **mul không đổi**
+# (chánh kinh không dùng lối đặt tên này nên không có rủi ro), và **0 tên chương bị nhận oan**
+# - đã kiểm riêng các đuôi `vagga`/`nipāta`/`saṃyutta`/`kaṇḍa`/`paṇṇāsaka` + `vaṇṇanā`.
+_READER_COMMENTARY_SUFFIXES = ("vannana",)
+
+
+def _reader_core(title: str) -> tuple[str, str]:
+    """Trả về (tiêu đề đã bỏ số thứ tự cuối, phần lõi đã bỏ đuôi giải thích).
+
+    Phần lõi là thứ đem so với danh sách hậu tố; `raw` vẫn cần để kiểm "có số ở đầu".
+    """
+    raw = _READER_TRAILING_ORDINAL.sub("", str(title or "").strip())
+    normalized = normalize_pali(raw).replace(" ", "")
+    for suffix in _READER_COMMENTARY_SUFFIXES:
+        if normalized.endswith(suffix) and len(normalized) > len(suffix):
+            return raw, normalized[: -len(suffix)]
+    return raw, normalized
 
 
 def _is_reader_unit_title(title: str) -> bool:
-    raw = _READER_TRAILING_ORDINAL.sub("", str(title or "").strip())
-    normalized = normalize_pali(raw).replace(" ", "")
-    if normalized.endswith(_READER_SUTTA_SUFFIXES):
+    raw, core = _reader_core(title)
+    if core.endswith(_READER_SUTTA_SUFFIXES):
         return True
-    return bool(re.match(r"^\(?\d", raw)) and normalized.endswith(_READER_NUMBERED_SUFFIXES)
+    return bool(re.match(r"^\(?\d", raw)) and core.endswith(_READER_NUMBERED_SUFFIXES)
+
+
+# Hai LỚP hậu tố, vì `kathā` và `khandhaka` đổi nghĩa theo chỗ chúng đứng:
+#
+# - Trong Trường Bộ, `kathā` là TIỂU MỤC bên trong một bài kinh (`Sīlakkhandhakathā` nằm
+#   trong `1. Brahmajālasuttaṃ`) - nhận nó làm đơn vị đọc thì người đọc bấm "toàn bộ bài
+#   kinh" lại ra một mẩu, đúng lỗi khách từng báo.
+# - Trong Mahāvagga, `kathā` LÀ đơn vị: `1. Mahākhandhako` chỉ gồm 69 mục con và tất cả
+#   đều là `kathā`/`vatthu`, từ 1 đoạn (`42. Sikkhāpadakathā`) tới 69 đoạn
+#   (`5. Brahmayācanakathā`). Không có đơn vị nào nhỏ hơn để leo tới.
+# - `khandhaka` cũng vậy: là đơn vị đọc khi đoạn rơi thẳng vào nó, nhưng là CHƯƠNG khi bên
+#   trong còn `kathā`/`vatthu` mang tên riêng.
+#
+# Nên phân biệt theo NGỮ CẢNH, không theo KÍCH THƯỚC. Bản trước dùng size floor 20 đoạn
+# cho `kathā` và chính nó tạo ra lỗi khách báo lại: `42. Sikkhāpadakathā` (1 đoạn) bị floor
+# loại ở bậc 1 nên vòng lặp leo tiếp tới `1. Mahākhandhako` - 616 đoạn, 234k ký tự Pāli,
+# 76 lượt dịch AI, và bản ghép Indacanda chỉ phủ 255/616 đoạn. Kích thước là chỉ dấu sai:
+# `41. Rāhulavatthu` (3 đoạn) và `43. Daṇḍakammavatthu` (4 đoạn) ngay cạnh đó vẫn hiện
+# riêng vì đuôi `vatthu` không có floor, nên ba mục in liền nhau lại xử sự khác nhau.
+#
+# Đo trước khi đổi: 501 mục đổi đơn vị đọc (2.989 đoạn), tập trung ở đúng những sách mà
+# `kathā` là đơn vị thật - `abh03m3` (Kathāvatthu) 197, `vin12t` 166, `vin02m2` 91,
+# `vin02m3` 14, `s0517m` (Paṭisambhidāmagga) 13. Trường Bộ (`s0101m`/`s0102m`/`s0103m`)
+# KHÔNG có mục nào đổi: `kathā` trong đó luôn có tổ tiên lớp A là bài kinh, nên vẫn leo
+# đúng lên bài kinh. Đó là phép kiểm quan trọng nhất của luật này.
+_READER_CONTEXT_SUFFIXES = ("katha", "khandhako", "khandhakam")
+
+
+def _is_context_dependent_reader_title(title: str) -> bool:
+    # Xét trên phần LÕI, cùng một phép bỏ đuôi giải thích: `...kathāvaṇṇanā` phải rơi vào
+    # lớp phụ thuộc ngữ cảnh giống `...kathā`, nếu không thì một tiểu mục trong bài chú giải
+    # sẽ thắng chính bài chú giải đó.
+    return _reader_core(title)[1].endswith(_READER_CONTEXT_SUFFIXES)
 
 
 def _source_path_is_prefix(candidate: object, selected: object) -> bool:
@@ -128,6 +194,30 @@ READER_FALLBACK_MAX_PASSAGES = 1500
 # được mẩu vụn nào mà chỉ đẻ thêm trang nặng.
 READER_FALLBACK_MIN_PASSAGES = 20
 
+# Bậc 2 chỉ leo khi KHÔNG có bằng chứng nào về đơn vị đọc. Số thứ tự đầu tiêu đề chính là
+# bằng chứng đó: người biên tập đã xếp mục này vào một DÃY ĐÁNH SỐ, tức nó là một đơn vị
+# của dãy, không phải mẩu cắt giữa bài.
+#
+# Ca khách báo: đoạn 659 nằm ở `13. Appamaññāvibhaṅgo -> 1. Suttantabhājanīyaṃ -> 2. Karuṇā`.
+# `1. Suttantabhājanīyaṃ` (53 đoạn) chứa đúng bốn mục con `1. Mettā` / `2. Karuṇā` /
+# `3. Muditā` / `4. Upekkhā`, mỗi mục 13 đoạn - tứ vô lượng tâm. `2. Karuṇā` là đơn vị trọn
+# vẹn, nhưng vì 13 < 20 nên bậc 2 leo lên và người đọc nhận cả bốn.
+#
+# **KHÔNG kèm ngưỡng kích thước ở đây, và đó là bài học vừa phải trả giá.** Ngưỡng sẽ tái
+# tạo đúng lỗi bất nhất mà `_READER_SIZE_SENSITIVE_SUFFIXES` từng gây ra: đo được
+# `2. Vedanākkhandhaniddeso` (16 đoạn) sẽ hiện riêng còn `4. Saṅkhārakkhandhaniddeso`
+# (1 đoạn) lại leo lên, dù hai mục là ANH EM cùng một dãy năm uẩn - chỉ khác độ dài vì chú
+# giải chỗ đó viết ngắn. Nhãn khớp đúng nội dung vẫn là nhãn đúng, kể cả khi chỉ có 1 đoạn.
+#
+# Đo trên toàn kho: 5.910 mục dừng lại (21.287 đoạn), trong đó 2.436 mục chỉ 1 đoạn; trước
+# đó chúng mở ra trang trung vị 73 đoạn. Trang hẹp không còn là vấn đề tìm kiếm nữa vì
+# `revealMatchedPassage` đưa người đọc tới đúng đoạn, và mục lục vẫn còn đó để đi tiếp.
+_ENUMERATED_TITLE = re.compile(r"^\s*\(?\d+\)?\s*[.\-]")
+
+
+def _is_enumerated_title(title: str) -> bool:
+    return bool(_ENUMERATED_TITLE.match(_READER_TRAILING_ORDINAL.sub("", str(title or "").strip())))
+
 
 def _canonical_reader_section(section: dict) -> dict:
     """Đưa một mục con lên đơn vị đọc hoàn chỉnh gần nhất trong cây section.
@@ -139,7 +229,13 @@ def _canonical_reader_section(section: dict) -> dict:
 
     HAI BẬC, và bậc thứ hai mới là chỗ đáp ứng yêu cầu của khách:
 
-    1. Tổ tiên có tiêu đề qua được `_is_reader_unit_title` - đây là bài kinh thật.
+    1. Tổ tiên có tiêu đề qua được `_is_reader_unit_title` - đây là bài kinh thật, và xét
+       theo HAI LỚP (xem `_READER_CONTEXT_SUFFIXES`): ưu tiên tổ tiên NHỎ NHẤT thuộc lớp
+       dứt khoát (`sutta`/`sikkhāpadaṃ`/`jātaka`/`vatthu`...); chỉ khi không có mới nhận
+       tổ tiên nhỏ nhất thuộc lớp phụ thuộc ngữ cảnh (`kathā`/`khandhaka`). Nhờ vậy
+       `kathā` bên trong một bài kinh Trường Bộ vẫn leo lên bài kinh, còn `kathā` là mục
+       con trực tiếp của một khandhaka Luật thì được hiện riêng - đúng "lấy nhãn gần nhất"
+       mà khách chốt, không phải chọn theo số đoạn.
     2. Không có, VÀ mục con nhỏ hơn `READER_FALLBACK_MIN_PASSAGES`, thì leo lên tổ tiên
        GẦN NHẤT bất kể tiêu đề, miễn không vượt `READER_FALLBACK_MAX_PASSAGES`. Khách
        chốt "không có trọn bài thì lấy gần nhất cũng được". Bậc này kéo tỉ lệ đoạn rơi
@@ -176,13 +272,24 @@ def _canonical_reader_section(section: dict) -> dict:
         if _source_path_is_prefix(row.get("source_path"), section.get("source_path"))
     ]
 
-    for row in within_tree:
-        if _is_reader_unit_title(str(row.get("title") or "")):
-            row["_readerUnitExact"] = True
-            return row
+    # `within_tree` đã sắp theo độ dài TĂNG DẦN, nên lượt nào cũng lấy được mục nhỏ nhất
+    # thoả điều kiện. Hai lượt chứ không một: lượt đầu chỉ nhận lớp dứt khoát, nên một
+    # `kathā` nhỏ nằm trong bài kinh không thể thắng chính bài kinh dù nó đứng trước trong
+    # danh sách. Xem `_READER_CONTEXT_SUFFIXES`.
+    unit_rows = [
+        row for row in within_tree if _is_reader_unit_title(str(row.get("title") or ""))
+    ]
+    for row in unit_rows:
+        if _is_context_dependent_reader_title(str(row.get("title") or "")):
+            continue
+        row["_readerUnitExact"] = True
+        return row
+    if unit_rows:
+        unit_rows[0]["_readerUnitExact"] = True
+        return unit_rows[0]
 
     own_span = section["end_sort_order"] - section["start_sort_order"] + 1
-    if own_span < READER_FALLBACK_MIN_PASSAGES:
+    if own_span < READER_FALLBACK_MIN_PASSAGES and not _is_enumerated_title(section.get("title")):
         for row in within_tree:
             if str(row["id"]) == str(section["id"]):
                 continue
@@ -604,8 +711,18 @@ def _paragraph_label(row: dict, language: str) -> str | None:
     return None
 
 
-def _join_section_passages(rows: list[dict], language: str = DEFAULT_LANGUAGE) -> str:
-    parts: list[str] = []
+def _section_paragraphs(rows: list[dict], language: str = DEFAULT_LANGUAGE) -> list[dict]:
+    """Gom các đoạn thành khối hiển thị, NHƯNG giữ `passage_id` để neo được từng khối.
+
+    Cùng luật gộp gāthā như trước: nhiều dòng kệ liền nhau là MỘT khối đọc. Vì thế một
+    khối có thể chứa nhiều `passage_id`, và phải trả ra CẢ danh sách - đoạn khớp tìm kiếm
+    có thể là dòng kệ thứ ba trong khối, mà người đọc cần được đưa tới đầu khối.
+
+    `_join_section_passages` dựng chuỗi từ chính hàm này để hai bên không lệch nhau: luật
+    gộp kệ mà nằm ở hai chỗ thì bản dịch AI (chia theo chuỗi) và phần hiển thị (chia theo
+    khối) sẽ đánh số đoạn khác nhau, và nút nhảy sẽ trỏ sai chỗ.
+    """
+    blocks: list[dict] = []
     previous_rend = ""
 
     for row in rows:
@@ -617,16 +734,160 @@ def _join_section_passages(rows: list[dict], language: str = DEFAULT_LANGUAGE) -
         label = _paragraph_label(row, language)
         line = f"{label}\n{text}" if label else text
 
-        if not parts:
-            parts.append(line)
-        elif previous_rend in GATHA_RENDS and rend in GATHA_RENDS:
-            parts[-1] = f"{parts[-1]}\n{line}"
+        if blocks and previous_rend in GATHA_RENDS and rend in GATHA_RENDS:
+            blocks[-1]["text"] = f"{blocks[-1]['text']}\n{line}"
+            blocks[-1]["passageIds"].append(str(row["id"]))
         else:
-            parts.append(line)
+            blocks.append(
+                {
+                    "anchor": f"doan-{len(blocks) + 1}",
+                    "passageIds": [str(row["id"])],
+                    "sortOrder": row.get("sort_order"),
+                    "label": label,
+                    "text": line,
+                }
+            )
 
         previous_rend = rend
 
-    return "\n\n".join(parts)
+    return blocks
+
+
+def _join_section_passages(rows: list[dict], language: str = DEFAULT_LANGUAGE) -> str:
+    return "\n\n".join(block["text"] for block in _section_paragraphs(rows, language))
+
+
+# Trang ngắn không cần mục lục - cả trang đã nằm trong một màn hình. Ngưỡng trùng với
+# `READER_FALLBACK_MIN_PASSAGES` vì cùng một câu hỏi: "trang này có đủ dài để người đọc bị
+# lạc không".
+SECTION_OUTLINE_MIN_PASSAGES = 20
+
+
+def _section_outline(section: dict) -> list[dict]:
+    """Mục lục một tầng cho trang đọc, dựng TỪ CÂY SECTION - không gọi AI, không đoán.
+
+    Đây là chỗ trả lời yêu cầu "tóm tắt từng phân đoạn rồi tạo nút nhảy" của khách mà
+    không phải tóm tắt gì: các mục con này là tiêu đề do chính người biên tập sách in ra
+    (`1. Bodhikathā`, `42. Sikkhāpadakathā`...). Đo trên `mul`: 295 trong 888 trang đọc từ
+    50 đoạn trở lên có sẵn mục con đặt tên - `1. Ñāṇakathā` (499 đoạn) có 48 mục, và
+    `3. Paccayānulomapaccanīyaṃ` (480 đoạn) có 152 mục. Nhờ AI tóm tắt thân bài các trang
+    ấy tốn ~8.957 lượt gọi Gemini chỉ riêng `mul`, để nói lại đúng điều tiêu đề đã nói -
+    kèm rủi ro bịa nội dung kinh điển.
+
+    Chỉ lấy CẤP NÔNG NHẤT để mục lục là một tầng phẳng, không lồng: `Paccayānulomapaccanīyaṃ`
+    có 152 mục ở cấp nông nhất, đổ cả cây con vào thì mục lục dài hơn chính bài.
+    """
+    own_span = section["end_sort_order"] - section["start_sort_order"] + 1
+    if own_span < SECTION_OUTLINE_MIN_PASSAGES:
+        return []
+    rows = fetch_all(
+        """
+        select id, title, source_path, start_sort_order,
+               coalesce(end_sort_order, start_sort_order) as end_sort_order
+        from sections
+        where document_id = %s
+          and start_sort_order >= %s
+          and coalesce(end_sort_order, start_sort_order) <= %s
+          and id <> %s
+        order by start_sort_order asc
+        """,
+        [
+            section["document_id"],
+            section["start_sort_order"],
+            section["end_sort_order"],
+            section["id"],
+        ],
+    )
+    smaller = [
+        row
+        for row in rows
+        if (row["end_sort_order"] - row["start_sort_order"] + 1) < own_span
+    ]
+    children = [
+        row
+        for row in smaller
+        if _source_path_is_prefix(section.get("source_path"), row.get("source_path"))
+    ]
+    layer = _flat_outline_layer(children)
+    if layer:
+        return layer
+    # DỰ PHÒNG cho "section rác" của bản import XML: có những section phủ TRỌN tài liệu
+    # nhưng `source_path` lại nằm DƯỚI một mục con thật và tên trùng tổ tiên - `s0505m` có
+    # section 0-3891 tên `Khuddakanikāye` với path [... 'Suttanipātapāḷi', '1. Uragavaggo',
+    # 'Khuddakanikāye'], tức một khoảng cả-sách tự nhận nằm trong phẩm đầu tiên. Các câu kệ
+    # uddāna trỏ section_id vào đúng mấy section này, nên trang đọc của chúng là cả bộ sách.
+    #
+    # `_source_path_is_prefix` từ chối chúng là ĐÚNG (xem `_canonical_reader_section`), nên
+    # không dựng được mục lục theo quan hệ cha-con. Nhưng cấu trúc thật vẫn nằm cùng tài
+    # liệu, nên vẫn lấy được một tầng mục lục: chỉ THÊM đường điều hướng, không đổi một
+    # đoạn nào đang hiển thị.
+    return _flat_outline_layer(smaller, require_disjoint=True)
+
+
+def _flat_outline_layer(rows: list[dict], require_disjoint: bool = False) -> list[dict]:
+    """Chọn MỘT tầng mục lục phẳng: cùng độ sâu `source_path`, xếp theo thứ tự đọc.
+
+    Lấy tầng NÔNG NHẤT có từ 2 mục - mục lục một tầng, không lồng.
+
+    `require_disjoint` CHỈ bật cho nhánh dự phòng (section rác), và có lý do đo được: ở đó
+    quan hệ cha-con đã đổ nên các mục cùng độ sâu có thể chồng nhau hoặc vượt ra ngoài - đo
+    trên `s0510m2` (Therīapadāna), tầng nông nhất cho ra các khoảng cộng lại **10.015 đoạn
+    trong một trang 4.042 đoạn**.
+
+    Cố tình KHÔNG bật cho nhánh con cháu đã xác thực prefix: đo trên toàn kho, bật ở đó làm
+    19 trang mục lục bị cắt bớt dòng và 1 trang mất hẳn mục lục (`e1007n/Sūrassatīnīti`
+    2 dòng -> 0). Ở đó quan hệ cây là thật, nên hai mục chồng nhau vẫn là hai mục thật và
+    nút nhảy vẫn tới đúng đoạn của mình; bỏ chúng là mất đường điều hướng chứ không sửa gì.
+    """
+    by_depth: dict[int, list[dict]] = {}
+    for row in rows:
+        by_depth.setdefault(len(row.get("source_path") or []), []).append(row)
+    for depth in sorted(by_depth):
+        ordered = sorted(
+            by_depth[depth],
+            key=lambda row: (row["start_sort_order"], row["end_sort_order"]),
+        )
+        if require_disjoint:
+            kept: list[dict] = []
+            for row in ordered:
+                if kept and row["start_sort_order"] <= kept[-1]["end_sort_order"]:
+                    continue
+                kept.append(row)
+            ordered = kept
+        if len(ordered) >= 2:
+            return ordered
+    return []
+
+
+def _outline_entries(section: dict, paragraphs: list[dict]) -> list[dict]:
+    """Gắn mỗi mục của mục lục vào KHỐI đầu tiên của nó, để nút nhảy có đích thật.
+
+    Neo theo `sort_order`, KHÔNG theo thứ tự mục: `_section_paragraphs` bỏ các đoạn rỗng
+    và gộp dòng kệ, nên "khối thứ N" không nhất thiết là mục con thứ N. Mục nào không tìm
+    được khối nào bắt đầu trong phạm vi của nó thì bỏ hẳn - một nút nhảy không có đích còn
+    tệ hơn không có nút.
+    """
+    entries: list[dict] = []
+    for row in _section_outline(section):
+        anchor = next(
+            (
+                block["anchor"]
+                for block in paragraphs
+                if block.get("sortOrder") is not None
+                and row["start_sort_order"] <= block["sortOrder"] <= row["end_sort_order"]
+            ),
+            None,
+        )
+        if not anchor:
+            continue
+        entries.append(
+            {
+                "title": str(row["title"] or "").strip(),
+                "anchor": anchor,
+                "passageCount": row["end_sort_order"] - row["start_sort_order"] + 1,
+            }
+        )
+    return entries if len(entries) >= 2 else []
 
 
 def _section_payload(
@@ -657,6 +918,7 @@ def _section_payload(
         """
         select
           id,
+          sort_order,
           coalesce(display_paragraph_no, xml_paragraph_no, paragraph_no) as paragraph_no,
           xml_paragraph_no,
           pali_text,
@@ -668,7 +930,8 @@ def _section_payload(
         """,
         [section["document_id"], section["start_sort_order"], section["end_sort_order"]],
     )
-    pali_text = _join_section_passages(rows, language)
+    paragraphs = _section_paragraphs(rows, language)
+    pali_text = "\n\n".join(block["text"] for block in paragraphs)
     if include_translation:
         translation, attempted_translation = _translate_section_text(pali_text, language)
     else:
@@ -729,10 +992,58 @@ def _section_payload(
         "sourcePath": " -> ".join(source_path) if isinstance(source_path, list) else "",
         "passageCount": len(rows),
         "paliText": pali_text,
+        # Khối có neo, để nhảy tới đúng đoạn vừa khớp tìm kiếm. `paliText` giữ nguyên vì
+        # bản dịch AI chia theo chuỗi ký tự - đổi nó là đổi cách chia chunk.
+        "paragraphs": paragraphs,
+        "outline": _outline_entries(section, paragraphs),
         "translation": translation,
         "attemptedTranslation": attempted_translation,
         "warning": t(language, "translation.aiWarning"),
     }
+
+
+def _outline_labels(section: dict, language: str) -> dict[str, str]:
+    """Dịch NHAN ĐỀ mục lục - gộp một lượt gọi cho cả trang, rồi cache theo hash.
+
+    Khách xin "AI tóm tắt từng phân đoạn rồi tạo nút bấm". Dịch tiêu đề đạt đúng phần
+    khách cần (đọc được bằng tiếng Việt) mà rẻ hơn hai bậc: tóm tắt thân bài các trang dài
+    `mul` tốn ~8.957 lượt gọi Gemini, còn cách này tốn MỘT lượt cho mỗi trang có mục lục
+    (~295 trang `mul`), và `translate_text_cached` giữ theo hash nên chỉ tốn một lần đầu.
+    Quan trọng hơn: tiêu đề là chữ của người biên tập sách, nên không có chỗ cho AI bịa
+    nội dung kinh điển - việc của nó chỉ là dịch một cụm từ.
+
+    Gộp cả danh sách vào MỘT lượt gọi chứ không dịch từng dòng: 68 dòng của
+    `1. Mahākhandhako` mà gọi riêng là 68 lượt, và mô hình cũng mất ngữ cảnh chuỗi mục.
+
+    Sai số dòng thì trả về rỗng để giao diện giữ nguyên tiêu đề Pāli. Gán lệch nhãn còn tệ
+    hơn không có nhãn: người đọc sẽ bấm vào "phần nói về X" rồi tới đoạn nói về chuyện khác.
+    """
+    titles = [str(row["title"] or "").strip() for row in _section_outline(section)]
+    titles = [title for title in titles if title]
+    if not titles:
+        return {}
+    payload = translate_text_cached("\n".join(titles), language)
+    text = str(payload.get("text") or payload.get("vi") or "").strip()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != len(titles):
+        return {}
+    return dict(zip(titles, lines))
+
+
+@app.get("/api/sections/{section_id}/outline-labels")
+def section_outline_labels_api(
+    section_id: str, request: Request, lang: str | None = Query(None)
+):
+    """Nhãn tiếng Việt cho mục lục. Gọi RIÊNG và chỉ khi người đọc mở mục lục ra.
+
+    Tách khỏi `/section-page` có chủ đích: nhúng vào đó thì mọi lần mở bài kinh dài đều
+    kéo theo một lượt gọi Gemini, kể cả khi người đọc không thèm nhìn mục lục.
+    """
+    language = request_language(request, lang)
+    section = _reader_section_by_id(section_id)
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found.")
+    return {"sectionId": str(section["id"]), "labels": _outline_labels(section, language)}
 
 
 @app.get("/api/sections/{section_id}")

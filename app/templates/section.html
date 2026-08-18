@@ -25,8 +25,31 @@
         </div>
         <button class="button secondary compact" type="button" data-toggle-reader>{{ t('reader.expand') }}</button>
       </div>
-      <div class="readerBody collapsed">
-        <p class="pali">{{ section.paliText }}</p>
+      {# Mục lục dựng từ chính các mục con in trong sách - không nhờ AI tóm tắt. Chỉ hiện
+         khi trang đủ dài và có từ 2 mục trở lên, xem `_section_outline`. #}
+      {% if section.outline %}
+        <nav class="readerOutline" data-reader-outline>
+          <button class="readerOutlineToggle" type="button" data-outline-toggle
+                  aria-expanded="false">{{ t('reader.outlineTitle', count=section.outline | length) }}</button>
+          <ol class="readerOutlineList" data-outline-list hidden>
+            {% for entry in section.outline %}
+              <li>
+                <a href="#{{ entry.anchor }}" data-outline-jump="{{ entry.anchor }}">
+                  <span class="readerOutlineLabel" data-outline-label>{{ entry.title }}</span>
+                  {# KHÔNG dùng `section.passageCount` ở đây: chuỗi đó nói "… trong toàn bộ
+                     bài kinh này", còn con số này là số đoạn của RIÊNG phần đó. #}
+                  <span class="readerOutlineCount">{{ t('reader.outlineEntryCount', count=entry.passageCount) }}</span>
+                </a>
+              </li>
+            {% endfor %}
+          </ol>
+        </nav>
+      {% endif %}
+      <div class="readerBody collapsed" data-reader-passages>
+        {% for block in section.paragraphs %}
+          <p class="pali" id="{{ block.anchor }}"
+             data-passage-ids="{{ block.passageIds | join(' ') }}">{{ block.text }}</p>
+        {% endfor %}
       </div>
     </article>
 

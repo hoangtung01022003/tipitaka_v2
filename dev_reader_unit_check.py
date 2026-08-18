@@ -34,6 +34,8 @@ from app.db import fetch_all
 from app.main import (
     READER_FALLBACK_MAX_PASSAGES,
     READER_FALLBACK_MIN_PASSAGES,
+    _is_context_dependent_reader_title,
+    _is_enumerated_title,
     _is_reader_unit_title,
     _source_path_is_prefix,
 )
@@ -68,14 +70,24 @@ def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
         if _source_path_is_prefix(row.get("source_path"), section.get("source_path"))
     ]
 
-    # Bậc 1: tổ tiên có tiêu đề là đơn vị đọc thật.
-    for row in within_tree:
-        if _is_reader_unit_title(str(row.get("title") or "")):
-            return row
+    # Bậc 1: tổ tiên có tiêu đề là đơn vị đọc thật, xét theo HAI LỚP hậu tố - lớp dứt
+    # khoát trước, lớp phụ thuộc ngữ cảnh (`kathā`/`khandhaka`) sau. Xem
+    # `_READER_CONTEXT_SUFFIXES` trong `app/main.py`; lệch phần này thì con số đo ra không
+    # nói gì về hành vi thật của `_canonical_reader_section`.
+    unit_rows = [
+        row for row in within_tree if _is_reader_unit_title(str(row.get("title") or ""))
+    ]
+    for row in unit_rows:
+        if _is_context_dependent_reader_title(str(row.get("title") or "")):
+            continue
+        return row
+    if unit_rows:
+        return unit_rows[0]
 
-    # Bậc 2: chỉ khi mục con là mẩu vụn thì mới leo lên tổ tiên gần nhất trong trần.
+    # Bậc 2: chỉ khi mục con là mẩu vụn thì mới leo lên tổ tiên gần nhất trong trần - và
+    # tiêu đề CÓ SỐ THỨ TỰ thì không phải mẩu vụn, xem `_is_enumerated_title`.
     own = section["end_sort_order"] - section["start_sort_order"] + 1
-    if own < READER_FALLBACK_MIN_PASSAGES:
+    if own < READER_FALLBACK_MIN_PASSAGES and not _is_enumerated_title(section.get("title")):
         for row in within_tree:
             if str(row["id"]) == str(section["id"]):
                 continue

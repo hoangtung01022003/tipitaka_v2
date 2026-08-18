@@ -361,6 +361,35 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertTrue(_is_reader_unit_title("10. Nandasikkhāpadaṃ"))
         self.assertFalse(_is_reader_unit_title("3. Tikanipāta"))
 
+    def test_commentary_titles_are_read_through_the_vannana_suffix(self):
+        """Chú giải đặt tên `X + vaṇṇanā`, đuôi đó che mất hậu tố thật của X.
+
+        Trước bản sửa, KHÔNG mục nào của Chú giải/Phụ chú giải được nhận là đơn vị đọc
+        (att 374 mục, tik 538). Ca khách báo: đoạn 235 nằm trong
+        `4. Mettāsahagatasuttavaṇṇanā` (8 đoạn) nhưng trang đọc mở ra `6. Sākacchavaggo`
+        (66 đoạn) kèm mục lục cả 6 bài chú giải của phẩm.
+        """
+        from app.main import _is_context_dependent_reader_title, _is_reader_unit_title
+
+        # Bài chú giải của một bài kinh -> lớp DỨT KHOÁT.
+        self.assertTrue(_is_reader_unit_title("4. Mettāsahagatasuttavaṇṇanā"))
+        self.assertTrue(_is_reader_unit_title("2. Raṭṭhapālasuttavaṇṇanā"))
+        self.assertFalse(_is_context_dependent_reader_title("4. Mettāsahagatasuttavaṇṇanā"))
+
+        # `kathā + vaṇṇanā` -> vẫn là lớp phụ thuộc ngữ cảnh, để tiểu mục không thắng
+        # chính bài chú giải chứa nó.
+        self.assertTrue(_is_reader_unit_title("1. Suddhabrahmacariyakathāvaṇṇanā"))
+        self.assertTrue(_is_context_dependent_reader_title("1. Suddhabrahmacariyakathāvaṇṇanā"))
+
+        # Bỏ đuôi KHÔNG được kéo theo chương: chương thì vẫn là chương.
+        for chapter in (
+            "1. Bhūmivaggavaṇṇanā",
+            "1. Paṭhamakaṇḍavaṇṇanā",
+            "(6) 1. Puggalavaggavaṇṇanā",
+            "2. Sīlakkhandhavaggavaṇṇanā",
+        ):
+            self.assertFalse(_is_reader_unit_title(chapter), chapter)
+
     def test_reader_unit_ignores_the_printed_ordinal_in_brackets(self):
         """Jātaka in kèm số thứ tự trong phẩm ở cuối tên, che mất đuôi `jatakam`."""
         from app.main import _is_reader_unit_title
@@ -377,6 +406,57 @@ class WholeSuttaReaderTests(unittest.TestCase):
         # Chỉ bỏ ở CUỐI, và chỉ khi trong ngoặc thuần chữ số.
         self.assertFalse(_is_reader_unit_title("(6) 1. Puggalavaggo"))
         self.assertFalse(_is_reader_unit_title("3. Tikanipāta (ii)"))
+
+        # Dạng NHIỀU CẤP `(nipāta-phẩm-vị trí)`: 264 mục Jātaka in kiểu này và từng trượt
+        # bậc 1 vì bản sửa trước chỉ bỏ được `(6)`.
+        self.assertTrue(_is_reader_unit_title("151. Rājovādajātakaṃ (2-1-1)"))
+        self.assertTrue(_is_reader_unit_title("158. Suhanujātakaṃ (2-1-8)"))
+        # Nới tới nhiều cấp KHÔNG được kéo chương vào.
+        self.assertFalse(_is_reader_unit_title("2. Dukanipāto (2-1)"))
+
+    def test_enumerated_landing_section_is_a_unit_not_a_fragment(self):
+        """Bậc 2 không được leo khi mục gốc đã được người biên tập ĐÁNH SỐ.
+
+        Ca khách báo: `13. Appamaññāvibhaṅgo -> 1. Suttantabhājanīyaṃ -> 2. Karuṇā`.
+        `1. Suttantabhājanīyaṃ` (53 đoạn) chứa đúng bốn mục `1. Mettā`/`2. Karuṇā`/
+        `3. Muditā`/`4. Upekkhā`, mỗi mục 13 đoạn - tứ vô lượng tâm. `2. Karuṇā` là đơn vị
+        trọn vẹn, nhưng 13 < 20 nên bậc 2 leo lên và người đọc nhận cả bốn.
+        """
+        from app.main import _canonical_reader_section, _is_enumerated_title
+
+        self.assertTrue(_is_enumerated_title("2. Karuṇā"))
+        self.assertTrue(_is_enumerated_title("151. Rājovādajātakaṃ (2-1-1)"))
+        self.assertFalse(_is_enumerated_title("Pubbenivāsapaṭisaṃyuttakathā"))
+        self.assertFalse(_is_enumerated_title("Mahāvaggapāḷi"))
+
+        karuna = {
+            "id": "karuna", "document_id": "doc", "title": "2. Karuṇā",
+            "source_path": ["Vibhaṅgapāḷi", "1. Suttantabhājanīyaṃ", "2. Karuṇā"],
+            "start_sort_order": 1655, "end_sort_order": 1667,
+        }
+        parent = {
+            "id": "parent", "document_id": "doc", "title": "1. Suttantabhājanīyaṃ",
+            "source_path": ["Vibhaṅgapāḷi", "1. Suttantabhājanīyaṃ"],
+            "start_sort_order": 1642, "end_sort_order": 1693,
+        }
+
+        with patch("app.main.fetch_all", return_value=[karuna, parent]):
+            self.assertEqual(_canonical_reader_section(dict(karuna))["id"], "karuna")
+
+        # Chiều ngược: mục KHÔNG số vẫn phải leo, vì đó mới là mẩu cắt giữa bài.
+        scrap = {
+            "id": "scrap", "document_id": "doc", "title": "Pubbenivāsapaṭisaṃyuttakathā",
+            "source_path": ["Mahāvaggapāḷi", "Pubbenivāsapaṭisaṃyuttakathā"],
+            "start_sort_order": 4, "end_sort_order": 35,
+        }
+        vagga = {
+            "id": "vagga", "document_id": "doc", "title": "Mahāvaggapāḷi",
+            "source_path": ["Mahāvaggapāḷi"],
+            "start_sort_order": 1, "end_sort_order": 300,
+        }
+        scrap_small = dict(scrap, start_sort_order=4, end_sort_order=8)
+        with patch("app.main.fetch_all", return_value=[scrap_small, vagga]):
+            self.assertEqual(_canonical_reader_section(dict(scrap_small))["id"], "vagga")
 
     def test_falls_back_to_nearest_ancestor_when_no_title_qualifies(self):
         """Khách chốt: không có trọn bài kinh thì lấy phần gần nhất cũng được."""
@@ -481,6 +561,60 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertEqual(resolved["id"], "s")
         self.assertTrue(resolved["_readerUnitExact"])
 
+    def test_katha_is_its_own_unit_when_the_only_ancestor_is_a_khandhaka(self):
+        """Ca khách báo: `42. Sikkhāpadakathā` phải hiện riêng, không mở ra cả khandhaka.
+
+        Số liệu thật từ `vin02m2`: mục này đúng 1 đoạn (`sort_order` 492), tổ tiên duy nhất
+        là `1. Mahākhandhako` 616 đoạn - 234k ký tự Pāli, 76 lượt dịch AI, và bản ghép
+        Indacanda chỉ phủ 255/616 đoạn. Trong khandhaka này KHÔNG có đơn vị nào nhỏ hơn để
+        leo tới, nên `kathā` chính là nhãn gần nhất và phải được nhận.
+        """
+        from app.main import _canonical_reader_section
+
+        katha = {
+            "id": "k", "document_id": "d", "title": "42. Sikkhāpadakathā",
+            "source_path": ["Mahāvaggapāḷi", "1. Mahākhandhako", "42. Sikkhāpadakathā"],
+            "start_sort_order": 492, "end_sort_order": 492,
+        }
+        khandhaka = {
+            "id": "kh", "document_id": "d", "title": "1. Mahākhandhako",
+            "source_path": ["Mahāvaggapāḷi", "1. Mahākhandhako"],
+            "start_sort_order": 0, "end_sort_order": 615,
+        }
+
+        with patch("app.main.fetch_all", return_value=[katha, khandhaka]):
+            resolved = _canonical_reader_section(dict(katha))
+
+        self.assertEqual(resolved["id"], "k")
+        self.assertTrue(resolved["_readerUnitExact"])
+
+    def test_katha_inside_a_sutta_still_climbs_to_the_sutta(self):
+        """Chiều ngược lại, và đây là chiều dễ làm hỏng khi sửa chiều trên.
+
+        Trong Trường Bộ, `kathā` là TIỂU MỤC của bài kinh. Nhận nó làm đơn vị đọc thì
+        người đọc bấm "toàn bộ bài kinh" lại ra một mẩu - đúng lỗi khách từng báo trước
+        đây. Bài kinh (lớp dứt khoát) phải thắng dù nó LỚN HƠN nhiều, tức không được chọn
+        theo kích thước.
+        """
+        from app.main import _canonical_reader_section
+
+        katha = {
+            "id": "k", "document_id": "d", "title": "2. Sīlakkhandhakathā",
+            "source_path": ["Sīlakkhandhavagga", "1. Brahmajālasuttaṃ", "2. Sīlakkhandhakathā"],
+            "start_sort_order": 20, "end_sort_order": 24,
+        }
+        sutta = {
+            "id": "s", "document_id": "d", "title": "1. Brahmajālasuttaṃ",
+            "source_path": ["Sīlakkhandhavagga", "1. Brahmajālasuttaṃ"],
+            "start_sort_order": 1, "end_sort_order": 200,
+        }
+
+        with patch("app.main.fetch_all", return_value=[katha, sutta]):
+            resolved = _canonical_reader_section(dict(katha))
+
+        self.assertEqual(resolved["id"], "s")
+        self.assertTrue(resolved["_readerUnitExact"])
+
     @patch("app.main.official_translations_merged", return_value=[])
     @patch("app.main.fetch_all")
     @patch("app.main.fetch_one")
@@ -510,13 +644,16 @@ class WholeSuttaReaderTests(unittest.TestCase):
         passages = [
             {
                 "id": "p1",
+                "sort_order": 40,
                 "paragraph_no": "1",
                 "xml_paragraph_no": "1",
                 "pali_text": "Evaṃ me sutaṃ.",
                 "hierarchy": {},
             }
         ]
-        fetch_all.side_effect = [[parent, child], passages]
+        # Truy vấn thứ ba là mục lục (`_section_outline`); bài kinh này chỉ có một mục con
+        # nên mục lục rỗng - dưới 2 mục thì không hiện, xem `_section_outline`.
+        fetch_all.side_effect = [[parent, child], passages, [child]]
 
         from app.main import _section_payload
 
@@ -531,6 +668,208 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertEqual(payload["title"], "Mahāpadānasuttaṃ")
         self.assertEqual(payload["paliText"], "Passage 1\nEvaṃ me sutaṃ.")
         self.assertEqual(fetch_all.call_args_list[1].args[1], ["doc", 4, 207])
+        # `paliText` vẫn là chuỗi phẳng cho bản dịch AI, còn `paragraphs` mang thêm neo.
+        self.assertEqual(payload["paragraphs"][0]["anchor"], "doan-1")
+        self.assertEqual(payload["paragraphs"][0]["passageIds"], ["p1"])
+        self.assertEqual(payload["outline"], [])
+
+
+class PitakaFilterTests(unittest.TestCase):
+    def test_unknown_pitaka_never_reaches_the_sql_with_a_missing_parameter(self):
+        """Giá trị Tạng lạ từng làm SẬP toàn bộ tìm kiếm, không phải lọc sai.
+
+        `_pitaka_sql` sinh `like any(%s)` trong khi `PITAKA_PREFIXES.get()` ra rỗng nên
+        tham số bị bỏ -> psycopg: "the query has 2 placeholders but 1 parameters were
+        passed". `pitaka_type` là form field thường nên một trang cũ còn mở là đủ để sập.
+        """
+        from app.search_engine import PITAKA_PREFIXES, _pitaka_sql, resolve_pitaka_type
+
+        for value in ("vinayapitaka", "Vinaya", "khong-ton-tai", "sutta-pitaka"):
+            resolved = resolve_pitaka_type(value)
+            self.assertIsNone(resolved, f"{value!r} phải về None thay vì cho qua")
+            sql, params = _pitaka_sql(resolved)
+            # Bất biến thật: số chỗ giữ %s phải bằng số tham số.
+            self.assertEqual(sql.count("%s"), len(params))
+
+        # Chiều ngược: giá trị UI thật KHÔNG được im lặng mất bộ lọc.
+        for value in PITAKA_PREFIXES:
+            self.assertEqual(resolve_pitaka_type(value), value)
+            sql, params = _pitaka_sql(value)
+            self.assertEqual(sql.count("%s"), len(params))
+            self.assertEqual(params, PITAKA_PREFIXES[value])
+
+        # `all`/rỗng vẫn nghĩa là không lọc, và khi đó SQL không có chỗ giữ nào.
+        for value in (None, "", "all"):
+            self.assertIsNone(resolve_pitaka_type(value))
+        self.assertEqual(_pitaka_sql(None), ("", []))
+
+
+class ReaderNavigationTests(unittest.TestCase):
+    """Nhảy tới đoạn khớp + mục lục dựng từ cây section (không nhờ AI tóm tắt)."""
+
+    @staticmethod
+    def _passage(pid, sort_order, text, rend=None, para=None):
+        return {
+            "id": pid,
+            "sort_order": sort_order,
+            "paragraph_no": para,
+            "xml_paragraph_no": para,
+            "pali_text": text,
+            "hierarchy": {"rend": rend} if rend else {},
+        }
+
+    def test_gatha_block_keeps_every_passage_id_it_swallowed(self):
+        """Dòng kệ liền nhau gộp thành MỘT khối, nhưng phải giữ đủ id.
+
+        Đây là chỗ nút nhảy dễ chết âm thầm: đoạn khớp tìm kiếm có thể là dòng kệ thứ ba
+        trong khối. Nếu khối chỉ mang id dòng đầu thì tra không thấy và không nhảy đi đâu.
+        """
+        from app.main import GATHA_RENDS, _section_paragraphs
+
+        rend = next(iter(GATHA_RENDS))
+        rows = [
+            self._passage("p1", 10, "Dòng văn xuôi."),
+            self._passage("p2", 11, "Kệ dòng một.", rend=rend),
+            self._passage("p3", 12, "Kệ dòng hai.", rend=rend),
+            self._passage("p4", 13, "Văn xuôi tiếp."),
+        ]
+        blocks = _section_paragraphs(rows, "vi")
+
+        self.assertEqual([b["anchor"] for b in blocks], ["doan-1", "doan-2", "doan-3"])
+        self.assertEqual(blocks[1]["passageIds"], ["p2", "p3"])
+        # Chuỗi phẳng phải y hệt bản cũ - nó là đầu vào chia chunk của bản dịch AI.
+        self.assertEqual(
+            "\n\n".join(b["text"] for b in blocks),
+            "Dòng văn xuôi.\n\nKệ dòng một.\nKệ dòng hai.\n\nVăn xuôi tiếp.",
+        )
+
+    def test_outline_anchors_point_at_the_block_that_really_starts_the_part(self):
+        """Neo theo `sort_order`, không theo thứ tự mục - đoạn rỗng làm lệch số khối."""
+        from app.main import _outline_entries
+
+        section = {
+            "id": "unit", "document_id": "doc", "source_path": ["Khandhaka"],
+            "start_sort_order": 0, "end_sort_order": 99,
+        }
+        children = [
+            {"id": "a", "title": "1. Bodhikathā", "source_path": ["Khandhaka", "1. Bodhikathā"],
+             "start_sort_order": 0, "end_sort_order": 17},
+            {"id": "b", "title": "2. Ajapālakathā", "source_path": ["Khandhaka", "2. Ajapālakathā"],
+             "start_sort_order": 18, "end_sort_order": 23},
+        ]
+        # Đoạn `sort_order` 1 rỗng nên bị bỏ; mục thứ hai vì thế bắt đầu ở khối 2, không
+        # phải khối 3.
+        rows = [
+            self._passage("p1", 0, "Mở đầu."),
+            self._passage("p2", 1, "   "),
+            self._passage("p3", 18, "Tại cây Ajapāla."),
+        ]
+        from app.main import _section_paragraphs
+
+        paragraphs = _section_paragraphs(rows, "vi")
+        with patch("app.main.fetch_all", return_value=children):
+            entries = _outline_entries(section, paragraphs)
+
+        self.assertEqual([e["anchor"] for e in entries], ["doan-1", "doan-2"])
+        self.assertEqual([e["title"] for e in entries], ["1. Bodhikathā", "2. Ajapālakathā"])
+        self.assertEqual(entries[0]["passageCount"], 18)
+
+    def test_wrapper_section_gets_an_outline_from_the_real_structure(self):
+        """Section rác của bản import XML: phủ trọn tài liệu nhưng path nằm DƯỚI mục con thật.
+
+        Các câu kệ uddāna trỏ `section_id` vào đúng mấy section này, nên trang đọc của chúng
+        là cả bộ sách (`Suttanipātapāḷi` 3.892 đoạn). `_source_path_is_prefix` từ chối chúng
+        là ĐÚNG, nên không có con cháu để dựng mục lục - phải lấy từ cấu trúc thật của tài
+        liệu. Thuần bổ sung: không đổi một đoạn nào đang hiển thị.
+        """
+        from app.main import _section_outline
+
+        wrapper = {
+            "id": "wrap", "document_id": "doc",
+            "title": "Khuddakanikāye",
+            # Dấu hiệu của section rác: phủ cả sách mà path lại nằm trong phẩm đầu tiên.
+            "source_path": ["Suttanipātapāḷi", "1. Uragavaggo", "Khuddakanikāye"],
+            "start_sort_order": 0, "end_sort_order": 3891,
+        }
+        real = [
+            {"id": "v1", "title": "1. Uragavaggo",
+             "source_path": ["Suttanipātapāḷi", "1. Uragavaggo"],
+             "start_sort_order": 90, "end_sort_order": 813},
+            {"id": "v2", "title": "2. Cūḷavaggo",
+             "source_path": ["Suttanipātapāḷi", "2. Cūḷavaggo"],
+             "start_sort_order": 814, "end_sort_order": 1403},
+            # Mục CHỒNG lên `2. Cūḷavaggo` - nhánh dự phòng phải bỏ nó, vì hai dòng mục lục
+            # cùng trỏ vào một đoạn thì nút nhảy thành đoán.
+            {"id": "dup", "title": "Trùng phạm vi",
+             "source_path": ["Suttanipātapāḷi", "Trùng phạm vi"],
+             "start_sort_order": 900, "end_sort_order": 1000},
+        ]
+
+        with patch("app.main.fetch_all", return_value=real):
+            entries = _section_outline(dict(wrapper))
+
+        self.assertEqual([row["id"] for row in entries], ["v1", "v2"])
+
+    def test_verified_descendants_keep_overlapping_entries(self):
+        """Chiều ngược: guard chồng lấn KHÔNG được áp cho con cháu đã xác thực prefix.
+
+        Đo trên toàn kho, bật guard ở đó làm 19 trang bị cắt bớt dòng mục lục và 1 trang
+        mất hẳn mục lục. Ở đó quan hệ cây là thật nên hai mục chồng nhau vẫn là hai mục
+        thật, nút nhảy vẫn tới đúng đoạn của mình.
+        """
+        from app.main import _section_outline
+
+        section = {
+            "id": "unit", "document_id": "doc", "title": "5. Pācittiyakaṇḍaṃ",
+            "source_path": ["Vinayapiṭaka", "5. Pācittiyakaṇḍaṃ"],
+            "start_sort_order": 1, "end_sort_order": 1418,
+        }
+        # Phẩm và điều học đầu tiên cùng bắt đầu ở đoạn 1 - chồng nhau thật, và cả hai đều
+        # là mục thật của cây.
+        children = [
+            {"id": "vagga", "title": "1. Musāvādavaggo",
+             "source_path": ["Vinayapiṭaka", "5. Pācittiyakaṇḍaṃ", "1. Musāvādavaggo"],
+             "start_sort_order": 1, "end_sort_order": 314},
+            {"id": "rule", "title": "1. Musāvādasikkhāpadaṃ",
+             "source_path": ["Vinayapiṭaka", "5. Pācittiyakaṇḍaṃ", "1. Musāvādasikkhāpadaṃ"],
+             "start_sort_order": 1, "end_sort_order": 25},
+        ]
+
+        with patch("app.main.fetch_all", return_value=children):
+            entries = _section_outline(dict(section))
+
+        self.assertEqual({row["id"] for row in entries}, {"vagga", "rule"})
+
+    def test_outline_labels_refuse_a_translation_with_the_wrong_line_count(self):
+        """Nhãn lệch dòng dẫn người đọc tới đoạn nói chuyện khác - thà giữ tiêu đề Pāli."""
+        from app.main import _outline_labels
+
+        children = [
+            {"id": "a", "title": "1. Bodhikathā", "source_path": ["K", "1. Bodhikathā"],
+             "start_sort_order": 0, "end_sort_order": 17},
+            {"id": "b", "title": "2. Ajapālakathā", "source_path": ["K", "2. Ajapālakathā"],
+             "start_sort_order": 18, "end_sort_order": 23},
+        ]
+        section = {
+            "id": "unit", "document_id": "doc", "source_path": ["K"],
+            "start_sort_order": 0, "end_sort_order": 99,
+        }
+
+        with patch("app.main.fetch_all", return_value=children):
+            with patch("app.main.translate_text_cached", return_value={"text": "Chỉ một dòng"}):
+                self.assertEqual(_outline_labels(section, "vi"), {})
+
+            with patch(
+                "app.main.translate_text_cached",
+                return_value={"text": "1. Câu chuyện giác ngộ\n2. Câu chuyện cây Ajapāla"},
+            ):
+                self.assertEqual(
+                    _outline_labels(section, "vi"),
+                    {
+                        "1. Bodhikathā": "1. Câu chuyện giác ngộ",
+                        "2. Ajapālakathā": "2. Câu chuyện cây Ajapāla",
+                    },
+                )
 
 
 def _entry(source, text, whole=False, position=None):
