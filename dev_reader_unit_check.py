@@ -36,7 +36,7 @@ from app.main import (
     READER_FALLBACK_MIN_PASSAGES,
     _is_context_dependent_reader_title,
     _is_enumerated_title,
-    _is_reader_unit_title,
+    _is_reader_unit_row,
     _source_path_is_prefix,
 )
 
@@ -74,9 +74,7 @@ def _canonical_in_memory(section: dict, siblings: list[dict]) -> dict | None:
     # khoát trước, lớp phụ thuộc ngữ cảnh (`kathā`/`khandhaka`) sau. Xem
     # `_READER_CONTEXT_SUFFIXES` trong `app/main.py`; lệch phần này thì con số đo ra không
     # nói gì về hành vi thật của `_canonical_reader_section`.
-    unit_rows = [
-        row for row in within_tree if _is_reader_unit_title(str(row.get("title") or ""))
-    ]
+    unit_rows = [row for row in within_tree if _is_reader_unit_row(row)]
     for row in unit_rows:
         if _is_context_dependent_reader_title(str(row.get("title") or "")):
             continue

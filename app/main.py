@@ -158,6 +158,46 @@ def _is_reader_unit_title(title: str) -> bool:
 _READER_CONTEXT_SUFFIXES = ("katha", "khandhako", "khandhakam")
 
 
+# Hai từ này kết thúc bằng `kathā` nhưng KHÔNG phải đơn vị đọc: `aṭṭhakathā` là tên bộ chú
+# giải (`Dasakanipāta-aṭṭhakathā`, 167 đoạn) và `ārambhakathā` là lời tựa
+# (`Ganthārambhakathā`, 3.815 đoạn - phủ trọn tài liệu). Không loại chúng thì việc nới
+# `kathā` không số biến tên sách thành trang đọc: đo được 837 mục bị đẩy lên trang TO HƠN,
+# trong đó có những mục 9-16 đoạn bị thay bằng trang 3.815 đoạn.
+_READER_NOT_UNIT_CORES = ("atthakatha", "arambhakatha")
+
+
+def _is_reader_unit_row(row: dict) -> bool:
+    """Như `_is_reader_unit_title` nhưng biết cả ĐỘ DÀI, nên nhận thêm `kathā` KHÔNG SỐ.
+
+    `_READER_NUMBERED_SUFFIXES` đòi tiêu đề bắt đầu bằng chữ số, vì các đuôi đó
+    (`kathā`/`vatthu`/`gāthā`...) là đuôi từ thường gặp, nhận bừa thì kéo cả tên sách vào.
+    Nhưng Kathāvatthu và các bộ chú giải đặt tên mục con KHÔNG SỐ: ca khách báo là
+    `Atītacakkhurūpādikathā` (6 đoạn) nằm trong `5. Sabbamatthītikathā` (101 đoạn) - mục con
+    không được nhận nên trang đọc mở ra cả 101 đoạn.
+
+    Chỉ nới cho lớp PHỤ THUỘC NGỮ CẢNH, và đó là điều làm bản nới này an toàn về mặt cấu
+    trúc: lớp ngữ cảnh chỉ được xét khi không có đơn vị lớp dứt khoát nào, nên một `kathā`
+    không số KHÔNG BAO GIỜ thắng được một bài kinh - các ca kiểu Trường Bộ không thể hỏng.
+
+    Hai chốt chặn, cả hai đều do đo mà có (xem `_READER_NOT_UNIT_CORES` và số bên dưới):
+    tên sách/lời tựa bị loại theo từ, và phần còn lại phải nằm trong
+    `READER_FALLBACK_MAX_PASSAGES` - `Nidānakathā` 3.985 đoạn vẫn là một khoảng phủ trọn
+    tài liệu, không phải mục để đọc.
+
+    Cân đo trên toàn kho: **1.162 mục có trang NHỎ ĐI (6.436 đoạn), 35 mục to ra (641 đoạn)**
+    - lợi gấp 10 lần hại, và phần "to ra" còn sót phần lớn chỉ là đổi nhãn sang bản chú giải
+    cùng độ dài (`6. Gatikathā` 13 đoạn -> `Gatikathāvaṇṇanā` 13 đoạn).
+    """
+    title = str(row.get("title") or "")
+    if _is_reader_unit_title(title):
+        return True
+    core = _reader_core(title)[1]
+    if core.endswith(_READER_NOT_UNIT_CORES) or not core.endswith(_READER_CONTEXT_SUFFIXES):
+        return False
+    span = row["end_sort_order"] - row["start_sort_order"] + 1
+    return span <= READER_FALLBACK_MAX_PASSAGES
+
+
 def _is_context_dependent_reader_title(title: str) -> bool:
     # Xét trên phần LÕI, cùng một phép bỏ đuôi giải thích: `...kathāvaṇṇanā` phải rơi vào
     # lớp phụ thuộc ngữ cảnh giống `...kathā`, nếu không thì một tiểu mục trong bài chú giải
@@ -276,17 +316,15 @@ def _canonical_reader_section(section: dict) -> dict:
     # thoả điều kiện. Hai lượt chứ không một: lượt đầu chỉ nhận lớp dứt khoát, nên một
     # `kathā` nhỏ nằm trong bài kinh không thể thắng chính bài kinh dù nó đứng trước trong
     # danh sách. Xem `_READER_CONTEXT_SUFFIXES`.
-    unit_rows = [
-        row for row in within_tree if _is_reader_unit_title(str(row.get("title") or ""))
-    ]
+    unit_rows = [row for row in within_tree if _is_reader_unit_row(row)]
     for row in unit_rows:
         if _is_context_dependent_reader_title(str(row.get("title") or "")):
             continue
         row["_readerUnitExact"] = True
-        return row
+        return _clip_overreaching_range(row)
     if unit_rows:
         unit_rows[0]["_readerUnitExact"] = True
-        return unit_rows[0]
+        return _clip_overreaching_range(unit_rows[0])
 
     own_span = section["end_sort_order"] - section["start_sort_order"] + 1
     if own_span < READER_FALLBACK_MIN_PASSAGES and not _is_enumerated_title(section.get("title")):
@@ -296,7 +334,7 @@ def _canonical_reader_section(section: dict) -> dict:
             span = row["end_sort_order"] - row["start_sort_order"] + 1
             if span <= READER_FALLBACK_MAX_PASSAGES:
                 row["_readerUnitExact"] = False
-                return row
+                return _clip_overreaching_range(row)
             # `candidates` đã sắp theo độ dài tăng dần, nên tổ tiên đầu tiên đã là nhỏ
             # nhất; vượt trần thì mọi tổ tiên còn lại đều lớn hơn, không cần xét tiếp.
             break
@@ -304,7 +342,46 @@ def _canonical_reader_section(section: dict) -> dict:
     # Không nâng được: hoặc mục này đã là cấp cao nhất của tài liệu, hoặc tổ tiên duy
     # nhất quá lớn. Cả hai đều KHÔNG phải bài kinh đã xác thực nên nhãn phải nói khác.
     section["_readerUnitExact"] = False
-    return section
+    return _clip_overreaching_range(section)
+
+
+def _clip_overreaching_range(row: dict) -> dict:
+    """Cắt phạm vi ghi QUÁ RỘNG, tại chỗ section không-phải-con-cháu bắt đầu.
+
+    Một section không thể chứa một section không phải con cháu của nó. Bản import XML lại
+    ghi cho một số section phạm vi trọn cả tài liệu: `Ganthārambhakathā` trong `s0506a` ghi
+    là 0-3814 (3.815 đoạn) trong khi lời tựa ấy chỉ có **29 đoạn** - nội dung thật bắt đầu
+    ở `1. Itthivimānaṃ`/`1. Pīṭhavaggo` từ đoạn 29. Người đọc rơi vào lời tựa thì nhận cả
+    bộ sách, kèm mục lục 7 phẩm không liên quan - đúng lỗi khách báo.
+
+    Cắt tại đoạn mở đầu của section KHÔNG PHẢI con cháu đầu tiên nằm trong phạm vi. Đây là
+    suy ra từ dữ liệu, không phải phỏng đoán, và đã đối chiếu: phạm vi sau khi cắt trùng
+    KHỚP với số đoạn thực sự trỏ vào section đó ở cả ba ca đã biết -
+    `Ganthārambhakathā` 3.815 -> 29 (29 đoạn thật), `Suttanipātapāḷi` 3.892 -> 90 (90),
+    `Pācittiyapāḷi` 3.048 -> 1 (1). Đo toàn kho: 525 section có phạm vi quá rộng, trong đó
+    110 section người đọc có thể rơi vào.
+
+    Section cha HỢP LỆ không bị ảnh hưởng: mục con của nó LÀ con cháu nên không tính là
+    section lạ - `1. Suttantabhājanīyaṃ` (53 đoạn, 4 mục con) giữ nguyên 53.
+    """
+    rows = fetch_all(
+        """
+        select source_path, start_sort_order
+        from sections
+        where document_id = %s
+          and start_sort_order > %s
+          and start_sort_order <= %s
+        order by start_sort_order asc
+        """,
+        [row["document_id"], row["start_sort_order"], row["end_sort_order"]],
+    )
+    for other in rows:
+        if _source_path_is_prefix(row.get("source_path"), other.get("source_path")):
+            continue
+        row["end_sort_order"] = other["start_sort_order"] - 1
+        row["_readerRangeClipped"] = True
+        break
+    return row
 
 
 def _reader_section_by_id(section_id: str) -> dict | None:

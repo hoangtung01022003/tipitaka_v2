@@ -361,6 +361,90 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertTrue(_is_reader_unit_title("10. Nandasikkhāpadaṃ"))
         self.assertFalse(_is_reader_unit_title("3. Tikanipāta"))
 
+    def test_unnumbered_katha_is_a_unit_but_book_and_preface_names_are_not(self):
+        """Kathāvatthu và các bộ chú giải đặt tên mục con KHÔNG SỐ.
+
+        Ca khách báo: `Atītacakkhurūpādikathā` (6 đoạn) nằm trong `5. Sabbamatthītikathā`
+        (101 đoạn); mục con không số nên không được nhận và trang đọc mở ra cả 101 đoạn.
+
+        Chỉ nới cho lớp NGỮ CẢNH nên nó không thể thắng một bài kinh - kiểm luôn chiều đó.
+        """
+        from app.main import READER_FALLBACK_MAX_PASSAGES, _is_reader_unit_row
+
+        def row(title, span):
+            return {"title": title, "start_sort_order": 0, "end_sort_order": span - 1}
+
+        self.assertTrue(_is_reader_unit_row(row("Atītacakkhurūpādikathā", 6)))
+        self.assertTrue(_is_reader_unit_row(row("Dhammuddesavārakathā", 20)))
+
+        # Tên bộ chú giải và lời tựa cũng kết thúc bằng `kathā` nhưng KHÔNG phải mục để đọc.
+        self.assertFalse(_is_reader_unit_row(row("Dasakanipāta-aṭṭhakathā", 167)))
+        self.assertFalse(_is_reader_unit_row(row("Ganthārambhakathā", 3815)))
+        # Quá lớn thì không phải đơn vị đọc, dù tên có đuôi hợp lệ.
+        self.assertFalse(
+            _is_reader_unit_row(row("Nidānakathā", READER_FALLBACK_MAX_PASSAGES + 1))
+        )
+        # Không mang hậu tố nào thì vẫn không phải đơn vị.
+        self.assertFalse(_is_reader_unit_row(row("Naārammaṇapaccayo", 5)))
+
+        # Bài kinh (lớp dứt khoát) phải thắng `kathā` không số dù nhỏ hơn nhiều.
+        from app.main import _canonical_reader_section
+
+        katha = {
+            "id": "katha", "document_id": "doc", "title": "Pubbenivāsapaṭisaṃyuttakathā",
+            "source_path": ["1. Mahāpadānasuttaṃ", "Pubbenivāsapaṭisaṃyuttakathā"],
+            "start_sort_order": 4, "end_sort_order": 35,
+        }
+        sutta = {
+            "id": "sutta", "document_id": "doc", "title": "1. Mahāpadānasuttaṃ",
+            "source_path": ["1. Mahāpadānasuttaṃ"],
+            "start_sort_order": 4, "end_sort_order": 207,
+        }
+        with patch("app.main.fetch_all", return_value=[katha, sutta]):
+            self.assertEqual(_canonical_reader_section(dict(katha))["id"], "sutta")
+
+    def test_overreaching_recorded_range_is_clipped_at_the_first_intruder(self):
+        """Bản import XML ghi cho vài section phạm vi trọn cả tài liệu.
+
+        Ca khách báo: `Ganthārambhakathā` trong `s0506a` ghi là 0-3814 (3.815 đoạn) nhưng
+        lời tựa ấy chỉ có 29 đoạn - nội dung thật bắt đầu ở `1. Itthivimānaṃ` từ đoạn 29.
+        Cắt tại đoạn mở đầu của section KHÔNG PHẢI con cháu đầu tiên; phạm vi sau khi cắt
+        trùng khớp số đoạn thật ở cả ba ca đã đo (3.815->29, 3.892->90, 3.048->1).
+        """
+        from app.main import _clip_overreaching_range
+
+        wrapper = {
+            "id": "pref", "document_id": "doc", "title": "Ganthārambhakathā",
+            "source_path": ["Vimānavatthu-Aṭṭhakathā", "Ganthārambhakathā"],
+            "start_sort_order": 0, "end_sort_order": 3814,
+        }
+        # `1. Itthivimānaṃ` KHÔNG phải con cháu của lời tựa -> lời tựa không thể chứa nó.
+        intruder = {
+            "source_path": ["Vimānavatthu-Aṭṭhakathā", "1. Itthivimānaṃ"],
+            "start_sort_order": 29,
+        }
+        with patch("app.main.fetch_all", return_value=[intruder]):
+            clipped = _clip_overreaching_range(dict(wrapper))
+        self.assertEqual(clipped["end_sort_order"], 28)
+        self.assertTrue(clipped["_readerRangeClipped"])
+
+        # Chiều ngược: cha HỢP LỆ không bị cắt, vì mục con của nó LÀ con cháu.
+        parent = {
+            "id": "unit", "document_id": "doc", "title": "1. Suttantabhājanīyaṃ",
+            "source_path": ["Vibhaṅgapāḷi", "1. Suttantabhājanīyaṃ"],
+            "start_sort_order": 1641, "end_sort_order": 1693,
+        }
+        children = [
+            {"source_path": ["Vibhaṅgapāḷi", "1. Suttantabhājanīyaṃ", "1. Mettā"],
+             "start_sort_order": 1642},
+            {"source_path": ["Vibhaṅgapāḷi", "1. Suttantabhājanīyaṃ", "2. Karuṇā"],
+             "start_sort_order": 1655},
+        ]
+        with patch("app.main.fetch_all", return_value=children):
+            kept = _clip_overreaching_range(dict(parent))
+        self.assertEqual(kept["end_sort_order"], 1693)
+        self.assertNotIn("_readerRangeClipped", kept)
+
     def test_commentary_titles_are_read_through_the_vannana_suffix(self):
         """Chú giải đặt tên `X + vaṇṇanā`, đuôi đó che mất hậu tố thật của X.
 
@@ -443,20 +527,22 @@ class WholeSuttaReaderTests(unittest.TestCase):
         with patch("app.main.fetch_all", return_value=[karuna, parent]):
             self.assertEqual(_canonical_reader_section(dict(karuna))["id"], "karuna")
 
-        # Chiều ngược: mục KHÔNG số vẫn phải leo, vì đó mới là mẩu cắt giữa bài.
+        # Chiều ngược: mục KHÔNG số VÀ không mang hậu tố đơn vị nào thì vẫn phải leo, vì đó
+        # mới là mẩu cắt giữa bài. Cố ý KHÔNG dùng tên đuôi `kathā` ở đây: `kathā` không số
+        # nay là đơn vị lớp ngữ cảnh (xem `_is_reader_unit_row`), nên một fixture như vậy
+        # sẽ kiểm sai thứ nó tưởng đang kiểm.
         scrap = {
-            "id": "scrap", "document_id": "doc", "title": "Pubbenivāsapaṭisaṃyuttakathā",
-            "source_path": ["Mahāvaggapāḷi", "Pubbenivāsapaṭisaṃyuttakathā"],
-            "start_sort_order": 4, "end_sort_order": 35,
+            "id": "scrap", "document_id": "doc", "title": "Naārammaṇapaccayo",
+            "source_path": ["Paṭṭhānapāḷi-3", "Naārammaṇapaccayo"],
+            "start_sort_order": 4, "end_sort_order": 8,
         }
-        vagga = {
-            "id": "vagga", "document_id": "doc", "title": "Mahāvaggapāḷi",
-            "source_path": ["Mahāvaggapāḷi"],
+        parent = {
+            "id": "parent", "document_id": "doc", "title": "10. Mahantaradukaṃ",
+            "source_path": ["Paṭṭhānapāḷi-3"],
             "start_sort_order": 1, "end_sort_order": 300,
         }
-        scrap_small = dict(scrap, start_sort_order=4, end_sort_order=8)
-        with patch("app.main.fetch_all", return_value=[scrap_small, vagga]):
-            self.assertEqual(_canonical_reader_section(dict(scrap_small))["id"], "vagga")
+        with patch("app.main.fetch_all", return_value=[scrap, parent]):
+            self.assertEqual(_canonical_reader_section(dict(scrap))["id"], "parent")
 
     def test_falls_back_to_nearest_ancestor_when_no_title_qualifies(self):
         """Khách chốt: không có trọn bài kinh thì lấy phần gần nhất cũng được."""
@@ -651,9 +737,11 @@ class WholeSuttaReaderTests(unittest.TestCase):
                 "hierarchy": {},
             }
         ]
-        # Truy vấn thứ ba là mục lục (`_section_outline`); bài kinh này chỉ có một mục con
-        # nên mục lục rỗng - dưới 2 mục thì không hiện, xem `_section_outline`.
-        fetch_all.side_effect = [[parent, child], passages, [child]]
+        # Thứ tự truy vấn: (1) tổ tiên cho `_canonical_reader_section`, (2) cắt phạm vi ghi
+        # quá rộng (`_clip_overreaching_range` - trả rỗng nghĩa là không có section lạ nào
+        # nằm trong phạm vi, tức phạm vi đúng), (3) các đoạn, (4) mục lục. Bài kinh này chỉ
+        # có một mục con nên mục lục rỗng - dưới 2 mục thì không hiện.
+        fetch_all.side_effect = [[parent, child], [], passages, [child]]
 
         from app.main import _section_payload
 
