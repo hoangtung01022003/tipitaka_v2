@@ -85,7 +85,29 @@ def main() -> None:
     sources = Counter(
         re.findall(r"insert into human_translations \(.*?\) select \(select p\.id.*?\), E'([a-z_]+)',", text)
     )
-    methods = Counter(re.findall(r"E'(manual|pdf_heading_boundary|strict_unique|global_align|whole_unit|heuristic)', ", text))
+    # `match_method` phải đếm theo NEO ĐUÔI câu insert - `E'<method>', <score>, <batch>` -
+    # chứ không phải `E'<tên>', ` trơn. Hai lý do, cả hai đều đo được trên file thật:
+    #
+    # 1. Danh sách tên hardcode không thấy phương pháp MỚI. Bản 2026-08-17 mang đủ 3 dòng
+    #    `label_boundary_fix` nhưng phép đếm cũ trả 0 và gate báo "BẢN XUẤT CŨ" - báo động
+    #    giả, trong khi file hoàn toàn đúng.
+    # 2. `E'strict_unique', ` trơn còn khớp cả những chỗ NGOÀI bảng này (bảng
+    #    `human_translation_imports` cũng ghi tên phương pháp), nên đếm ra 61.735 trong khi
+    #    DB có 61.733.
+    #
+    # Neo đuôi cho cả 4 phương pháp đang có khớp chính xác từng dòng. Nó cũng bắt vài từ
+    # Pāli trong thân bản dịch tình cờ trùng dạng, nên chỉ đếm những TÊN ĐÃ BIẾT.
+    _METHOD_TAIL = re.compile(r"E'([a-z_]+)', (?:null|[\d.]+), (?:null|E'[^']*')")
+
+    def count_methods(names: set[str]) -> Counter:
+        found = Counter(_METHOD_TAIL.findall(text))
+        return Counter({name: found.get(name, 0) for name in names})
+
+    KNOWN_METHODS = {
+        "manual", "pdf_heading_boundary", "strict_unique", "global_align",
+        "whole_unit", "heuristic",
+    }
+    methods = count_methods(KNOWN_METHODS)
     print("\nsố dòng human_translations theo nguồn:")
     for source, count in sorted(sources.items()):
         print(f"  {source:16} {count:>7,}")
@@ -120,6 +142,9 @@ def main() -> None:
                 " where match_method is not null group by match_method"
             )
         }
+        # Đếm lại kèm CẢ phương pháp mới mà DB đang có nhưng danh sách `KNOWN_METHODS`
+        # chưa biết - đó chính là loại bị bỏ sót và gây báo động giả.
+        methods = count_methods(KNOWN_METHODS | set(db_methods))
         db_sources = {
             str(row["source"]): row["n"]
             for row in fetch_all("select source, count(*) as n from human_translations group by source")

@@ -58,6 +58,13 @@ tại vì một bản dump cũ nhìn từ ngoài không khác gì bản đúng: 
 migration 006, thiếu 101 dòng `pdf_heading_boundary` và thiếu `set client_encoding`, mà
 không câu lệnh nào báo lỗi khi nạp.
 
+Phép đếm `match_method` trong file phải neo theo ĐUÔI câu insert (`E'<method>', <score>,
+<batch>`), không phải `E'<tên>', ` trơn - và cả hai lỗi của cách cũ đều đã bắn báo động giả
+thật: danh sách tên hardcode không thấy phương pháp mới (`label_boundary_fix` có đủ 3 dòng
+trong file mà đếm ra 0), còn mẫu trơn thì khớp lây sang bảng `human_translation_imports`
+(`strict_unique` đếm 61.735 trong khi DB có 61.733). Neo đuôi cũng bắt vài từ Pāli trong thân
+bản dịch tình cờ trùng dạng, nên chỉ được đếm những TÊN ĐÃ BIẾT cộng tên DB đang có.
+
 **Chạy kèm `--against-db` trước khi nạp VPS, không thì nó vẫn cho qua bản xuất cũ.** Phép
 kiểm dòng `pdf_heading_boundary` vốn chỉ là `> 0`, đủ để bắt ca 2026-08-14 (thiếu HẲN) nhưng
 không thấy ca thiếu MỘT PHẦN - đo thật ngày 2026-08-17: `export_data.sql` mang 125 dòng khi
