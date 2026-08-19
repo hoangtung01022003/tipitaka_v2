@@ -142,7 +142,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "feedback.title": "Góp ý và hỗ trợ tìm kiếm",
         "feedback.subtitle": "Mọi sự góp ý hoặc quý vị cần sự trợ giúp tìm kiếm bài kinh nào, quý vị hoan hỷ viết vào đây và gửi cho chúng con ạ.",
         "feedback.label": "Nội dung góp ý",
-        "feedback.placeholder": "Hãy viết nội dung góp ý, yêu cầu hỗ trợ hoặc câu hỏi của bạn...",
+        "feedback.placeholder": "",
         "feedback.maxChars": "{count} ký tự tối đa. Còn lại: {remaining}",
         "feedback.submit": "Gửi góp ý",
         "feedback.required": "Vui lòng nhập nội dung trước khi gửi.",
