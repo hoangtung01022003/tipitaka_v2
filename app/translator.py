@@ -399,11 +399,14 @@ def embed_query_vector(text: str) -> str | None:
         return None
 
 
+_SUMMARY_CACHE = {}
+
 def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUAGE) -> dict:
     """Summarize an entire section into key points with mapped passage IDs."""
     blocks = section_payload.get("paragraphs", [])
     if not blocks:
-        return {"points": []}
+            _SUMMARY_CACHE[cache_key] = {"points": []}
+            return _SUMMARY_CACHE[cache_key]
         
     text_chunks = []
     for block in blocks:
@@ -416,6 +419,12 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
     full_text = "\n\n".join(text_chunks)
     if not full_text.strip():
         return {"points": []}
+
+    import hashlib
+    cache_key = f"{hashlib.md5(full_text.encode()).hexdigest()}_{language}"
+    if cache_key in _SUMMARY_CACHE:
+        return _SUMMARY_CACHE[cache_key]
+
 
     from .i18n import TRANSLATION_TARGETS, normalize_language
     target_language = TRANSLATION_TARGETS.get(normalize_language(language), TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
@@ -449,8 +458,10 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
             if response.text:
                 import json
                 data = json.loads(response.text)
+                _SUMMARY_CACHE[cache_key] = data
                 return data
-            return {"points": []}
+            _SUMMARY_CACHE[cache_key] = {"points": []}
+            return _SUMMARY_CACHE[cache_key]
         except Exception as ex:
             print(f"Summary generation failed for {model_name}: {ex}")
             errors.append(f"{model_name}: {ex}")
