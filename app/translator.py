@@ -454,7 +454,10 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
         except Exception as ex:
             print(f"Summary generation failed for {model_name}: {ex}")
             errors.append(f"{model_name}: {ex}")
+            if "quota" in str(ex).lower() or "429" in str(ex):
+                break
             
     print(f"All models failed to generate summary: {errors}")
-    return {"points": []}
+    err_msg = str(errors[0]) if errors else "Unknown error"
+    return {"points": [{"summary_text": f"Lỗi API: {err_msg}", "passage_ids": []}]}
 
