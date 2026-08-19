@@ -107,8 +107,11 @@
               <div class="field">
                 <label>Nội dung hướng dẫn</label>
                 <input type="hidden" id="body_{{ item.language }}" name="body_{{ item.language }}" value="{{ item.body }}" />
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                  <button type="button" class="button" onclick="addBlock('{{ item.language }}', '', true)" style="flex: 1; padding: 0.5rem 1rem; border: 1px dashed #2563eb; background: #eff6ff; color: #2563eb; border-radius: 8px; font-weight: 600; cursor: pointer;">+ Thêm mục hướng dẫn mới (Lên đầu)</button>
+                  <button type="button" class="button" onclick="toggleOldBlocks('{{ item.language }}')" style="padding: 0.5rem 1rem; border: 1px solid #d1d5db; background: #ffffff; border-radius: 8px; font-weight: 600; cursor: pointer;">👁 Ẩn/hiện mục cũ</button>
+                </div>
                 <div id="blocks_{{ item.language }}" style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;"></div>
-                <button type="button" class="button" onclick="addBlock('{{ item.language }}')" style="padding: 0.5rem 1rem; border: 1px dashed #2563eb; background: #eff6ff; color: #2563eb; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%;">+ Thêm mục hướng dẫn mới</button>
               </div>
               <div class="fieldRow">
                 <div class="field">
@@ -268,7 +271,7 @@
         }
       }
 
-      function addBlock(langCode, text = '') {
+      function addBlock(langCode, text = '', prepend = false) {
         const container = document.getElementById('blocks_' + langCode);
         const blockDiv = document.createElement('div');
         blockDiv.className = 'guideBlockItem';
@@ -285,7 +288,23 @@
             </div>
         `;
         blockDiv.querySelector('textarea').value = text;
-        container.appendChild(blockDiv);
+        
+        if (prepend) {
+            container.insertBefore(blockDiv, container.firstChild);
+        } else {
+            container.appendChild(blockDiv);
+        }
+      }
+
+      function toggleOldBlocks(langCode) {
+          const container = document.getElementById('blocks_' + langCode);
+          const blocks = container.querySelectorAll('.guideBlockItem');
+          if (blocks.length <= 1) return;
+          
+          let isHidden = blocks[1].style.display === 'none';
+          for (let i = 1; i < blocks.length; i++) {
+              blocks[i].style.display = isHidden ? 'block' : 'none';
+          }
       }
 
       // Initialize all languages
