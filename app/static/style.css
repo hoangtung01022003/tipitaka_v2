@@ -345,7 +345,7 @@ body.modalOpen {
 }
 
 .translationLoading {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 10px;
   background: #fff8ed;
@@ -484,7 +484,7 @@ body.modalOpen {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 28px;
@@ -571,7 +571,7 @@ body.modalOpen {
 }
 
 .searchLoading {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 14px;
   border: 1px solid #eadfce;
@@ -729,7 +729,7 @@ body.modalOpen {
 }
 
 .helpLinks {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0;
@@ -1178,7 +1178,8 @@ body.modalOpen {
     padding: 11px;
   }
 }
- 
+
+ 
  
 /* AI Summary Styles */
 .aiSummaryContainer {
@@ -1196,7 +1197,7 @@ body.modalOpen {
   margin-bottom: 1rem;
   border-bottom: 1px solid #fdba74;
   padding-bottom: 0.5rem;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
@@ -1231,7 +1232,7 @@ body.modalOpen {
   font-weight: 500;
 }
 .summaryJumpBtn {
-  align-self: flex-start;
+  margin-left: 8px; vertical-align: middle;
   background: #fff7ed;
   color: #c2410c;
   border: 1px solid #fdba74;
@@ -1241,7 +1242,7 @@ body.modalOpen {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }

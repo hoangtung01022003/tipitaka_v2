@@ -522,8 +522,10 @@
             data.points.forEach(point => {
               const targetId = point.passage_ids && point.passage_ids[0] ? point.passage_ids[0] : "";
               html += `<li>
-                <div class="summaryText">${escapeHtml(point.summary_text)}</div>
-                ${targetId ? `<button type="button" class="summaryJumpBtn" onclick="revealMatchedPassage(document.getElementById('sectionModalBody'), '${targetId}')">${escapeHtml(tr("summary.readPassage"))}</button>` : ''}
+                <div class="summaryText">
+                  ${escapeHtml(point.summary_text)}
+                  ${targetId ? ` <button type="button" class="summaryJumpBtn" onclick="revealMatchedPassage(document.getElementById('sectionModalBody'), '${targetId}')">${escapeHtml(tr("summary.readPassage"))}</button>` : ''}
+                </div>
               </li>`;
             });
             html += '</ul>';
