@@ -1179,12 +1179,79 @@ body.modalOpen {
   }
 }
  
- / *   A I   S u m m a r y   S t y l e s   * /  
- . a i S u m m a r y C o n t a i n e r   {   b a c k g r o u n d :   # f d f 8 f 6 ;   b o r d e r :   1 p x   s o l i d   # f e d 7 a a ;   b o r d e r - r a d i u s :   1 2 p x ;   m a r g i n :   1 . 5 r e m ;   p a d d i n g :   1 . 5 r e m ;   b o x - s h a d o w :   0   4 p x   6 p x   - 1 p x   r g b a ( 0 ,   0 ,   0 ,   0 . 0 5 ) ;   }  
- . a i S u m m a r y H e a d e r   {   f o n t - s i z e :   1 . 1 5 r e m ;   f o n t - w e i g h t :   7 0 0 ;   c o l o r :   # 9 a 3 4 1 2 ;   m a r g i n - b o t t o m :   1 r e m ;   b o r d e r - b o t t o m :   1 p x   s o l i d   # f d b a 7 4 ;   p a d d i n g - b o t t o m :   0 . 5 r e m ;   }  
- . a i S u m m a r y L i s t   {   l i s t - s t y l e :   n o n e ;   m a r g i n :   0 ;   p a d d i n g :   0 ;   d i s p l a y :   f l e x ;   f l e x - d i r e c t i o n :   c o l u m n ;   g a p :   1 r e m ;   }  
- . a i S u m m a r y L i s t   l i   {   d i s p l a y :   f l e x ;   f l e x - d i r e c t i o n :   c o l u m n ;   g a p :   0 . 5 r e m ;   }  
- . s u m m a r y T e x t   {   f o n t - s i z e :   1 . 0 5 r e m ;   c o l o r :   # 1 1 1 8 2 7 ;   l i n e - h e i g h t :   1 . 6 ;   f o n t - w e i g h t :   5 0 0 ;   }  
- . s u m m a r y J u m p B t n   {   a l i g n - s e l f :   f l e x - s t a r t ;   b a c k g r o u n d :   # f f f 7 e d ;   c o l o r :   # c 2 4 1 0 c ;   b o r d e r :   1 p x   s o l i d   # f d b a 7 4 ;   b o r d e r - r a d i u s :   6 p x ;   p a d d i n g :   0 . 4 r e m   0 . 8 r e m ;   f o n t - s i z e :   0 . 9 r e m ;   f o n t - w e i g h t :   6 0 0 ;   c u r s o r :   p o i n t e r ;   t r a n s i t i o n :   a l l   0 . 2 s ;   }  
- . s u m m a r y J u m p B t n : h o v e r   {   b a c k g r o u n d :   # f f e d d 5 ;   c o l o r :   # 9 a 3 4 1 2 ;   b o r d e r - c o l o r :   # f b 9 2 3 c ;   }  
  
+/* AI Summary Styles */
+.aiSummaryContainer {
+  background: #fdf8f6;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  margin: 1.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+.aiSummaryHeader {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #9a3412;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #fdba74;
+  padding-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.aiSummaryList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.aiSummaryList li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-left: 1.5rem;
+}
+.aiSummaryList li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: -2px;
+  color: #fb923c;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.summaryText {
+  font-size: 1.05rem;
+  color: #374151;
+  line-height: 1.6;
+  font-weight: 500;
+}
+.summaryJumpBtn {
+  align-self: flex-start;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.summaryJumpBtn::before {
+  content: '→';
+  font-size: 1.1em;
+}
+.summaryJumpBtn:hover {
+  background: #ffedd5;
+  color: #9a3412;
+  border-color: #fb923c;
+  transform: translateX(2px);
+}
