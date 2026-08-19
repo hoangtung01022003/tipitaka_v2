@@ -43,7 +43,11 @@ def settings() -> dict[str, object]:
 
     return {
         "database_url": database_url,
-        "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+        "gemini_api_keys": [
+            item.strip()
+            for item in os.getenv("GEMINI_API_KEY", "").split(",")
+            if item.strip()
+        ],
         "gemini_text_models": [
             item.strip()
             for item in os.getenv(

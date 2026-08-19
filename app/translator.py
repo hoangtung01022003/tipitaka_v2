@@ -29,6 +29,8 @@ FALLBACK_TEXT_MODELS = [
 PUBLIC_TRANSLATION_ERROR = "Chưa dịch được đoạn này. Vui lòng kiểm tra GEMINI_API_KEY hoặc thử lại sau."
 _MODEL_CURSOR = count()
 _MODEL_LOCK = Lock()
+_API_KEY_CURSOR = count()
+_API_KEY_LOCK = Lock()
 
 
 class Translation(BaseModel):
@@ -46,14 +48,18 @@ class SectionSummary(BaseModel):
     points: list[SummaryPoint]
 
 
-def _client() -> genai.Client:
-    api_key = str(settings()["gemini_api_key"])
-    if not api_key:
+def _api_keys() -> list[str]:
+    return [str(item) for item in settings().get("gemini_api_keys", []) if item]
+
+def _api_keys_for_call() -> list[str]:
+    keys = _api_keys()
+    if not keys:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
-    return genai.Client(
-        api_key=api_key,
-        http_options={"timeout": int(settings()["gemini_request_timeout_ms"])},
-    )
+    if len(keys) <= 1:
+        return keys
+    with _API_KEY_LOCK:
+        offset = next(_API_KEY_CURSOR) % len(keys)
+    return [*keys[offset:], *keys[:offset]]
 
 
 def _models() -> list[str]:
@@ -346,13 +352,17 @@ def _translate_text_resilient(pali_text: str, language: str = DEFAULT_LANGUAGE) 
 
 
 def _translate_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> Translation:
-    client = _client()
     errors: list[str] = []
     prompt = _translation_prompt(pali_text, json_mode=True, language=language)
     plain_prompt = _translation_prompt(pali_text, json_mode=False, language=language)
 
-    for model in _models_for_call():
-        try:
+    for api_key in _api_keys_for_call():
+        client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": int(settings()["gemini_request_timeout_ms"])},
+        )
+        for model in _models_for_call():
+            try:
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
@@ -378,9 +388,10 @@ def _translate_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> Transla
 
 
 def embed_query_vector(text: str) -> str | None:
-    api_key = str(settings()["gemini_api_key"])
-    if not api_key:
+    keys = _api_keys_for_call()
+    if not keys:
         return None
+    api_key = keys[0]
     try:
         client = genai.Client(
             api_key=api_key,
@@ -428,14 +439,14 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
         f"CRITICAL: Keep the summary extremely concise. Do not exceed 10-15 main points to avoid timeouts.\n\n"
         f"Text:\n{full_text}"
     )
-    api_key = str(settings()["gemini_api_key"])
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"timeout": 60.0},
-    )
-    
     errors = []
-    for model_name in _models_for_call():
+    for api_key in _api_keys_for_call():
+        client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": 60.0},
+        )
+        
+        for model_name in _models_for_call():
         try:
             response = client.models.generate_content(
                 model=model_name,
