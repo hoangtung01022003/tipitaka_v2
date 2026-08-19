@@ -363,26 +363,26 @@ def _translate_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> Transla
         )
         for model in _models_for_call():
             try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                ),
-            )
-            return _parse_translation_response(response.text or "", model)
-        except Exception as exc:
-            errors.append(f"{model}/json: {type(exc).__name__}: {str(exc)[:180]}")
-            message = str(exc).lower()
-            if any(part in message for part in ["404", "not found", "unsupported", "quota", "429", "rate"]):
-                continue
-
-            try:
-                response = client.models.generate_content(model=model, contents=plain_prompt)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                    ),
+                )
                 return _parse_translation_response(response.text or "", model)
-            except Exception as plain_exc:
-                errors.append(f"{model}/plain: {type(plain_exc).__name__}: {str(plain_exc)[:180]}")
-                continue
+            except Exception as exc:
+                errors.append(f"{model}/json: {type(exc).__name__}: {str(exc)[:180]}")
+                message = str(exc).lower()
+                if any(part in message for part in ["404", "not found", "unsupported", "quota", "429", "rate"]):
+                    continue
+
+                try:
+                    response = client.models.generate_content(model=model, contents=plain_prompt)
+                    return _parse_translation_response(response.text or "", model)
+                except Exception as plain_exc:
+                    errors.append(f"{model}/plain: {type(plain_exc).__name__}: {str(plain_exc)[:180]}")
+                    continue
 
     raise RuntimeError("All Gemini text models failed. " + " | ".join(errors))
 
@@ -447,24 +447,24 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
         )
         
         for model_name in _models_for_call():
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=SectionSummary,
-                    temperature=0.2,
-                ),
-            )
-            if response.text:
-                import json
-                data = json.loads(response.text)
-                return data
-            return {"points": []}
-        except Exception as ex:
-            print(f"Summary generation failed for {model_name}: {ex}")
-            errors.append(f"{model_name}: {ex}")
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=SectionSummary,
+                        temperature=0.2,
+                    ),
+                )
+                if response.text:
+                    import json
+                    data = json.loads(response.text)
+                    return data
+                return {"points": []}
+            except Exception as ex:
+                print(f"Summary generation failed for {model_name}: {ex}")
+                errors.append(f"{model_name}: {ex}")
             
     print(f"All models failed to generate summary: {errors}")
     return {"points": []}
