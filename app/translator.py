@@ -455,7 +455,7 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
             print(f"Summary generation failed for {model_name}: {ex}")
             errors.append(f"{model_name}: {ex}")
             if "quota" in str(ex).lower() or "429" in str(ex):
-                break
+                continue
             
     print(f"All models failed to generate summary: {errors}")
     err_msg = str(errors[0]) if errors else "Unknown error"
