@@ -431,27 +431,30 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
     api_key = str(settings()["gemini_api_key"])
     client = genai.Client(
         api_key=api_key,
-        http_options={"timeout": 120.0},
+        http_options={"timeout": 60.0},
     )
-    active_models = _models()
-    model_name = active_models[0] if active_models else "gemini-2.5-flash"
     
-    try:
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=SectionSummary,
-                temperature=0.2,
-            ),
-        )
-        if response.text:
-            import json
-            data = json.loads(response.text)
-            return data
-    except Exception as ex:
-        print("Summary generation failed:", ex)
-        
+    errors = []
+    for model_name in _models_for_call():
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=SectionSummary,
+                    temperature=0.2,
+                ),
+            )
+            if response.text:
+                import json
+                data = json.loads(response.text)
+                return data
+            return {"points": []}
+        except Exception as ex:
+            print(f"Summary generation failed for {model_name}: {ex}")
+            errors.append(f"{model_name}: {ex}")
+            
+    print(f"All models failed to generate summary: {errors}")
     return {"points": []}
 
