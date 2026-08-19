@@ -424,13 +424,14 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
         f"You are a Buddhist scholar. Read the following Pali text and its passage IDs.\n"
         f"Provide a comprehensive summary of the main points. BẮT BUỘC viết tóm tắt bằng ngôn ngữ: {target_language}.\n"
         f"Group multiple IDs into one summary point if they discuss the same topic.\n"
-        f"If they are distinct, separate them. Ensure every point has at least one associated ID from the text.\n\n"
+        f"If they are distinct, separate them. Ensure every point has at least one associated ID from the text.\n"
+        f"CRITICAL: Keep the summary extremely concise. Do not exceed 10-15 main points to avoid timeouts.\n\n"
         f"Text:\n{full_text}"
     )
     api_key = str(settings()["gemini_api_key"])
     client = genai.Client(
         api_key=api_key,
-        http_options={"timeout": 60000},
+        http_options={"timeout": 120.0},
     )
     active_models = _models()
     model_name = active_models[0] if active_models else "gemini-2.5-flash"

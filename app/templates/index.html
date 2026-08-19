@@ -520,7 +520,7 @@
           if (data && data.points && data.points.length > 0) {
             let html = '<ul class="aiSummaryList">';
             data.points.forEach(point => {
-              const targetId = point.passageIds && point.passageIds[0] ? point.passageIds[0] : "";
+              const targetId = point.passage_ids && point.passage_ids[0] ? point.passage_ids[0] : "";
               html += `<li>
                 <div class="summaryText">${escapeHtml(point.summary_text)}</div>
                 ${targetId ? `<button type="button" class="summaryJumpBtn" onclick="revealMatchedPassage(document.getElementById('sectionModalBody'), '${targetId}')">${escapeHtml(tr("summary.readPassage"))}</button>` : ''}
