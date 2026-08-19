@@ -140,7 +140,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "help.guideUpdated": "Cập nhật lần cuối: {time}",
         "help.backHome": "← Về trang tìm kiếm",
         "feedback.title": "Góp ý và hỗ trợ tìm kiếm",
-        "feedback.subtitle": "Bạn có thể để lại câu hỏi hoặc nhận xét. Chúng tôi sẽ đọc và hỗ trợ.",
+        "feedback.subtitle": "Mọi sự góp ý hoặc quý vị cần sự trợ giúp tìm kiếm bài kinh nào, quý vị hoan hỷ viết vào đây và gửi cho chúng con ạ.",
         "feedback.label": "Nội dung góp ý",
         "feedback.placeholder": "Hãy viết nội dung góp ý, yêu cầu hỗ trợ hoặc câu hỏi của bạn...",
         "feedback.maxChars": "{count} ký tự tối đa. Còn lại: {remaining}",
