@@ -417,9 +417,12 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
     if not full_text.strip():
         return {"points": []}
 
+    from .i18n import TRANSLATION_TARGETS, normalize_language
+    target_language = TRANSLATION_TARGETS.get(normalize_language(language), TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
+    
     prompt = (
         f"You are a Buddhist scholar. Read the following Pali text and its passage IDs.\n"
-        f"Provide a comprehensive summary of the main points in {language}.\n"
+        f"Provide a comprehensive summary of the main points. BẮT BUỘC viết tóm tắt bằng ngôn ngữ: {target_language}.\n"
         f"Group multiple IDs into one summary point if they discuss the same topic.\n"
         f"If they are distinct, separate them. Ensure every point has at least one associated ID from the text.\n\n"
         f"Text:\n{full_text}"

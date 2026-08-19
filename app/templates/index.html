@@ -496,15 +496,21 @@
           container = document.createElement("div");
           container.className = "aiSummaryContainer";
           container.innerHTML = `
-            <div class="aiSummaryHeader">✨ Tóm tắt bài kinh (AI)</div>
+            <div class="aiSummaryHeader">${escapeHtml(tr("summary.title"))}</div>
             <div class="aiSummaryBody">
               <div class="loading searchLoading" role="status" style="padding: 1rem 0;">
                 <div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div>
-                <div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">Đang phân tích và tóm tắt...</div>
+                <div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">${escapeHtml(tr("summary.loading"))}</div>
               </div>
             </div>
           `;
-          modalBody.insertBefore(container, modalBody.firstChild);
+          
+          const header = modalBody.querySelector(".sectionHeader");
+          if (header) {
+            header.insertAdjacentElement('afterend', container);
+          } else {
+            modalBody.insertBefore(container, modalBody.firstChild);
+          }
         }
 
         try {
@@ -514,19 +520,19 @@
           if (data && data.points && data.points.length > 0) {
             let html = '<ul class="aiSummaryList">';
             data.points.forEach(point => {
-              const targetId = point.passage_ids && point.passage_ids[0] ? point.passage_ids[0] : "";
+              const targetId = point.passageIds && point.passageIds[0] ? point.passageIds[0] : "";
               html += `<li>
                 <div class="summaryText">${escapeHtml(point.summary_text)}</div>
-                ${targetId ? `<button type="button" class="summaryJumpBtn" onclick="revealMatchedPassage(document.getElementById('sectionModalBody'), '${targetId}')">Bạn có muốn đọc đoạn kinh này không?</button>` : ''}
+                ${targetId ? `<button type="button" class="summaryJumpBtn" onclick="revealMatchedPassage(document.getElementById('sectionModalBody'), '${targetId}')">${escapeHtml(tr("summary.readPassage"))}</button>` : ''}
               </li>`;
             });
             html += '</ul>';
             container.querySelector(".aiSummaryBody").innerHTML = html;
           } else {
-             container.querySelector(".aiSummaryBody").innerHTML = '<div style="color:#6b7280; font-size: 0.9rem;">Không thể tạo tóm tắt.</div>';
+             container.querySelector(".aiSummaryBody").innerHTML = `<div style="color:#6b7280; font-size: 0.9rem;">${escapeHtml(tr("summary.empty"))}</div>`;
           }
         } catch (error) {
-          container.querySelector(".aiSummaryBody").innerHTML = `<div style="color:#ef4444; font-size: 0.9rem;">Lỗi tải tóm tắt.</div>`;
+          container.querySelector(".aiSummaryBody").innerHTML = `<div style="color:#ef4444; font-size: 0.9rem;">${escapeHtml(tr("summary.error"))}</div>`;
         }
       }
 
