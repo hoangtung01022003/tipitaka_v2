@@ -1461,6 +1461,15 @@ def section_api(section_id: str, request: Request, lang: str | None = Query(None
     return _section_payload(section_id, include_translation=False, language=request_language(request, lang))
 
 
+@app.get("/api/sections/{section_id}/summary")
+def section_summary_api(section_id: str, request: Request, lang: str | None = Query(None)):
+    language = request_language(request, lang)
+    section = _section_payload(section_id, include_translation=False, language=language)
+    from app.translator import summarize_section_text
+    summary = summarize_section_text(section, language)
+    return summary
+
+
 @app.get("/api/sections/{section_id}/translate")
 def section_translate_api(section_id: str, request: Request, lang: str | None = Query(None)):
     language = request_language(request, lang)

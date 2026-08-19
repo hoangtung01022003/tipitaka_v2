@@ -37,6 +37,15 @@ class Translation(BaseModel):
     model: str | None = None
 
 
+class SummaryPoint(BaseModel):
+    summary_text: str
+    passage_ids: list[str]
+
+
+class SectionSummary(BaseModel):
+    points: list[SummaryPoint]
+
+
 def _client() -> genai.Client:
     api_key = str(settings()["gemini_api_key"])
     if not api_key:
@@ -347,7 +356,9 @@ def _translate_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> Transla
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config={"response_mime_type": "application/json"},
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
             )
             return _parse_translation_response(response.text or "", model)
         except Exception as exc:
@@ -386,3 +397,57 @@ def embed_query_vector(text: str) -> str | None:
         return "[" + ",".join(f"{float(value):.8f}" for value in values) + "]"
     except Exception:
         return None
+
+
+def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUAGE) -> dict:
+    """Summarize an entire section into key points with mapped passage IDs."""
+    blocks = section_payload.get("paragraphs", [])
+    if not blocks:
+        return {"points": []}
+        
+    text_chunks = []
+    for block in blocks:
+        passage_ids = block.get("passageIds", [])
+        pali_text = block.get("text", "").strip()
+        if not pali_text or not passage_ids:
+            continue
+        text_chunks.append(f"[IDs: {', '.join(passage_ids)}]\n{pali_text}")
+    
+    full_text = "\n\n".join(text_chunks)
+    if not full_text.strip():
+        return {"points": []}
+
+    prompt = (
+        f"You are a Buddhist scholar. Read the following Pali text and its passage IDs.\n"
+        f"Provide a comprehensive summary of the main points in {language}.\n"
+        f"Group multiple IDs into one summary point if they discuss the same topic.\n"
+        f"If they are distinct, separate them. Ensure every point has at least one associated ID from the text.\n\n"
+        f"Text:\n{full_text}"
+    )
+    api_key = str(settings()["gemini_api_key"])
+    client = genai.Client(
+        api_key=api_key,
+        http_options={"timeout": 60000},
+    )
+    active_models = _models()
+    model_name = active_models[0] if active_models else "gemini-2.5-flash"
+    
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=SectionSummary,
+                temperature=0.2,
+            ),
+        )
+        if response.text:
+            import json
+            data = json.loads(response.text)
+            return data
+    except Exception as ex:
+        print("Summary generation failed:", ex)
+        
+    return {"points": []}
+

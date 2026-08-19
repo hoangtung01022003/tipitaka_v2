@@ -409,14 +409,14 @@
         const key = `${sectionId}::${source}`;
         const originalText = button?.textContent || tr("results.openSection");
         if (activeSectionId === key && !sectionModal.classList.contains("hidden")) {
-          revealMatchedPassage(sectionModalBody, focusPassageId);
+          // highlight no longer automatic
           return;
         }
         if (sectionHtmlCache.has(key)) {
           activeSectionId = key;
           openModal(sectionHtmlCache.get(key));
           hydrateSectionTranslation(sectionModalBody);
-          revealMatchedPassage(sectionModalBody, focusPassageId);
+          loadAiSummary(sectionId, sectionModalBody);
           return;
         }
         if (sectionLoadingSet.has(key)) {
@@ -448,7 +448,7 @@
           sectionHtmlCache.set(key, html);
           sectionModalBody.innerHTML = html;
           hydrateSectionTranslation(sectionModalBody);
-          revealMatchedPassage(sectionModalBody, focusPassageId);
+          loadAiSummary(sectionId, sectionModalBody);
         } catch (error) {
           sectionModalBody.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
         } finally {
@@ -490,6 +490,46 @@
       // Tiêu đề mục lục là tiếng Pāli (`1. Bodhikathā`) - độc giả Việt không đọc được.
       // Nạp nhãn đã dịch một lượt cho cả trang. Thất bại thì giữ nguyên tiêu đề Pāli:
       // mục lục Pāli vẫn nhảy đúng chỗ, còn nhãn sai thì dẫn người đọc đi lạc.
+      async function loadAiSummary(sectionId, modalBody) {
+        let container = modalBody.querySelector(".aiSummaryContainer");
+        if (!container) {
+          container = document.createElement("div");
+          container.className = "aiSummaryContainer";
+          container.innerHTML = `
+            <div class="aiSummaryHeader">✨ Tóm tắt bài kinh (AI)</div>
+            <div class="aiSummaryBody">
+              <div class="loading searchLoading" role="status" style="padding: 1rem 0;">
+                <div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div>
+                <div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">Đang phân tích và tóm tắt...</div>
+              </div>
+            </div>
+          `;
+          modalBody.insertBefore(container, modalBody.firstChild);
+        }
+
+        try {
+          const res = await fetch(`/api/sections/${sectionId}/summary?lang=${LANG}`);
+          if (!res.ok) throw new Error("Load failed");
+          const data = await res.json();
+          if (data && data.points && data.points.length > 0) {
+            let html = '<ul class="aiSummaryList">';
+            data.points.forEach(point => {
+              const targetId = point.passage_ids && point.passage_ids[0] ? point.passage_ids[0] : "";
+              html += `<li>
+                <div class="summaryText">${escapeHtml(point.summary_text)}</div>
+                ${targetId ? `<button type="button" class="summaryJumpBtn" onclick="revealMatchedPassage(document.getElementById('sectionModalBody'), '${targetId}')">Bạn có muốn đọc đoạn kinh này không?</button>` : ''}
+              </li>`;
+            });
+            html += '</ul>';
+            container.querySelector(".aiSummaryBody").innerHTML = html;
+          } else {
+             container.querySelector(".aiSummaryBody").innerHTML = '<div style="color:#6b7280; font-size: 0.9rem;">Không thể tạo tóm tắt.</div>';
+          }
+        } catch (error) {
+          container.querySelector(".aiSummaryBody").innerHTML = `<div style="color:#ef4444; font-size: 0.9rem;">Lỗi tải tóm tắt.</div>`;
+        }
+      }
+
       async function loadOutlineLabels(outline) {
         if (!outline || outline.dataset.labelsState) return;
         outline.dataset.labelsState = "loading";
