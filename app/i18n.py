@@ -420,7 +420,12 @@ def normalize_language(value: str | None) -> str:
 
 def t(language: str, key: str, **kwargs: object) -> str:
     language = normalize_language(language)
-    template = STRINGS.get(language, {}).get(key) or STRINGS[DEFAULT_LANGUAGE].get(key) or key
+    template = STRINGS.get(language, {}).get(key)
+    if template is None:
+        template = STRINGS[DEFAULT_LANGUAGE].get(key)
+    if template is None:
+        template = key
+        
     if not kwargs:
         return template
     try:
