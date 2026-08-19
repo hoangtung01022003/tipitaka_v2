@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="{{ lang }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ t('feedback.title') }}</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      .helpPage { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+      .helpBack { display: inline-block; margin-bottom: 1rem; color: var(--accent); text-decoration: none; font-weight: 500; }
+      .helpBack:hover { color: var(--accent-hover); text-decoration: underline; }
+      .helpPage h1 { font-size: 1.75rem; color: #111827; margin: 0 0 0.5rem; }
+      .helpIntro { color: #4b5563; margin: 0 0 2rem; line-height: 1.6; }
+      .feedbackCard {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .feedbackCard h2 { margin: 0 0 0.25rem; font-size: 1.15rem; color: #111827; }
+      .field { margin-bottom: 1rem; }
+      .field label { display: block; font-weight: 600; color: #374151; margin-bottom: 0.4rem; font-size: 0.95rem; }
+      .field textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 140px;
+        padding: 0.7rem 0.85rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-family: inherit;
+        line-height: 1.6;
+        resize: vertical;
+      }
+      .charCount { color: #6b7280; font-size: 0.85rem; text-align: right; }
+      .errorText { color: #dc2626; font-weight: 600; margin-top: 0.5rem; }
+      .successText { color: #16a34a; font-weight: 600; margin-top: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <main class="helpPage">
+        <a class="helpBack" href="/?lang={{ lang }}">{{ t('help.backHome') }}</a>
+        <h1>{{ t('feedback.title') }}</h1>
+        <p class="helpIntro">{{ t('feedback.subtitle') }}</p>
+
+        <section class="feedbackCard" id="feedback">
+          <div id="feedbackForm">
+            <div class="field">
+              <label for="feedbackMessage">{{ t('feedback.label') }}</label>
+              <textarea id="feedbackMessage" maxlength="{{ feedback_max_chars }}" placeholder="{{ t('feedback.placeholder') }}"></textarea>
+              <div class="charCount" id="charCount"></div>
+            </div>
+            <button class="button" type="button" id="feedbackSubmit">{{ t('feedback.submit') }}</button>
+            <div id="feedbackStatus"></div>
+          </div>
+        </section>
+      </main>
+    </main>
+
+    {% if notice %}
+      <div class="modalOverlay noticeOverlay hidden" id="noticeModal" role="dialog" aria-modal="true" aria-labelledby="noticeModalTitle" data-notice-version="{{ notice.version }}">
+        <div class="modalPanel noticePanel">
+          <div class="modalTopbar">
+            <h2 id="noticeModalTitle">{{ notice.title or t('notice.title') }}</h2>
+          </div>
+          <div class="modalBody noticeBody">{{ notice.body }}</div>
+          <div class="noticeActions">
+            <button class="button" type="button" id="noticeClose">{{ t('notice.close') }}</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <script>
+      const LANG = {{ lang | tojson }};
+
+      function tr(key, values) {
+        const fallback = window.__STRINGS__ || {};
+        let template = fallback[key] || key;
+        if (values) {
+          Object.keys(values).forEach((name) => {
+            template = template.split("{" + name + "}").join(values[name]);
+          });
+        }
+        return template;
+      }
+
+      window.__STRINGS__ = {
+        "feedback.required": {{ t('feedback.required') | tojson }},
+        "feedback.tooLong": {{ t('feedback.tooLong') | tojson }},
+        "feedback.sending": {{ t('feedback.sending') | tojson }},
+        "feedback.sentOk": {{ t('feedback.sentOk') | tojson }},
+        "feedback.sentFail": {{ t('feedback.sentFail') | tojson }},
+        "feedback.maxChars": {{ t('feedback.maxChars') | tojson }},
+        "feedback.submit": {{ t('feedback.submit') | tojson }}
+      };
+
+      const maxChars = {{ feedback_max_chars }};
+      const messageInput = document.getElementById("feedbackMessage");
+      const charCount = document.getElementById("charCount");
+      const statusBox = document.getElementById("feedbackStatus");
+
+      function updateCharCount() {
+        const remaining = maxChars - (messageInput.value || "").length;
+        charCount.textContent = tr("feedback.maxChars", { count: String(maxChars), remaining: String(remaining) });
+      }
+      updateCharCount();
+      messageInput.addEventListener("input", updateCharCount);
+
+      document.getElementById("feedbackSubmit").addEventListener("click", async () => {
+        const message = (messageInput.value || "").trim();
+        statusBox.innerHTML = "";
+        if (!message) {
+          statusBox.innerHTML = `<div class="errorText">${tr("feedback.required")}</div>`;
+          return;
+        }
+        if (message.length > maxChars) {
+          statusBox.innerHTML = `<div class="errorText">${tr("feedback.tooLong")}</div>`;
+          return;
+        }
+        const btn = document.getElementById("feedbackSubmit");
+        btn.disabled = true;
+        btn.textContent = tr("feedback.sending");
+        try {
+          const res = await fetch("/api/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message, language: LANG }),
+          });
+          if (!res.ok) throw new Error("failed");
+          statusBox.innerHTML = `<div class="successText">${tr("feedback.sentOk")}</div>`;
+          messageInput.value = "";
+          updateCharCount();
+        } catch (_err) {
+          statusBox.innerHTML = `<div class="errorText">${tr("feedback.sentFail")}</div>`;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = tr("feedback.submit");
+        }
+      });
+
+      function setupNotice() {
+        const modal = document.getElementById("noticeModal");
+        if (!modal) return;
+        const version = modal.dataset.noticeVersion || "1";
+        const storageKey = "tipitaka.noticeSeen";
+        let seen = null;
+        try { seen = window.localStorage.getItem(storageKey); } catch (_e) {}
+        if (seen === version) return;
+        modal.classList.remove("hidden");
+        document.body.classList.add("modalOpen");
+        const dismiss = () => {
+          modal.classList.add("hidden");
+          document.body.classList.remove("modalOpen");
+          try { window.localStorage.setItem(storageKey, version); } catch (_e) {}
+        };
+        document.getElementById("noticeClose")?.addEventListener("click", dismiss);
+        modal.addEventListener("click", (event) => { if (event.target === modal) dismiss(); });
+      }
+      setupNotice();
+    </script>
+  </body>
+</html>

@@ -127,18 +127,8 @@
       </button>
       <span class="adminMobileBrand">Tipiṭaka Admin</span>
     </header>
-    <nav class="sidebar" id="adminSidebar" aria-label="Điều hướng quản trị">
-      <div class="sidebarHeader">Tipiṭaka Admin</div>
-      <div class="sidebarMenu">
-        <a href="/admin/history" class="menuItem">📜 Lịch sử tìm kiếm</a>
-        <a href="/admin/notice" class="menuItem active">📢 Bảng thông báo</a>
-        <a href="/" class="menuItem" target="_blank">🌐 Về trang chủ</a>
-      </div>
-      <div class="sidebarFooter">
-        <a href="/admin/logout" class="logoutBtn">Đăng xuất</a>
-      </div>
-    </nav>
-    <button class="adminSidebarBackdrop" type="button" data-admin-sidebar-close aria-label="Đóng menu quản trị"></button>
+    {% set active_page = 'notice' %}
+    {% include '_admin_sidebar.html' %}
 
     <main class="mainContent">
       <header class="adminHeader">

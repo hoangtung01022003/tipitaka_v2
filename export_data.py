@@ -44,7 +44,7 @@ def lit(value) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, list):
-        inner = ",".join(str(x).replace("\\", "\\\\").replace('"', '\\"') for x in value)
+        inner = ",".join('"' + str(x).replace("\\", "\\\\").replace('"', '\\"') + '"' for x in value)
         return "'{" + inner + "}'"
     if isinstance(value, (dt.datetime, dt.date)):
         # Ép kiểu tường minh. Trong `values (...)` thì kiểu cột đã đủ để Postgres suy ra,
@@ -221,6 +221,45 @@ for table, columns in plain.items():
             lines.append(
                 f"insert into {table} ({column_list}) values ({values}) on conflict do nothing;"
             )
+
+rows = fetch_all(
+    """
+    select section_key, parent_section_key, title, normalized_title, level,
+           rend, start_sort_order, end_sort_order, source_path
+    from sections
+    """
+)
+print(f"sections: {len(rows)} dòng")
+lines.append(f"-- sections: {len(rows)} dòng")
+for row in rows:
+    lines.append(
+        "update sections set"
+        f" parent_section_key = {lit(row['parent_section_key'])},"
+        f" title = {lit(row['title'])},"
+        f" normalized_title = {lit(row['normalized_title'])},"
+        f" level = {lit(row['level'])},"
+        f" rend = {lit(row['rend'])},"
+        f" start_sort_order = {lit(row['start_sort_order'])},"
+        f" end_sort_order = {lit(row['end_sort_order'])},"
+        f" source_path = {lit(row['source_path'])}"
+        f" where section_key = {lit(row['section_key'])};"
+    )
+
+rows = fetch_all(
+    """
+    select s.section_key, array_agg(p.passage_key) as passage_keys
+    from passages p
+    join sections s on s.id = p.section_id
+    group by s.section_key
+    """
+)
+print(f"passages.section_id: {len(rows)} nhóm")
+lines.append(f"-- passages.section_id: {len(rows)} nhóm")
+for row in rows:
+    lines.append(
+        "update passages set section_id = (select id from sections where section_key = "
+        f"{lit(row['section_key'])}) where passage_key = any({lit(row['passage_keys'])}::text[]);"
+    )
 
 lines += [
     "",

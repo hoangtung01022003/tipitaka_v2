@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hướng dẫn & Góp ý - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader { padding: 1.5rem; font-size: 1.25rem; font-weight: 700; border-bottom: 1px solid #374151; text-align: center; }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem { display: block; padding: 0.75rem 1.5rem; color: #d1d5db; text-decoration: none; font-weight: 500; }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn { display: block; width: 100%; padding: 0.5rem; text-align: center; background-color: #ef4444; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader { margin-bottom: 1.5rem; }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+      .tabButton { padding: 0.6rem 1.2rem; border-radius: 8px; border: 1px solid #d1d5db; background: #ffffff; font-weight: 600; color: #374151; cursor: pointer; font-size: 0.95rem; }
+      .tabButton.active { background: #2563eb; color: white; border-color: #2563eb; }
+      .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      .card h2 { margin: 0 0 0.25rem; font-size: 1.1rem; color: #111827; }
+      .card .hint { margin: 0 0 1rem; color: #6b7280; font-size: 0.9rem; }
+      .field { margin-bottom: 1rem; }
+      .field label { display: block; font-weight: 600; color: #374151; margin-bottom: 0.35rem; font-size: 0.9rem; }
+      .field input[type="text"], .field textarea { width: 100%; box-sizing: border-box; padding: 0.6rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem; font-family: inherit; line-height: 1.55; }
+      .field textarea { min-height: 180px; resize: vertical; }
+      .fieldRow { display: flex; gap: 1rem; }
+      .fieldRow .field { flex: 1; }
+      .saveBar { display: flex; gap: 0.75rem; align-items: center; }
+      .primaryButton { background: #2563eb; color: white; border: none; padding: 0.65rem 1.4rem; border-radius: 8px; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
+      .dangerButton { background: #dc2626; color: white; border: none; padding: 0.65rem 1.2rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+      .savedFlag { background: #dcfce7; color: #166534; padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600; margin-bottom: 1.25rem; }
+      .feedbackItem { border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+      .feedbackItemHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+      .feedbackLang { background: #e5e7eb; color: #374151; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+      .feedbackTime { color: #9ca3af; font-size: 0.85rem; }
+      .feedbackMessage { white-space: pre-line; color: #111827; line-height: 1.6; }
+      .loadMoreWrap { text-align: center; margin-top: 0.5rem; }
+      .emptyNote { color: #6b7280; font-style: italic; }
+      .langBadge { display: inline-block; background: #2563eb; color: white; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; margin-left: 0.5rem; }
+    </style>
+    <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
+  </head>
+  <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+    {% set active_page = 'help_feedback' %}
+    {% include '_admin_sidebar.html' %}
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <h1>Hướng dẫn & Góp ý</h1>
+        <p style="color:#6b7280; margin-top:0.25rem;">
+          Soạn nội dung trang "Hướng dẫn và trợ giúp tìm kiếm" và đọc góp ý người dùng gửi lên.
+        </p>
+      </header>
+
+      {% if saved %}
+        <div class="savedFlag">Đã lưu nội dung hướng dẫn.</div>
+      {% endif %}
+
+      <div class="tabs" id="adminTabs">
+        <button class="tabButton active" type="button" data-tab="help">Soạn hướng dẫn</button>
+        <button class="tabButton" type="button" data-tab="feedback">Đọc góp ý</button>
+      </div>
+
+      <!-- Tab: Soạn hướng dẫn -->
+      <div id="tab-help">
+        <form method="post" action="/admin/help-feedback/help">
+          {% for item in help %}
+            <div class="card">
+              <h2>{{ item.language }}<span class="langBadge">{{ item.language | upper }}</span></h2>
+              <p class="hint">Nội dung hiển thị cho người đọc chọn ngôn ngữ này. Để trống phần nội dung nếu chưa muốn hiển thị.</p>
+              <div class="field">
+                <label for="heading_{{ item.language }}">Tiêu đề</label>
+                <input type="text" id="heading_{{ item.language }}" name="heading_{{ item.language }}" value="{{ item.heading }}" />
+              </div>
+              <div class="field">
+                <label>Nội dung hướng dẫn</label>
+                <input type="hidden" id="body_{{ item.language }}" name="body_{{ item.language }}" value="{{ item.body }}" />
+                <div id="blocks_{{ item.language }}" style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;"></div>
+                <button type="button" class="button" onclick="addBlock('{{ item.language }}')" style="padding: 0.5rem 1rem; border: 1px dashed #2563eb; background: #eff6ff; color: #2563eb; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%;">+ Thêm mục hướng dẫn mới</button>
+              </div>
+              <div class="fieldRow">
+                <div class="field">
+                  <label for="font_size_{{ item.language }}">Cỡ chữ (px)</label>
+                  <input type="number" id="font_size_{{ item.language }}" name="font_size_{{ item.language }}" value="{{ item.font_size }}" min="12" max="48" style="width: 100%; box-sizing: border-box; padding: 0.6rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem; font-family: inherit; line-height: 1.55;" />
+                </div>
+                <div class="field">
+                  <label for="font_color_{{ item.language }}">Màu chữ</label>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="color" id="font_color_picker_{{ item.language }}" value="{{ item.font_color }}" 
+                           style="width: 42px; height: 42px; padding: 0; border: 1px solid #d1d5db; border-radius: 8px; cursor: pointer; flex-shrink: 0;"
+                           oninput="document.getElementById('font_color_{{ item.language }}').value = this.value" />
+                    <input type="text" id="font_color_{{ item.language }}" name="font_color_{{ item.language }}" value="{{ item.font_color }}" 
+                           style="width: 100%; box-sizing: border-box; padding: 0.6rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem; font-family: inherit; line-height: 1.55;"
+                           oninput="document.getElementById('font_color_picker_{{ item.language }}').value = this.value" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+          <div class="saveBar">
+            <button class="primaryButton" type="submit">Lưu hướng dẫn</button>
+            <a href="/help" target="_blank" style="color:#2563eb; margin-right:1rem;">Xem trang Hướng dẫn</a>
+            <a href="/feedback" target="_blank" style="color:#2563eb;">Xem trang Góp ý</a>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab: Đọc góp ý -->
+      <div id="tab-feedback" style="display:none;">
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h2>Góp ý của người dùng</h2>
+            <button class="dangerButton" type="button" id="clearFeedbackBtn">Xóa toàn bộ góp ý</button>
+          </div>
+          <p class="hint">Tin mới nhất hiện trên cùng. Cuộn xuống đáy để nạp thêm.</p>
+          <div id="feedbackList">
+            <p class="emptyNote">Không có góp ý nào hoặc chưa tải.</p>
+          </div>
+          <div class="loadMoreWrap" id="feedbackLoadMoreWrap" style="display:none;">
+            <button class="primaryButton" type="button" id="feedbackLoadMoreBtn">Tải thêm góp ý</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+    <script>
+      const feedbackBatch = {{ feedback_batch }};
+
+      // Chuyển tab
+      const tabButtons = document.querySelectorAll(".tabButton");
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          tabButtons.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          document.getElementById("tab-help").style.display = btn.dataset.tab === "help" ? "block" : "none";
+          document.getElementById("tab-feedback").style.display = btn.dataset.tab === "feedback" ? "block" : "none";
+          if (btn.dataset.tab === "feedback") loadFeedback(true);
+        });
+      });
+
+      let feedbackOffset = 0;
+      let feedbackHasMore = false;
+      const feedbackList = document.getElementById("feedbackList");
+      const feedbackLoadMoreWrap = document.getElementById("feedbackLoadMoreWrap");
+
+      const feedbackLangNames = {
+        vi: "Tiếng Việt", en: "English", my: "မြန်မာ",
+      };
+
+      function feedbackLangName(code) {
+        return feedbackLangNames[code] || code;
+      }
+
+      function appendFeedback(rows) {
+        rows.forEach((row) => {
+          const div = document.createElement("div");
+          div.className = "feedbackItem";
+          div.id = "fb_" + row.id;
+          div.innerHTML = `
+            <div class="feedbackItemHead">
+              <div>
+                <span class="feedbackLang">${feedbackLangName(row.language || "vi")}</span>
+                <span class="feedbackTime" style="margin-left:0.5rem;">${row.created_at || ""}</span>
+              </div>
+              <button class="dangerButton" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="deleteFeedback('${row.id}')">🗑 Xóa</button>
+            </div>
+            <div class="feedbackMessage"></div>
+          `;
+          div.querySelector(".feedbackMessage").textContent = row.message || "";
+          feedbackList.appendChild(div);
+        });
+      }
+
+      async function loadFeedback(reset) {
+        if (reset) {
+          feedbackOffset = 0;
+          feedbackList.innerHTML = "";
+        }
+        try {
+          const params = new URLSearchParams({ offset: String(feedbackOffset), limit: String(feedbackBatch) });
+          const res = await fetch("/api/admin/feedback?" + params.toString(), { headers: { "Accept": "application/json" } });
+          if (!res.ok) throw new Error("failed");
+          const data = await res.json();
+          const rows = data.rows || [];
+          appendFeedback(rows);
+          feedbackOffset += rows.length;
+          feedbackHasMore = rows.length === feedbackBatch;
+          feedbackLoadMoreWrap.style.display = feedbackHasMore ? "block" : "none";
+          if (rows.length === 0 && feedbackOffset === 0) {
+            feedbackList.innerHTML = '<p class="emptyNote">Chưa có góp ý nào.</p>';
+          }
+        } catch (_err) {
+          throw _err;
+        }
+      }
+
+      document.getElementById("feedbackLoadMoreBtn").addEventListener("click", () => loadFeedback(false));
+
+      document.getElementById("clearFeedbackBtn").addEventListener("click", async () => {
+        if (!confirm("Xóa toàn bộ góp ý? Không thể hoàn tác.")) return;
+        const res = await fetch("/api/admin/feedback/clear", { method: "POST", headers: { "Accept": "application/json" } });
+        if (res.ok) {
+          feedbackList.innerHTML = '<p class="emptyNote">Đã xóa toàn bộ góp ý.</p>';
+          feedbackLoadMoreWrap.style.display = "none";
+          feedbackOffset = 0;
+          feedbackHasMore = false;
+        }
+      });
+
+      async function deleteFeedback(id) {
+        if (!confirm("Bạn có chắc chắn muốn xóa góp ý này?")) return;
+        try {
+          const res = await fetch("/api/admin/feedback/" + id, { method: "DELETE" });
+          if (res.ok) {
+            document.getElementById("fb_" + id)?.remove();
+          } else {
+            alert("Lỗi khi xóa góp ý.");
+          }
+        } catch (e) {
+          alert("Lỗi kết nối: " + e.message);
+        }
+      }
+
+      // Block Editor Logic
+      function initBlocks(langCode) {
+        const hiddenInput = document.getElementById('body_' + langCode);
+        const container = document.getElementById('blocks_' + langCode);
+        const text = hiddenInput.value || '';
+        const blocks = text.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+        
+        container.innerHTML = '';
+        if (blocks.length === 0) {
+            addBlock(langCode, '');
+        } else {
+            blocks.forEach(blockText => addBlock(langCode, blockText));
+        }
+      }
+
+      function addBlock(langCode, text = '') {
+        const container = document.getElementById('blocks_' + langCode);
+        const blockDiv = document.createElement('div');
+        blockDiv.className = 'guideBlockItem';
+        blockDiv.style.border = '1px solid #e5e7eb';
+        blockDiv.style.borderRadius = '8px';
+        blockDiv.style.padding = '1rem';
+        blockDiv.style.background = '#f9fafb';
+        blockDiv.style.position = 'relative';
+
+        blockDiv.innerHTML = `
+            <textarea class="blockInput" rows="3" placeholder="Nhập nội dung cho 1 mục hướng dẫn... Mọi ngắt dòng (Enter) bên trong ô này vẫn được giữ nguyên." style="width: 100%; box-sizing: border-box; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.95rem; line-height: 1.5; resize: vertical; margin-bottom: 0.5rem;"></textarea>
+            <div style="text-align: right;">
+                <button type="button" class="dangerButton" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="this.parentElement.parentElement.remove()">🗑 Xóa mục này</button>
+            </div>
+        `;
+        blockDiv.querySelector('textarea').value = text;
+        container.appendChild(blockDiv);
+      }
+
+      // Initialize all languages
+      document.querySelectorAll('.card').forEach(card => {
+          const input = card.querySelector('input[id^="body_"]');
+          if (input) {
+              const langCode = input.id.replace('body_', '');
+              initBlocks(langCode);
+          }
+      });
+
+      // Submit handler
+      document.querySelector('form[action="/admin/help-feedback/help"]').addEventListener('submit', function(e) {
+          document.querySelectorAll('.card').forEach(card => {
+              const hiddenInput = card.querySelector('input[id^="body_"]');
+              if (hiddenInput) {
+                  const langCode = hiddenInput.id.replace('body_', '');
+                  const textareas = card.querySelectorAll('.guideBlockItem textarea');
+                  const values = Array.from(textareas).map(ta => ta.value.trim()).filter(val => val.length > 0);
+                  hiddenInput.value = values.join('\n\n');
+              }
+          });
+      });
+    </script>
+  </body>
+</html>

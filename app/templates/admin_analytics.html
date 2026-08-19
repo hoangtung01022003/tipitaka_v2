@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Google Analytics - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader {
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        border-bottom: 1px solid #374151;
+        text-align: center;
+      }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem {
+        display: block;
+        padding: 0.75rem 1.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: #ef4444;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader { margin-bottom: 1.5rem; }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .statCard {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .statCard h3 {
+        font-size: 0.9rem;
+        color: #6b7280;
+        margin: 0 0 0.5rem 0;
+        text-transform: uppercase;
+      }
+      .statCard .statNum {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #111827;
+        margin: 0;
+      }
+    </style>
+    <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
+  </head>
+  <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+    
+    {% set active_page = 'analytics' %}
+    {% include '_admin_sidebar.html' %}
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <div>
+          <h1>Tích hợp Google Analytics</h1>
+          <p style="color: #6b7280; margin-top: 0.25rem;">Quản lý mã theo dõi lưu lượng truy cập</p>
+        </div>
+      </header>
+
+      <div class="statCard">
+        <h3>Mã Measurement ID hiện tại</h3>
+        {% if ga_measurement_id %}
+          <p class="statNum" style="color: #2563eb;">{{ ga_measurement_id }}</p>
+          <p style="margin-top: 1rem; color: #4b5563;">Hệ thống đang được theo dõi trên Google Analytics. Hãy truy cập <a href="https://analytics.google.com" target="_blank" style="color: #2563eb;">Google Analytics Dashboard</a> để xem chi tiết báo cáo lượt truy cập của trang.</p>
+        {% else %}
+          <p class="statNum" style="color: #ef4444;">Chưa cấu hình</p>
+          <p style="margin-top: 1rem; color: #4b5563;">Vui lòng thêm biến môi trường <code style="background: #f3f4f6; padding: 0.2rem 0.4rem; border-radius: 4px;">GA_MEASUREMENT_ID=G-XXXXXXXXXX</code> vào file <strong>.env</strong> và khởi động lại ứng dụng để kích hoạt Google Analytics.</p>
+        {% endif %}
+      </div>
+    </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+  </body>
+</html>

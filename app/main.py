@@ -9,8 +9,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+
+
 from .config import settings
 from .db import execute, fetch_all, fetch_one
+from .help_guide import (
+    HELP_GUIDE_BATCH,
+    get_help_config,
+    get_help_page,
+    save_help,
+)
 from .i18n import (
     DEFAULT_LANGUAGE,
     LANGUAGES,
@@ -35,6 +43,14 @@ from .translation_sources import (
     unavailable_translation,
 )
 from .translator import public_translation_error, translate_passage, translate_text, translate_text_cached
+from .user_feedback import (
+    FEEDBACK_BATCH,
+    FEEDBACK_MAX_CHARS,
+    add_feedback,
+    clear_feedback,
+    count_feedback,
+    list_feedback,
+)
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -1565,11 +1581,66 @@ def passage_api(passage_id: str, request: Request):
     }
 
 
+@app.get("/help", response_class=HTMLResponse)
+def help_page_route(request: Request, lang: str | None = Query(None)):
+    """Trang người dùng: đọc hướng dẫn (theo lô)."""
+    language = request_language(request, lang)
+    return templates.TemplateResponse(
+        "help.html",
+        _template_context(
+            request,
+            language,
+            help_page=get_help_page(language, 1, HELP_GUIDE_BATCH),
+            help_batch=HELP_GUIDE_BATCH,
+            notice=get_notice(language),
+            ga_measurement_id=settings().get("ga_measurement_id", ""),
+        ),
+    )
+
+
+@app.get("/feedback", response_class=HTMLResponse)
+def feedback_page_route(request: Request, lang: str | None = Query(None)):
+    """Trang người dùng: gửi góp ý / xin trợ giúp."""
+    language = request_language(request, lang)
+    return templates.TemplateResponse(
+        "feedback.html",
+        _template_context(
+            request,
+            language,
+            feedback_max_chars=FEEDBACK_MAX_CHARS,
+            notice=get_notice(language),
+            ga_measurement_id=settings().get("ga_measurement_id", ""),
+        ),
+    )
+
+
+@app.get("/api/help")
+def help_api(request: Request, page: int = Query(1, ge=1), lang: str | None = Query(None)):
+    """Một mẻ nội dung hướng dẫn, để client cuộn trang nạp thêm."""
+    language = request_language(request, lang)
+    return get_help_page(language, page, HELP_GUIDE_BATCH)
+
+
+@app.post("/api/feedback")
+def feedback_submit(payload: dict, request: Request):
+    """Gửi một góp ý / yêu cầu hỗ trợ về tìm kiếm."""
+    message = str(payload.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message trống.")
+    if len(message) > FEEDBACK_MAX_CHARS:
+        raise HTTPException(status_code=400, detail="message quá dài.")
+    language = request_language(request, payload.get("language"))
+    add_feedback(message, language)
+    return {"ok": True}
+
+
 @app.exception_handler(Exception)
 def handle_exception(_request: Request, exc: Exception):
     status = exc.status_code if isinstance(exc, HTTPException) else 500
     detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
     return JSONResponse({"error": detail}, status_code=status)
+
+
 def get_current_admin(request: Request):
     if not request.session.get("admin_logged_in"):
         raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"Location": "/admin/login"})
@@ -1842,3 +1913,78 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
 def clear_admin_history(_: str = Depends(get_current_admin)):
     execute("truncate table search_logs restart identity;")
     return {"ok": True, "message": "Đã xóa toàn bộ lịch sử tìm kiếm."}
+
+
+@app.get("/admin/help-feedback", response_class=HTMLResponse)
+def admin_help_feedback_page(
+    request: Request,
+    saved: bool = Query(False),
+    _: str = Depends(get_current_admin),
+):
+    """Trang admin: soạn hướng dẫn và đọc góp ý của người dùng trên cùng một trang."""
+    return templates.TemplateResponse(
+        "admin_help_feedback.html",
+        {
+            "request": request,
+            "help": get_help_config(),
+            "languages": LANGUAGES,
+            "language_options": language_options(),
+            "feedback_batch": FEEDBACK_BATCH,
+            "saved": saved,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
+@app.post("/admin/help-feedback/help")
+async def admin_help_feedback_save_help(request: Request, _: str = Depends(get_current_admin)):
+    """Lưu nội dung hướng dẫn cho từng ngôn ngữ."""
+    form = await request.form()
+    content = {
+        code: {
+            "heading": str(form.get(f"heading_{code}") or ""),
+            "body": str(form.get(f"body_{code}") or ""),
+            "font_size": str(form.get(f"font_size_{code}") or "16"),
+            "font_color": str(form.get(f"font_color_{code}") or "#333333"),
+        }
+        for code in LANGUAGES
+    }
+    save_help(content)
+    return RedirectResponse(url="/admin/help-feedback?saved=1", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/api/admin/feedback")
+def api_admin_feedback(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(FEEDBACK_BATCH, ge=1, le=FEEDBACK_BATCH * 5),
+    _: str = Depends(get_current_admin),
+):
+    """Mẻ góp ý tiếp theo cho việc cuộn vô hạn ở trang admin."""
+    rows = list_feedback(offset, limit)
+    return {"rows": rows, "total": count_feedback()}
+
+
+@app.post("/api/admin/feedback/clear")
+def clear_admin_feedback(_: str = Depends(get_current_admin)):
+    clear_feedback()
+    return {"ok": True, "message": "Đã xóa toàn bộ góp ý."}
+
+
+@app.delete("/api/admin/feedback/{feedback_id}")
+def delete_admin_single_feedback(feedback_id: int, _: str = Depends(get_current_admin)):
+    from app.user_feedback import delete_single_feedback
+    delete_single_feedback(feedback_id)
+    return {"ok": True}
+
+
+
+@app.get("/admin/analytics", response_class=HTMLResponse)
+def admin_analytics_page(request: Request, _: str = Depends(get_current_admin)):
+    return templates.TemplateResponse(
+        "admin_analytics.html",
+        {
+            "request": request,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+

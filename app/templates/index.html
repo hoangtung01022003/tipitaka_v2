@@ -24,14 +24,21 @@
             <p class="eyebrow">{{ t('site.eyebrow') }}</p>
             <h1>{{ t('site.title') }}</h1>
           </div>
-          <label class="languageSwitch">
-            <span class="languageSwitchLabel">{{ t('language.label') }}</span>
-            <select id="languageSelect" aria-label="{{ t('language.label') }}">
-              {% for item in language_options %}
-                <option value="{{ item.value }}" {% if item.value == lang %}selected{% endif %}>{{ item.label }}</option>
-              {% endfor %}
-            </select>
-          </label>
+                    <div class="heroTopRight">
+            <label class="languageSwitch">
+              <span class="languageSwitchLabel">{{ t('language.label') }}</span>
+              <select id="languageSelect" aria-label="{{ t('language.label') }}">
+                {% for item in language_options %}
+                  <option value="{{ item.value }}" {% if item.value == lang %}selected{% endif %}>{{ item.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="helpLinks">
+              <a class="helpLink" href="/help?lang={{ lang }}">{{ t('help.title') }}</a>
+              <span class="helpLinkDivider">|</span>
+              <a class="helpLink" href="/feedback?lang={{ lang }}">{{ t('feedback.title') }}</a>
+            </div>
+          </div>
         </div>
         <p>{{ t('site.tagline') }}</p>
       </header>

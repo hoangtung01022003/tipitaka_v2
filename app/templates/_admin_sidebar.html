@@ -1,0 +1,14 @@
+<nav class="sidebar" id="adminSidebar" aria-label="Điều hướng quản trị">
+  <div class="sidebarHeader">Tipiṭaka Admin</div>
+  <div class="sidebarMenu">
+    <a href="/admin/history" class="menuItem {% if active_page == 'history' %}active{% endif %}">📜 Lịch sử tìm kiếm</a>
+    <a href="/admin/notice" class="menuItem {% if active_page == 'notice' %}active{% endif %}">📢 Bảng thông báo</a>
+    <a href="/admin/help-feedback" class="menuItem {% if active_page == 'help_feedback' %}active{% endif %}">🛟 Hướng dẫn & Góp ý</a>
+    <a href="/admin/analytics" class="menuItem {% if active_page == 'analytics' %}active{% endif %}">📈 Google Analytics</a>
+    <a href="/" class="menuItem" target="_blank">🌐 Về trang chủ</a>
+  </div>
+  <div class="sidebarFooter">
+    <a href="/admin/logout" class="logoutBtn">Đăng xuất</a>
+  </div>
+</nav>
+<button class="adminSidebarBackdrop" type="button" data-admin-sidebar-close aria-label="Đóng menu quản trị"></button>

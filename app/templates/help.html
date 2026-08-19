@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="{{ lang }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ t('help.title') }}</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      .helpPage { max-width: 760px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+      .helpBack { display: inline-block; margin-bottom: 1rem; color: var(--accent); text-decoration: none; font-weight: 500; }
+      .helpBack:hover { color: var(--accent-hover); text-decoration: underline; }
+      .helpPage h1 { font-size: 1.75rem; color: #111827; margin: 0 0 0.5rem; }
+      .helpIntro { color: #4b5563; margin: 0 0 2rem; line-height: 1.6; }
+      .helpCard {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .helpCard h2 { margin: 0 0 0.25rem; font-size: 1.15rem; color: #111827; }
+      .helpMeta { color: #9ca3af; font-size: 0.85rem; margin: 0 0 1rem; }
+      .guideBody {
+        font-size: {{ help_page.font_size if help_page.has_content else 16 }}px !important;
+        color: {{ help_page.font_color }} !important;
+        line-height: 1.75;
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+      .guideParagraph { padding: 0.5rem 0; border-bottom: 1px dashed #e5e7eb; white-space: pre-line; color: {{ help_page.font_color }} !important; }
+      .guideParagraph:last-child { border-bottom: none; }
+      .noGuide { color: #6b7280; font-style: italic; }
+      .loadMoreWrap { margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <main class="helpPage">
+        <a class="helpBack" href="/?lang={{ lang }}">{{ t('help.backHome') }}</a>
+        <h1>{{ help_page.heading or t('help.title') }}</h1>
+        <p class="helpIntro">{{ t('help.intro') }}</p>
+
+        <section class="helpCard">
+          <div>
+            <h2>{{ t('help.readTitle') }}</h2>
+            {% if help_page.updated_at %}
+              <p class="helpMeta">{{ t('help.guideUpdated', time=help_page.updated_at) }}</p>
+            {% endif %}
+          </div>
+          <div class="guideBody" id="guideBody">
+            {% if help_page['items'] %}
+              {% for item in help_page['items'] %}
+                <div class="guideParagraph">{{ item }}</div>
+              {% endfor %}
+            {% else %}
+              <p class="noGuide">{{ t('help.noGuide') }}</p>
+            {% endif %}
+          </div>
+          <div class="loadMoreWrap" id="loadMoreWrap" {% if not help_page.has_more %}style="display:none"{% endif %}>
+            <button class="button" type="button" id="loadMoreBtn">{{ t('help.loadMore') }}</button>
+          </div>
+        </section>
+      </main>
+    </main>
+
+    {% if notice %}
+      <div class="modalOverlay noticeOverlay hidden" id="noticeModal" role="dialog" aria-modal="true" aria-labelledby="noticeModalTitle" data-notice-version="{{ notice.version }}">
+        <div class="modalPanel noticePanel">
+          <div class="modalTopbar">
+            <h2 id="noticeModalTitle">{{ notice.title or t('notice.title') }}</h2>
+          </div>
+          <div class="modalBody noticeBody">{{ notice.body }}</div>
+          <div class="noticeActions">
+            <button class="button" type="button" id="noticeClose">{{ t('notice.close') }}</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <script>
+      const LANG = {{ lang | tojson }};
+
+      function tr(key, values) {
+        const fallback = window.__STRINGS__ || {};
+        let template = fallback[key] || key;
+        if (values) {
+          Object.keys(values).forEach((name) => {
+            template = template.split("{" + name + "}").join(values[name]);
+          });
+        }
+        return template;
+      }
+
+      window.__STRINGS__ = {
+        "help.loadMore": {{ t('help.loadMore') | tojson }}
+      };
+
+      const batch = {{ help_batch }};
+      let currentPage = 1;
+      const guideBody = document.getElementById("guideBody");
+      const loadMoreWrap = document.getElementById("loadMoreWrap");
+      let hasMore = {{ 'true' if help_page.has_more else 'false' }};
+
+      const loadMoreBtn = document.getElementById("loadMoreBtn");
+      if (loadMoreBtn) {
+        loadMoreBtn.addEventListener("click", async () => {
+          if (!hasMore) return;
+          const btn = document.getElementById("loadMoreBtn");
+          btn.disabled = true;
+          try {
+            const params = new URLSearchParams({ page: String(currentPage + 1), lang: LANG });
+            const res = await fetch("/api/help?" + params.toString());
+            const data = await res.json();
+            const items = data.items || [];
+            items.forEach((item) => {
+              const div = document.createElement("div");
+              div.className = "guideParagraph";
+              div.textContent = item;
+              guideBody.appendChild(div);
+            });
+            currentPage += 1;
+            hasMore = data.has_more;
+            if (!hasMore) loadMoreWrap.style.display = "none";
+          } finally {
+            btn.disabled = false;
+            btn.textContent = tr("help.loadMore");
+          }
+        });
+      }
+
+      function setupNotice() {
+        const modal = document.getElementById("noticeModal");
+        if (!modal) return;
+        const version = modal.dataset.noticeVersion || "1";
+        const storageKey = "tipitaka.noticeSeen";
+        let seen = null;
+        try { seen = window.localStorage.getItem(storageKey); } catch (_e) {}
+        if (seen === version) return;
+        modal.classList.remove("hidden");
+        document.body.classList.add("modalOpen");
+        const dismiss = () => {
+          modal.classList.add("hidden");
+          document.body.classList.remove("modalOpen");
+          try { window.localStorage.setItem(storageKey, version); } catch (_e) {}
+        };
+        document.getElementById("noticeClose")?.addEventListener("click", dismiss);
+        modal.addEventListener("click", (event) => { if (event.target === modal) dismiss(); });
+      }
+      setupNotice();
+    </script>
+  </body>
+</html>
