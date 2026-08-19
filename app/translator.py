@@ -431,7 +431,7 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
     api_key = str(settings()["gemini_api_key"])
     client = genai.Client(
         api_key=api_key,
-        http_options={"timeout": 60.0},
+        http_options={"timeout": 60000},
     )
     
     errors = []
