@@ -383,8 +383,15 @@ def official_translations_merged(
         missing_passages = 0
         if is_whole_row:
             # Một bản ghi phủ cả bài, nên chỉ in nguyên văn MỘT lần dù nhiều đoạn của
-            # trang kết quả cùng rơi vào khoảng của nó.
-            text = chosen[0][1]["text"]
+            # trang kết quả cùng rơi vào khoảng của nó. Tuy nhiên, nếu đoạn trích
+            # trải qua nhiều bản ghi dịch khác nhau, ta phải nối chúng lại.
+            unique_texts = []
+            seen_texts = set()
+            for _, entry in chosen:
+                if entry["text"] not in seen_texts:
+                    seen_texts.add(entry["text"])
+                    unique_texts.append(entry["text"])
+            text = "\n\n".join(unique_texts)
             if whole_sutta_excerpt_chars:
                 # Doan trich hien thi hay trai qua vai doan Pali; ngam cua so vao GIUA
                 # khoang do de phu ca cum, thay vi bam vao mot doan roi lech sang hai ben.
