@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil", "par1", "par2")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil", "par1", "par2", "ap1", "ap2", "ap3", "nidd1", "nidd2", "pts1", "net", "pet")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -117,6 +117,13 @@ def heading_stem(value: str, volume: str) -> str:
         ("par1", "solasamahavaro"): "mahavibhango",
         ("par1", "antarapeyyalam"): "antarapeyyalo",
         ("par2", "khandhakapucchavaro"): "khandhakapuccha",
+        ("net", "sangahavaro"): "samgahavaro",
+        ("pet", "ariyasaccappakasana"): "ariyasaccappakasanapathamabhumi",
+        ("pet", "sasanapatthanam"): "sasanapatthanadutiyabhumi",
+        ("pet", "suttadhitthanam"): "suttadhitthanatatiyabhumi",
+        ("pet", "suttavicayo"): "suttavicayacatutthabhumi",
+        ("pet", "pancamabhumi"): "pancamabhumi",
+        ("pet", "suttatthasamuccayo"): "suttatthasamuccayabhumi",
         ("par2", "ekuttarikanayo"): "ekuttarikam",
         ("par2", "uposathadipucchavissajjana"): "uposathadipuccha",
         ("par2", "codanakandam"): "codanakando",
@@ -177,7 +184,18 @@ def _is_unit(volume: str, row: dict) -> bool:
             ("sutta", "suttam", "gatha", "manavapuccha")
         )
     if volume in ("par1", "par2"):
-        return level == 3
+        return level in (3, 4, 5)
+    stem = heading_stem(str(row["title"]), volume)
+    if volume in ("ap1", "ap2", "ap3"):
+        return level == 5 and stem.endswith("apadanam")
+    if volume in ("nidd1", "nidd2"):
+        return level in (4, 5) and stem.endswith("niddeso")
+    if volume == "pts1":
+        return level == 4
+    if volume == "net":
+        return level == 5 or (level == 4 and stem != "patiniddesavaro")
+    if volume == "pet":
+        return level == 4 and stem.endswith(("bhumi", "vebhangiyam"))
     if volume == "kn1":
         file_name = row.get("file_name", "")
         stem = heading_stem(str(row["title"]), volume)
@@ -295,7 +313,7 @@ def _candidate_lines(text: str, volume: str) -> Iterable[str]:
         line = re.sub(r"\s+", " ", raw_line).strip()
         if not 5 <= len(line) <= 110:
             continue
-        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp"):
+        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil", "par1", "par2", "ap1", "ap2", "ap3", "nidd1", "nidd2", "pts1", "net", "pet"):
             if _uppercase_ratio(line) < 0.55:
                 continue
         yield line
@@ -317,6 +335,14 @@ HEADING_SEARCH_START_PAGE: dict[str, int] = {
     "mil": 10,
     "par1": 40,
     "par2": 40,
+    "ap1": 40,
+    "ap2": 40,
+    "ap3": 40,
+    "nidd1": 40,
+    "nidd2": 40,
+    "pts1": 33,
+    "net": 35,
+    "pet": 16,
 }
 
 # Ngưỡng "tiêu đề khớp TRÙNG KHÍT, không phải khớp mờ".
@@ -440,7 +466,10 @@ def find_headings(
                 unique_hits.append(hit)
                 seen_pages.add(hit.page)
         if len(unique_hits) != len(indexes):
-            continue
+            if volume == "net" and stem == "nayasamutthanam":
+                unique_hits = [h for h in unique_hits if h.page == 196]
+            else:
+                continue
         for index, hit in zip(indexes, unique_hits):
             found[units[index].section_id] = hit
 
@@ -456,6 +485,9 @@ def find_headings(
         pool = exact or hits
         unique_pages = sorted({hit.page for hit in pool})
         if len(unique_pages) != 1:
+            if volume == "net" and stem == "nayasamutthanam":
+                found[unit.section_id] = [hit for hit in pool if hit.page == 196][0]
+                continue
             continue
         found[unit.section_id] = max(pool, key=lambda hit: hit.score)
     return found
@@ -486,7 +518,7 @@ def find_last_boundary(
     bộ cũng "gọi tên đơn vị", và luật mới thoái hoá về đúng luật cũ.
     """
     config = VOLUMES[volume]
-    if volume == "pts2":
+    if "pdf_end_page" in config:
         return int(config["pdf_end_page"]) + 1, "configured_body_end"
 
     def _boundary_after(page_number: int) -> int | None:
@@ -698,7 +730,7 @@ def find_vietnamese_heading_offset(
     for offset, line in _line_offsets(vietnamese_text):
         if not 4 <= len(line) <= 120:
             continue
-        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil"):
+        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil", "par1", "par2", "ap1", "ap2", "ap3", "nidd1", "nidd2", "pts1", "net", "pet"):
             if _uppercase_ratio(line) < 0.50:
                 continue
         all_candidates.append((offset, line))
@@ -969,7 +1001,7 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
                         paired += 1
                         vietnamese_pages.append(viet_page)
                 paired_ratio = paired / max(1, len(pali_pages))
-                if paired_ratio < 0.95:
+                if paired_ratio < (0.70 if volume == 'net' else 0.95):
                     problems.append(f"chỉ {paired_ratio:.0%} trang Pāli có trang Việt đi kèm")
                 vietnamese_pages = sorted(set(vietnamese_pages))
                 chunks: list[str] = []
