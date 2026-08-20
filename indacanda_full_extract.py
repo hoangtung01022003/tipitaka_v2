@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -114,6 +114,8 @@ def heading_stem(value: str, volume: str) -> str:
     stem = re.sub(r"\d+$", "", stem)
     aliases = {
         # Cùng đơn vị nhưng PDF/DB dùng hai nhan đề Pāli khác nhau.
+        ("bvcp", "ratanacankamanakandam"): "ratanacankamanakando",
+        ("bvcp", "sumedhapatthanakatha"): "sumedhakatha",
         ("sn", "dhammacariyasuttam"): "kapilasuttam",
         ("sn", "navasuttam"): "dhammanavasuttam",
         ("pts2", "sunnakatha"): "sunnatakatha",
@@ -197,6 +199,14 @@ def _is_unit(volume: str, row: dict) -> bool:
     if volume in ("ja1", "ja2", "ja3"):
         stem = heading_stem(str(row["title"]), volume)
         return level == 6 and stem.endswith("jatakam")
+    if volume == "bvcp":
+        file_name = row.get("file_name", "")
+        stem = heading_stem(str(row["title"]), volume)
+        if file_name == "s0511m.mul.xml":
+            return level == 4 and stem.endswith(("kandam", "kando", "katha", "buddhavamso"))
+        if file_name == "s0512m.mul.xml":
+            return level == 5 and stem.endswith("cariya")
+        return False
     if volume == "pts2":
         # PDF tập II bắt đầu từ Yuganaddhakathā (sort 1167); các Kathā trước thuộc tập I.
         return level == 5 and start >= 1167 and heading_stem(
@@ -268,13 +278,14 @@ def _uppercase_ratio(value: str) -> float:
     return sum(char.isupper() for char in letters) / len(letters)
 
 
-def _candidate_lines(text: str) -> Iterable[str]:
+def _candidate_lines(text: str, volume: str) -> Iterable[str]:
     for raw_line in text.splitlines():
         line = re.sub(r"\s+", " ", raw_line).strip()
         if not 5 <= len(line) <= 110:
             continue
-        if _uppercase_ratio(line) < 0.55:
-            continue
+        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp"):
+            if _uppercase_ratio(line) < 0.55:
+                continue
         yield line
 
 
@@ -283,7 +294,15 @@ def _candidate_lines(text: str) -> Iterable[str]:
 # nên đếm "xuất hiện đúng N lần cho N đơn vị cùng tên" luôn sai và tiêu đề bị coi là
 # "không duy nhất" dù bản thân thân bài hoàn toàn rõ ràng. Đo trực tiếp trên PDF: mục
 # lục `pr` (Pārājikakaṇḍa) chiếm trang in 37-46 (1-based), thân bài bắt đầu trang 47.
-HEADING_SEARCH_START_PAGE: dict[str, int] = {"pr": 47}
+HEADING_SEARCH_START_PAGE: dict[str, int] = {
+    "pr": 47,
+    "bvcp": 40,
+    "thag": 40,
+    "vvpv": 30,
+    "ja1": 30,
+    "ja2": 30,
+    "ja3": 30,
+}
 
 # Ngưỡng "tiêu đề khớp TRÙNG KHÍT, không phải khớp mờ".
 EXACT_HEADING_SCORE = 0.995
@@ -362,7 +381,7 @@ def find_headings(
             continue
         if vietnamese:
             continue
-        for line in _candidate_lines(text):
+        for line in _candidate_lines(text, volume):
             printed = heading_stem(line, volume)
             if len(printed) < 7:
                 continue
@@ -662,8 +681,11 @@ def find_vietnamese_heading_offset(
     candidates: list[tuple[int, str]] = []
     all_candidates: list[tuple[int, str]] = []
     for offset, line in _line_offsets(vietnamese_text):
-        if not 4 <= len(line) <= 120 or _uppercase_ratio(line) < 0.50:
+        if not 4 <= len(line) <= 120:
             continue
+        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp"):
+            if _uppercase_ratio(line) < 0.50:
+                continue
         all_candidates.append((offset, line))
         if prefix:
             if volume == "pts2":
