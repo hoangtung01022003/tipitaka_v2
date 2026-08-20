@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -166,12 +166,49 @@ def _is_unit(volume: str, row: dict) -> bool:
         return level == 5 and stem.endswith(
             ("sutta", "suttam", "gatha", "manavapuccha")
         )
+    if volume == "kn1":
+        file_name = row.get("file_name", "")
+        stem = heading_stem(str(row["title"]), volume)
+        if file_name == "s0501m.mul.xml":
+            return level == 4 and (stem.endswith("suttam") or stem in ("saranattayam", "dasasikkhapadam", "dvattimsakaro", "kumarapanha"))
+        if file_name == "s0502m.mul.xml":
+            return level == 4 and stem.endswith("vaggo")
+        if file_name == "s0503m.mul.xml":
+            return level == 5 and stem.endswith("suttam")
+        if file_name == "s0504m.mul.xml":
+            return level == 6 and stem.endswith("suttam")
+        return False
+    if volume == "thag":
+        file_name = row.get("file_name", "")
+        stem = heading_stem(str(row["title"]), volume)
+        if file_name == "s0508m.mul.xml":
+            return level == 6 and stem.endswith("theragatha")
+        if file_name == "s0509m.mul.xml":
+            return level == 5 and stem.endswith("therigatha")
+        return False
+    if volume == "vvpv":
+        file_name = row.get("file_name", "")
+        stem = heading_stem(str(row["title"]), volume)
+        if file_name == "s0506m.mul.xml":
+            return level == 6 and stem.endswith("vimanavatthu")
+        if file_name == "s0507m.mul.xml":
+            return level == 5 and stem.endswith(("petavatthu", "petivatthu"))
+        return False
+    if volume in ("ja1", "ja2", "ja3"):
+        stem = heading_stem(str(row["title"]), volume)
+        return level == 6 and stem.endswith("jatakam")
     if volume == "pts2":
         # PDF tập II bắt đầu từ Yuganaddhakathā (sort 1167); các Kathā trước thuộc tập I.
         return level == 5 and start >= 1167 and heading_stem(
             str(row["title"]), volume
         ).endswith("katha")
-    if volume == "pr":
+    if volume in ("mv1", "mv2", "cv1", "cv2"):
+        # Đại Phẩm và Tiểu Phẩm chia theo các Khandhaka (Chương). 
+        # Cấu trúc DB đặt Khandhaka ở cấp độ 3.
+        return level == 3 and heading_stem(str(row["title"]), volume).endswith(
+            ("khandhako", "khandhakam")
+        )
+    if volume in ("pr", "pc1", "pc2"):
         # Đơn vị đọc KHÔNG đồng nhất một cấp như dn/sn - đo trực tiếp bằng
         # `_canonical_reader_section` (hàm quyết định "toàn bộ bài kinh" thật của trang
         # đọc, không phải suy diễn): 61/66 mục lá của vin01m leo đúng tier 1 (khớp tiêu
@@ -200,9 +237,10 @@ def load_units(volume: str) -> list[Unit]:
         raise RuntimeError(f"Không tìm thấy tài liệu DB cho {volume}: {config['docs']}")
     rows = fetch_all(
         """
-        select s.id, s.document_id, s.title, s.level, s.source_path,
+        select s.id, s.document_id, d.file_name, s.title, s.level, s.source_path,
                s.start_sort_order, s.end_sort_order
         from sections s
+        join documents d on d.id = s.document_id
         where s.document_id = any(%s::uuid[])
         order by s.document_id, s.start_sort_order, s.level
         """,
