@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil", "par1", "par2")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -114,6 +114,13 @@ def heading_stem(value: str, volume: str) -> str:
     stem = re.sub(r"\d+$", "", stem)
     aliases = {
         # Cùng đơn vị nhưng PDF/DB dùng hai nhan đề Pāli khác nhau.
+        ("par1", "solasamahavaro"): "mahavibhango",
+        ("par1", "antarapeyyalam"): "antarapeyyalo",
+        ("par2", "khandhakapucchavaro"): "khandhakapuccha",
+        ("par2", "ekuttarikanayo"): "ekuttarikam",
+        ("par2", "uposathadipucchavissajjana"): "uposathadipuccha",
+        ("par2", "codanakandam"): "codanakando",
+        ("par2", "atthapattisamutthanam"): "samutthanam",
         ("mil", "mendakapanharambhakatha"): "mendakapanharambho",
         ("bvcp", "ratanacankamanakandam"): "ratanacankamanakando",
         ("bvcp", "sumedhapatthanakatha"): "sumedhakatha",
@@ -169,6 +176,8 @@ def _is_unit(volume: str, row: dict) -> bool:
         return level == 5 and stem.endswith(
             ("sutta", "suttam", "gatha", "manavapuccha")
         )
+    if volume in ("par1", "par2"):
+        return level == 3
     if volume == "kn1":
         file_name = row.get("file_name", "")
         stem = heading_stem(str(row["title"]), volume)
@@ -306,6 +315,8 @@ HEADING_SEARCH_START_PAGE: dict[str, int] = {
     "ja2": 30,
     "ja3": 30,
     "mil": 10,
+    "par1": 40,
+    "par2": 40,
 }
 
 # Ngưỡng "tiêu đề khớp TRÙNG KHÍT, không phải khớp mờ".
