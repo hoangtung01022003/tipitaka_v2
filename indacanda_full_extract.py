@@ -28,7 +28,7 @@ from import_indacanda import VOLUMES, download, is_vietnamese, mend_spacing, sec
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp")
+SUPPORTED_VOLUMES = ("sn", "dn1", "dn2", "dn3", "pts2", "pr", "pc1", "pc2", "kn1", "mv1", "mv2", "cv1", "cv2", "thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil")
 OUTPUT_ROOT = Path(__file__).resolve().parent / "indacanda_full_preview"
 
 
@@ -114,6 +114,7 @@ def heading_stem(value: str, volume: str) -> str:
     stem = re.sub(r"\d+$", "", stem)
     aliases = {
         # Cùng đơn vị nhưng PDF/DB dùng hai nhan đề Pāli khác nhau.
+        ("mil", "mendakapanharambhakatha"): "mendakapanharambho",
         ("bvcp", "ratanacankamanakandam"): "ratanacankamanakando",
         ("bvcp", "sumedhapatthanakatha"): "sumedhakatha",
         ("sn", "dhammacariyasuttam"): "kapilasuttam",
@@ -207,6 +208,8 @@ def _is_unit(volume: str, row: dict) -> bool:
         if file_name == "s0512m.mul.xml":
             return level == 5 and stem.endswith("cariya")
         return False
+    if volume == "mil":
+        return level == 6
     if volume == "pts2":
         # PDF tập II bắt đầu từ Yuganaddhakathā (sort 1167); các Kathā trước thuộc tập I.
         return level == 5 and start >= 1167 and heading_stem(
@@ -302,6 +305,7 @@ HEADING_SEARCH_START_PAGE: dict[str, int] = {
     "ja1": 30,
     "ja2": 30,
     "ja3": 30,
+    "mil": 10,
 }
 
 # Ngưỡng "tiêu đề khớp TRÙNG KHÍT, không phải khớp mờ".
@@ -451,7 +455,7 @@ def find_last_boundary(
     start_page: int,
     pages: list[str],
     page_is_vietnamese: list[bool],
-    unit_stem: str | None = None,
+    unit_stems: tuple[str, ...] | None = None,
 ) -> tuple[int | None, str | None]:
     """Điểm kết thúc của đơn vị CUỐI tập - đơn vị duy nhất không có tiêu đề sau nó chặn lại.
 
@@ -491,8 +495,8 @@ def find_last_boundary(
         if boundary is None:
             continue
         # Mốc gọi đúng tên đơn vị TRÊN CÙNG MỘT DÒNG là mốc hết bài; nhận ngay.
-        if unit_stem and any(
-            "nitthit" in line and unit_stem in line
+        if unit_stems and any(
+            "nitthit" in line and any(stem in line for stem in unit_stems)
             for line in (
                 re.sub(r"[^a-z0-9]+", "", normalize_pali(raw_line))
                 for raw_line in pages[page_number - 1].splitlines()
@@ -683,7 +687,7 @@ def find_vietnamese_heading_offset(
     for offset, line in _line_offsets(vietnamese_text):
         if not 4 <= len(line) <= 120:
             continue
-        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp"):
+        if volume not in ("thag", "vvpv", "ja1", "ja2", "ja3", "bvcp", "mil"):
             if _uppercase_ratio(line) < 0.50:
                 continue
         all_candidates.append((offset, line))
@@ -790,7 +794,7 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
         heading_pages[-1],
         pages,
         page_is_vietnamese,
-        heading_stem(units[-1].title, volume),
+        (heading_stem(units[-1].title, volume), re.sub(r"[^a-z0-9]+", "", section_stem(units[-1].title))),
     )
     if audit_end is None:
         audit_end = min(len(pages) + 1, heading_pages[-1] + 2)
@@ -856,7 +860,7 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
         # nhận một mốc không tên có thể là mốc của một đơn vị KHÁC, nuốt oan nội dung.
         if not hit and carry_end is not None:
             marker_page, marker_source = find_last_boundary(
-                volume, carry_end[0], pages, page_is_vietnamese, heading_stem(unit.title, volume)
+                volume, carry_end[0], pages, page_is_vietnamese, (heading_stem(unit.title, volume), re.sub(r"[^a-z0-9]+", "", section_stem(unit.title)))
             )
             if marker_page is not None and marker_source == "printed_end_marker":
                 hit = HeadingHit(
@@ -892,7 +896,7 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
                 # guard giữ lại làm lưới cho các tập chưa khai alias.
                 if hit and hit.score >= EXACT_HEADING_SCORE:
                     marker_page, marker_source = find_last_boundary(
-                        volume, hit.page, pages, page_is_vietnamese, heading_stem(unit.title, volume)
+                        volume, hit.page, pages, page_is_vietnamese, (heading_stem(unit.title, volume), re.sub(r"[^a-z0-9]+", "", section_stem(unit.title)))
                     )
                     if marker_page is not None and marker_source == "printed_end_marker":
                         boundary_page = marker_page
@@ -909,7 +913,7 @@ def extract_preview(volume: str, output_root: Path = OUTPUT_ROOT) -> tuple[list[
                 boundary_viet_page, boundary_viet_offset, _line = next_viet_cut
         elif hit:
             boundary_page, boundary_source = find_last_boundary(
-                volume, hit.page, pages, page_is_vietnamese, heading_stem(unit.title, volume)
+                volume, hit.page, pages, page_is_vietnamese, (heading_stem(unit.title, volume), re.sub(r"[^a-z0-9]+", "", section_stem(unit.title)))
             )
             if boundary_page is None:
                 problems.append("không dò được dấu kết thúc tập")
