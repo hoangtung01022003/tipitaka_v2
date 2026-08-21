@@ -16,11 +16,25 @@ from import_sujato import _clean, merged_segment_text
 from indacanda_full_extract import (
     HeadingHit,
     Unit,
+    _is_unit,
+    _cv2_anchor_similarity,
     clean_vietnamese_page,
+    cv1_reader_segments,
+    cv2_reader_segments,
+    DEEPEST_ALIGNED_SPECS,
+    DEEPEST_FIXED_STARTS,
+    find_pc2_vietnamese_unit_starts,
     find_vietnamese_heading_offset,
     heading_stem,
+    pc2_unit_key,
 )
-from apply_indacanda_full_preview import load_verified_volume
+from apply_indacanda_full_preview import (
+    VerifiedItem,
+    cv1_legacy_replacement_ids,
+    cv2_legacy_replacement_ids,
+    deepest_legacy_replacement_ids,
+    load_verified_volume,
+)
 
 
 class IndacandaPdfParsingTests(unittest.TestCase):
@@ -237,6 +251,221 @@ class IndacandaPdfParsingTests(unittest.TestCase):
 
 
 class IndacandaWholePreviewTests(unittest.TestCase):
+    def test_cv1_cleaner_removes_only_its_printed_running_head(self):
+        page = (
+            "Tạng Luật - Tiểu Phẩm 1 Chương Tập Hợp\n"
+            "HÌNH PHẠT MĀNATTA CỦA TỘI KHÔNG CÓ CHE GIẤU:\n"
+            "2. Này các tỳ khưu, hội chúng hãy ban hình phạt.\n"
+        )
+
+        cleaned = clean_vietnamese_page(page, "cv1")
+
+        self.assertNotIn("Tạng Luật - Tiểu Phẩm 1", cleaned)
+        self.assertIn("HÌNH PHẠT MĀNATTA", cleaned)
+        self.assertIn("hội chúng hãy ban hình phạt", cleaned)
+
+    def test_cv1_reader_segments_keep_separated_parent_runs_distinct(self):
+        section_ids = ["parent", "leaf", "parent"] + [
+            f"section-{index}" for index in range(3, 119)
+        ]
+        rows = []
+        for sort_order in range(974):
+            segment_index = min(sort_order, 118)
+            section_id = section_ids[segment_index]
+            rows.append(
+                {
+                    "sort_order": sort_order,
+                    "section_id": section_id,
+                    "document_id": "doc",
+                    "title": section_id,
+                    "level": 3 if section_id == "parent" else 4,
+                    "source_path": [section_id],
+                }
+            )
+
+        segments = cv1_reader_segments(rows)
+
+        self.assertEqual(len(segments), 119)
+        self.assertEqual(
+            [
+                (unit.section_id, unit.start_sort_order, unit.end_sort_order)
+                for unit in segments[:3]
+            ],
+            [("parent", 0, 0), ("leaf", 1, 1), ("parent", 2, 2)],
+        )
+        self.assertNotEqual(segments[0].unit_key, segments[2].unit_key)
+        self.assertEqual(
+            (segments[-1].start_sort_order, segments[-1].end_sort_order),
+            (118, 973),
+        )
+
+    def test_cv2_cleaner_removes_only_its_printed_running_head(self):
+        page = (
+            "Tạng Luật - Tiểu Phẩm 2 Ch ương Phận Sự\n"
+            "13. PHẬN SỰ ĐỐI VỚI THẦY DẠY HỌC:\n"
+            "26. Này các tỳ khưu, người học trò nên thực hành phận sự.\n"
+        )
+
+        cleaned = clean_vietnamese_page(page, "cv2")
+
+        self.assertNotIn("Tạng Luật - Tiểu Phẩm 2", cleaned)
+        self.assertIn("13. PHẬN SỰ ĐỐI VỚI THẦY DẠY HỌC", cleaned)
+        self.assertIn("người học trò nên thực hành phận sự", cleaned)
+
+    def test_cv2_reader_segments_cover_the_complete_body(self):
+        rows = []
+        for sort_order in range(974, 2463):
+            segment_index = min(sort_order - 974, 72)
+            rows.append(
+                {
+                    "sort_order": sort_order,
+                    "section_id": f"section-{segment_index}",
+                    "document_id": "doc",
+                    "pali_text": f"Pāli anchor {sort_order}",
+                    "title": f"Section {segment_index}",
+                    "level": 4,
+                    "source_path": [f"Section {segment_index}"],
+                }
+            )
+
+        segments = cv2_reader_segments(rows)
+
+        self.assertEqual(len(segments), 73)
+        self.assertEqual(
+            (segments[0].start_sort_order, segments[-1].end_sort_order),
+            (974, 2462),
+        )
+        self.assertEqual(
+            (segments[-1].start_sort_order, segments[-1].end_sort_order),
+            (1046, 2462),
+        )
+
+    def test_cv2_anchor_prefers_the_real_start_over_later_text_in_same_old_chapter(self):
+        anchor = (
+            "satiyaggāhāpako na hoti tena kho pana samayena bhikkhūnaṃ "
+            "arāmikapesako na hoti "
+            "sāmaṇerapesako na hoti"
+        )
+        real_start = (
+            "satiyaggāhāpako na hoti, tena kho pana samayena bhikkhūnaṃ "
+            "satiyaggāhāpakaṃ sammannituṃ"
+        )
+        later_text = "arāmikapesako na hoti sāmaṇerapesako na hoti"
+
+        self.assertGreater(
+            _cv2_anchor_similarity(anchor, real_start),
+            _cv2_anchor_similarity(anchor, later_text),
+        )
+
+    def test_pc2_cleaner_removes_split_running_head_without_touching_body(self):
+        page = (
+            "Phân Tích Giới Tỳ Khưu  N i          Điều saṅghādisesa 02\n"
+            "Vị ni này cũng: được đề cập có liên quan.\n"
+            "Phân Tích Giới Tỳ Khưu Ni được chấm dứt.\n"
+        )
+
+        self.assertEqual(
+            clean_vietnamese_page(page, "pc2"),
+            "Vị ni này cũng: được đề cập có liên quan. "
+            "Phân Tích Giới Tỳ Khưu Ni được chấm dứt.",
+        )
+
+    def test_pc2_selects_only_deepest_bhikkhuni_sections_with_direct_passages(self):
+        female = {
+            "level": 5,
+            "start_sort_order": 2226,
+            "title": "1. Paṭhamasikkhāpadaṃ",
+            "source_path": [
+                "Vinayapiṭaka",
+                "4. Pācittiyakaṇḍaṃ (bhikkhunīvibhaṅgo)",
+                "1. Lasuṇavaggo",
+                "1. Paṭhamasikkhāpadaṃ",
+            ],
+            "has_direct_passages": True,
+        }
+
+        self.assertTrue(_is_unit("pc2", female))
+        self.assertFalse(_is_unit("pc1", female))
+        self.assertFalse(_is_unit("pc2", {**female, "has_direct_passages": False}))
+        self.assertFalse(
+            _is_unit(
+                "pc2",
+                {
+                    **female,
+                    "source_path": ["4. Pācittiyakaṇḍaṃ", "1. Lasuṇavaggo"],
+                },
+            )
+        )
+
+    def test_pc2_unit_key_covers_nested_and_grouped_printed_numbers(self):
+        cases = (
+            (
+                "2. Dutiyasaṅghādisesasikkhāpadaṃ",
+                ["2. Saṅghādisesakaṇḍaṃ (bhikkhunīvibhaṅgo)"],
+                "2.2",
+            ),
+            (
+                "8-9-10. Aṭṭhama-navama-dasamasikkhāpadaṃ",
+                [
+                    "4. Pācittiyakaṇḍaṃ (bhikkhunīvibhaṅgo)",
+                    "9. Chattupāhanavaggo",
+                ],
+                "4.9.8-10",
+            ),
+            (
+                "2. Dutiyādipāṭidesanīyasikkhāpadāni",
+                ["5. Pāṭidesanīyakaṇḍaṃ (bhikkhunīvibhaṅgo)"],
+                "5.2-8",
+            ),
+            (
+                "7. Pādukavaggo",
+                ["6. Sekhiyakaṇḍaṃ (bhikkhunīvibhaṅgo)"],
+                "6.75",
+            ),
+        )
+        for title, source_path, expected in cases:
+            with self.subTest(title=title):
+                unit = Unit("s", "doc", title, 5, 1, 2, source_path)
+                self.assertEqual(pc2_unit_key(unit), expected)
+
+    def test_pc2_vietnamese_numbers_split_units_at_exact_in_page_offsets(self):
+        second = Unit(
+            "s2",
+            "doc",
+            "2. Dutiyasaṅghādisesasikkhāpadaṃ",
+            4,
+            1,
+            2,
+            ["2. Saṅghādisesakaṇḍaṃ (bhikkhunīvibhaṅgo)"],
+        )
+        third = Unit(
+            "s3",
+            "doc",
+            "3. Tatiyasaṅghādisesasikkhāpadaṃ",
+            4,
+            3,
+            4,
+            ["2. Saṅghādisesakaṇḍaṃ (bhikkhunīvibhaṅgo)"],
+        )
+        pages = [""] * 424
+        vietnamese = [False] * 424
+        pages[75] = "phần cuối điều trước\n2. 2. ĐIỀU SAṄGHĀDISESA THỨ NHÌ:\nnội dung\n"
+        pages[81] = "phần cuối điều nhì\n2. 3. ĐIỀU SAṄGHĀDISESA THỨ BA:\nnội dung\n"
+        vietnamese[75] = vietnamese[81] = True
+
+        starts = find_pc2_vietnamese_unit_starts(
+            [second, third], pages, vietnamese
+        )
+
+        self.assertEqual(starts["s2"].pali_hit.page, 75)
+        self.assertEqual(starts["s2"].vietnamese_page, 76)
+        self.assertEqual(
+            starts["s2"].vietnamese_offset,
+            pages[75].index("2. 2."),
+        )
+        self.assertEqual(starts["s3"].pali_hit.page, 81)
+        self.assertEqual(starts["s3"].vietnamese_page, 82)
+
     def test_volume_specific_heading_aliases_do_not_loosen_global_matching(self):
         self.assertEqual(heading_stem("6. Dhammacariyasuttaṃ", "sn"), "kapilasuttam")
         self.assertEqual(heading_stem("X. Suññakathā", "pts2"), "sunnatakatha")
@@ -287,6 +516,223 @@ class IndacandaWholePreviewTests(unittest.TestCase):
 
 
 class IndacandaWholeApplyTests(unittest.TestCase):
+    def test_pts2_deep_split_replaces_only_the_ten_broad_parent_rows(self):
+        ranges = [
+            (1167, 1173), (1174, 1201), (1202, 1217),
+            (1218, 1218), (1219, 1239), (1240, 1241), (1242, 1256),
+            (1257, 1263), (1264, 1296), (1297, 1308),
+            (1309, 1313), (1314, 1320), (1321, 1326), (1327, 1334),
+            (1335, 1359), (1360, 1378),
+            (1379, 1412), (1413, 1424), (1425, 1436), (1437, 1440),
+            (1441, 1443), (1444, 1446), (1447, 1449), (1450, 1452),
+            (1453, 1456), (1457, 1470), (1471, 1476), (1477, 1487),
+            (1488, 1489), (1490, 1529),
+            (1530, 1532), (1533, 1533), (1534, 1560),
+            (1561, 1574), (1575, 1599), (1600, 1609),
+            (1610, 1615), (1616, 1637), (1638, 1657),
+            (1658, 1661), (1662, 1673), (1674, 1676),
+            (1677, 1681), (1682, 1695), (1696, 1701),
+            (1702, 1715), (1716, 1742), (1743, 1759),
+        ]
+        old_ranges = [
+            (1167, 1217), (1218, 1256), (1257, 1308), (1309, 1359),
+            (1360, 1378), (1379, 1456), (1457, 1487), (1488, 1489),
+            (1490, 1529), (1530, 1560), (1561, 1609), (1610, 1637),
+            (1638, 1657), (1658, 1676), (1677, 1681), (1682, 1695),
+            (1696, 1701), (1702, 1715), (1716, 1742), (1743, 1759),
+        ]
+        items = [
+            VerifiedItem(
+                volume="pts2",
+                title=f"Section {index}",
+                section_id=f"section-{index}",
+                document_id="document",
+                start=start,
+                end=end,
+                text=f"Bản {index}",
+                text_sha256=f"hash-{index}",
+                source_ref=f"pts2:ttpv_38_Pts_II.pdf:item-{index}",
+                match_score=1.0,
+            )
+            for index, (start, end) in enumerate(ranges)
+        ]
+
+        class Cursor:
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+
+            def fetchall(self):
+                intended = {(item.start, item.end): item for item in items}
+                rows = []
+                for index, (start, end) in enumerate(old_ranges):
+                    exact = intended.get((start, end))
+                    rows.append(
+                        {
+                            "id": f"old-parent-{index}",
+                            "start_sort_order": start,
+                            "end_sort_order": end,
+                            "translated_text": (
+                                exact.text if exact else f"Bản cha cũ {index}"
+                            ),
+                            "source_ref": (
+                                exact.source_ref
+                                if exact
+                                else f"pts2:ttpv_38_Pts_II.pdf:old-{index}"
+                            ),
+                            "match_method": "pdf_heading_boundary",
+                        }
+                    )
+                return rows
+
+        cursor = Cursor()
+        stale = deepest_legacy_replacement_ids(cursor, ["pts2"], items)
+        fixed_sorts = sorted(
+            sort_order
+            for (volume, sort_order) in DEEPEST_FIXED_STARTS
+            if volume == "pts2"
+        )
+
+        self.assertEqual(DEEPEST_ALIGNED_SPECS["pts2"]["expected_count"], 48)
+        self.assertEqual(fixed_sorts, [start for start, _end in ranges])
+        self.assertEqual(
+            stale,
+            [
+                "old-parent-0", "old-parent-1", "old-parent-2", "old-parent-3",
+                "old-parent-5", "old-parent-6", "old-parent-9", "old-parent-10",
+                "old-parent-11", "old-parent-13",
+            ],
+        )
+        self.assertNotIn("start_sort_order <= %s", cursor.sql)
+
+    def test_pts1_deep_split_is_locked_to_ditthikatha_range_only(self):
+        ranges = [
+            (590, 606), (607, 616), (617, 638), (639, 639), (640, 641),
+            (642, 643), (644, 645), (646, 667), (668, 668), (669, 669),
+            (670, 674), (675, 676), (677, 678), (679, 708),
+        ]
+        items = [
+            VerifiedItem(
+                volume="pts1",
+                title=f"Section {index}",
+                section_id=f"section-{index}",
+                document_id="document",
+                start=start,
+                end=end,
+                text=f"Bản {index}",
+                text_sha256=f"hash-{index}",
+                source_ref=f"pts1:ttpv_37_Pts_I.pdf:item-{index}",
+                match_score=1.0,
+            )
+            for index, (start, end) in enumerate(ranges)
+        ]
+
+        class Cursor:
+            def __init__(self):
+                self.sql = ""
+                self.params = []
+
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+
+            def fetchall(self):
+                return [{
+                    "id": "old-parent",
+                    "start_sort_order": 590,
+                    "end_sort_order": 708,
+                    "translated_text": "Bản cha cũ",
+                    "source_ref": "pts1:ttpv_37_Pts_I.pdf:old-parent",
+                    "match_method": "pdf_heading_boundary",
+                }]
+
+        cursor = Cursor()
+        stale = deepest_legacy_replacement_ids(cursor, ["pts1"], items)
+
+        self.assertEqual(DEEPEST_ALIGNED_SPECS["pts1"]["expected_count"], 14)
+        self.assertTrue(DEEPEST_ALIGNED_SPECS["pts1"]["replace_range_only"])
+        self.assertIn(
+            "start_sort_order <= %s and end_sort_order >= %s",
+            cursor.sql,
+        )
+        self.assertEqual(cursor.params[-2:], [708, 590])
+        self.assertEqual(stale, ["old-parent"])
+
+    def test_cv1_legacy_replacement_refuses_an_incomplete_manifest(self):
+        item = VerifiedItem(
+            volume="cv1",
+            title="Test",
+            section_id="section",
+            document_id="document",
+            start=0,
+            end=1,
+            text="Bản dịch",
+            text_sha256="hash",
+            source_ref="cv1:ttpv_06_Cv_I.pdf:test",
+            match_score=1.0,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "đủ 119 PASS"):
+            cv1_legacy_replacement_ids(None, ["cv1"], [item])
+
+    def test_cv2_legacy_replacement_refuses_an_incomplete_manifest(self):
+        item = VerifiedItem(
+            volume="cv2",
+            title="Test",
+            section_id="section",
+            document_id="document",
+            start=974,
+            end=975,
+            text="Bản dịch",
+            text_sha256="hash",
+            source_ref="cv2:ttpv_07_Cv_II.pdf:test",
+            match_score=1.0,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "đủ 73 PASS"):
+            cv2_legacy_replacement_ids(None, ["cv2"], [item])
+
+    def test_cv2_legacy_replacement_ignores_the_current_exact_row_on_rerun(self):
+        ranges = [(974, 1274)] + [(value, value) for value in range(1275, 1346)]
+        ranges.append((1346, 2462))
+        items = [
+            VerifiedItem(
+                volume="cv2",
+                title=f"Section {index}",
+                section_id=f"section-{index}",
+                document_id="document",
+                start=start,
+                end=end,
+                text="Bản mới" if index == 0 else f"Bản {index}",
+                text_sha256=f"hash-{index}",
+                source_ref=(
+                    "cv2:ttpv_07_Cv_II.pdf:vi-pages-41-167:sha256-new"
+                    if index == 0
+                    else f"cv2:ttpv_07_Cv_II.pdf:item-{index}"
+                ),
+                match_score=1.0,
+            )
+            for index, (start, end) in enumerate(ranges)
+        ]
+
+        class Cursor:
+            def execute(self, *_args, **_kwargs):
+                return None
+
+            def fetchall(self):
+                return [
+                    {
+                        "id": "new-row",
+                        "start_sort_order": 974,
+                        "end_sort_order": 1274,
+                        "translated_text": "Bản mới",
+                        "source_ref": items[0].source_ref,
+                        "match_method": "pdf_heading_boundary",
+                    }
+                ]
+
+        self.assertEqual(cv2_legacy_replacement_ids(Cursor(), ["cv2"], items), [])
+
     def test_verified_manifest_accepts_matching_hashes_and_rejects_tampered_txt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -840,10 +1286,64 @@ class WholeSuttaReaderTests(unittest.TestCase):
         self.assertEqual(resolved["id"], "s")
         self.assertTrue(resolved["_readerUnitExact"])
 
+    def test_reader_uses_the_deepest_source_section_without_title_rules(self):
+        """Hai ca khách chốt phải lấy đúng lớp cuối của trích nguồn.
+
+        Không tên nào dưới đây cần được thêm vào danh sách hậu tố: section id của passage
+        đã xác định chính xác phạm vi cần mở.
+        """
+        from app.main import _reader_section_by_id
+
+        cases = (
+            {
+                "id": "gabbhini",
+                "document_id": "s0102m",
+                "corpus_type": "mul",
+                "title": "Gabbhinīupamā",
+                "source_path": [
+                    "Suttapiṭaka",
+                    "Dīghanikāya",
+                    "Mahāvaggapāḷi",
+                    "10. Pāyāsisuttaṃ",
+                    "Gabbhinīupamā",
+                ],
+                "start_sort_order": 1322,
+                "end_sort_order": 1324,
+            },
+            {
+                "id": "sudinna",
+                "document_id": "vin01m",
+                "corpus_type": "mul",
+                "title": "Sudinnabhāṇavāro",
+                "source_path": [
+                    "Vinayapiṭaka",
+                    "Pārājikapāḷi",
+                    "1. Pārājikakaṇḍaṃ",
+                    "1. Paṭhamapārājikaṃ",
+                    "Sudinnabhāṇavāro",
+                ],
+                "start_sort_order": 28,
+                "end_sort_order": 50,
+            },
+        )
+
+        for section in cases:
+            with self.subTest(title=section["title"]), patch(
+                "app.main.fetch_one", return_value=dict(section)
+            ), patch("app.main.fetch_all", return_value=[]):
+                resolved = _reader_section_by_id(section["id"])
+
+            self.assertEqual(resolved["id"], section["id"])
+            self.assertEqual(
+                (resolved["start_sort_order"], resolved["end_sort_order"]),
+                (section["start_sort_order"], section["end_sort_order"]),
+            )
+            self.assertNotIn("_readerRangeClipped", resolved)
+
     @patch("app.main.official_translations_merged", return_value=[])
     @patch("app.main.fetch_all")
     @patch("app.main.fetch_one")
-    def test_every_human_source_promotes_child_to_canonical_reader_range(
+    def test_every_human_source_keeps_the_deepest_reader_range(
         self,
         fetch_one,
         fetch_all,
@@ -857,14 +1357,6 @@ class WholeSuttaReaderTests(unittest.TestCase):
             "start_sort_order": 40,
             "end_sort_order": 70,
         }
-        parent = {
-            "id": "parent",
-            "document_id": "doc",
-            "title": "Mahāpadānasuttaṃ",
-            "source_path": ["Mahāpadānasuttaṃ"],
-            "start_sort_order": 4,
-            "end_sort_order": 207,
-        }
         fetch_one.return_value = child
         passages = [
             {
@@ -877,13 +1369,12 @@ class WholeSuttaReaderTests(unittest.TestCase):
             }
         ]
         # Thứ tự truy vấn trong `_section_payload`:
-        #   1. tổ tiên cho `_canonical_reader_section`
-        #   2. `_clip_overreaching_range` - rỗng = không có section lạ trong phạm vi
-        #   3. các đoạn
-        #   4. `_fixed_paths_for_sections` metas - rỗng = trả về sớm, bỏ 2 truy vấn con
-        #   5. `_duplicate_path_ranks` - rỗng = địa chỉ này chỉ có một chỗ
-        #   6. `_section_outline` - bài này chỉ một mục con nên mục lục rỗng
-        fetch_all.side_effect = [[parent, child], [], passages, [], [], [child]]
+        #   1. `_clip_overreaching_range` - rỗng = khoảng section không lấn sang hàng xóm
+        #   2. các đoạn của chính section sâu nhất
+        #   3. `_fixed_paths_for_sections` metas - rỗng = trả về sớm, bỏ 2 truy vấn con
+        #   4. `_duplicate_path_ranks` - rỗng = địa chỉ này chỉ có một chỗ
+        #   5. `_section_outline` - không có mục con nên mục lục rỗng
+        fetch_all.side_effect = [[], passages, [], [], []]
 
         from app.main import _section_payload
 
@@ -894,10 +1385,10 @@ class WholeSuttaReaderTests(unittest.TestCase):
             source="sujato",
         )
 
-        self.assertEqual(payload["sectionId"], "parent")
-        self.assertEqual(payload["title"], "Mahāpadānasuttaṃ")
+        self.assertEqual(payload["sectionId"], "child")
+        self.assertEqual(payload["title"], "A child heading")
         self.assertEqual(payload["paliText"], "Passage 1\nEvaṃ me sutaṃ.")
-        self.assertEqual(fetch_all.call_args_list[1].args[1], ["doc", 4, 207])
+        self.assertEqual(fetch_all.call_args_list[1].args[1], ["doc", 40, 70])
         # `paliText` vẫn là chuỗi phẳng cho bản dịch AI, còn `paragraphs` mang thêm neo.
         self.assertEqual(payload["paragraphs"][0]["anchor"], "doan-1")
         self.assertEqual(payload["paragraphs"][0]["passageIds"], ["p1"])
@@ -932,6 +1423,139 @@ class PitakaFilterTests(unittest.TestCase):
         for value in (None, "", "all"):
             self.assertIsNone(resolve_pitaka_type(value))
         self.assertEqual(_pitaka_sql(None), ("", []))
+
+
+class HumanTranslationSearchTests(unittest.TestCase):
+    def test_pdf_spacing_is_repaired_before_translation_search(self):
+        from app.search_engine import _translation_query_words
+
+        terms, word_count = _translation_query_words(
+            "Vị ấy thu ộc hội chúng và thực hành đúng theo giới luật.",
+            "vi",
+        )
+
+        self.assertIn("thuộc", terms)
+        self.assertNotIn("thu", terms)
+        self.assertGreaterEqual(word_count, 10)
+
+    @patch("app.search_engine.fetch_all")
+    def test_pasted_excerpt_similarity_compares_query_against_full_translation(self, fetch_all):
+        from app.search_engine import _retrieve_translation_candidates_for_docs
+
+        fetch_all.return_value = []
+        _retrieve_translation_candidates_for_docs(
+            "Này Upāli, hội chúng thực hiện hành sự đúng Pháp và đúng Luật.",
+            ["00000000-0000-0000-0000-000000000001"],
+            {},
+            20,
+            "vi",
+        )
+
+        sql, params = fetch_all.call_args.args
+        self.assertIn(
+            "word_similarity(lower(%s), lower(h.translated_text))",
+            sql,
+        )
+        self.assertIn(
+            "order by translation_similarity desc, translation_rank desc",
+            sql,
+        )
+        self.assertIn("h.source = 'indacanda_full'", sql)
+        self.assertIn("p.sort_order = h.start_sort_order", sql)
+        self.assertIn("Này Upāli", params[1])
+
+    def test_long_aligned_translation_skips_both_ai_calls(self):
+        from app.search_engine import _rank_candidates
+
+        row = {
+            "id": "passage-1",
+            "text_hash": "same-pali",
+            "translation_source": "indacanda",
+            "corpus_type": "mul",
+        }
+        direct = [{"row": row, "score": 1.2, "keyword": 0.0, "concept": 0.0}]
+        local_analysis = {
+            "cleanQuery": "một đoạn dịch dài",
+            "queryIsPaliLike": False,
+            "mustHavePali": [],
+            "paliExactTerms": [],
+            "shouldHavePali": [],
+        }
+        rendered = {
+            "id": "passage-1",
+            "score": 1.2,
+            "_corpusType": "mul",
+            "_sortOrder": 1,
+        }
+
+        with (
+            patch("app.search_engine.analyze_query", return_value=local_analysis),
+            patch("app.search_engine._document_ids", return_value=["doc-1"]),
+            patch(
+                "app.search_engine._retrieve_translation_candidates_for_docs",
+                return_value=(direct, 12),
+            ),
+            patch("app.search_engine.expand_query_with_ai") as expand,
+            patch("app.search_engine._retrieve_candidates") as retrieve,
+            patch("app.search_engine.rerank_candidates_with_ai") as rerank,
+            patch("app.search_engine.settings", return_value={"search_min_score": 0.0, "search_rerank_limit": 20}),
+            patch("app.search_engine._candidate", return_value=rendered),
+            patch("app.search_engine._apply_corpus_and_quote_bonus"),
+            patch("app.search_engine._collapse_adjacent", side_effect=lambda items: items),
+            patch("app.search_engine._diversify_results", side_effect=lambda items: items),
+        ):
+            analysis, results = _rank_candidates(
+                "đây là một đoạn dịch đủ dài để tìm thẳng trong dữ liệu",
+                ["mul"],
+                None,
+                20,
+                "vi",
+            )
+
+        self.assertTrue(analysis["matchedHumanTranslation"])
+        self.assertEqual(results, [rendered])
+        expand.assert_not_called()
+        retrieve.assert_not_called()
+        rerank.assert_not_called()
+
+    def test_verified_bilingual_section_has_an_explicit_match_reason(self):
+        from app.search_engine import _candidate
+
+        row = {
+            "id": "passage-1",
+            "section_id": "section-1",
+            "document_id": "document-1",
+            "sort_order": 100,
+            "pali_text": "Evaṃ me sutaṃ.",
+            "text_hash": "pali-hash",
+            "corpus_type": "mul",
+            "translation_source": "indacanda_full",
+            "translation_scope": "section",
+            "semantic_score": 0.0,
+        }
+        with (
+            patch("app.search_engine._display_source", return_value="Tipiṭaka Mūla"),
+            patch("app.search_engine._source_has_noisy_item", return_value=False),
+            patch("app.search_engine._exact_quote_rank", return_value=0.0),
+            patch("app.search_engine._exact_quote_density", return_value=0.0),
+        ):
+            result = _candidate(
+                row,
+                1.2,
+                0.0,
+                0.0,
+                ["mul"],
+                None,
+                1,
+                {},
+                "vi",
+            )
+
+        self.assertEqual(
+            result["matchReason"],
+            "Khớp trực tiếp trong chương song ngữ đã căn chỉnh với phần Pāli này.",
+        )
+        self.assertEqual(result["_translationScope"], "section")
 
 
 class ReaderNavigationTests(unittest.TestCase):

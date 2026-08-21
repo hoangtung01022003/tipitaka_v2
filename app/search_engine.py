@@ -634,6 +634,22 @@ def _paragraph_no(row: dict) -> str:
 
 def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_types: list[str], pitaka_type: str | None, rank: int, analysis: dict, language: str = DEFAULT_LANGUAGE) -> dict:
     section_id = row.get("section_id")
+    match_reason = (
+        t(
+            language,
+            "match.humanTranslationSection"
+            if row.get("translation_scope") == "section"
+            else "match.humanTranslation",
+        )
+        if row.get("translation_source")
+        else _match_reason(
+            score,
+            keyword,
+            concept,
+            float(row.get("semantic_score") or 0),
+            language,
+        )
+    )
     return {
         "id": str(row["id"]),
         "rank": rank,
@@ -643,7 +659,7 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
         "paliText": row["pali_text"],
         "contextExpanded": False,
         "translation": {"vi": None, "fromCache": False},
-        "matchReason": _match_reason(score, keyword, concept, float(row.get("semantic_score") or 0), language),
+        "matchReason": match_reason,
         "sectionId": str(section_id) if section_id else None,
         "sectionTitle": row.get("section_title"),
         "canOpenSection": bool(section_id),
@@ -657,6 +673,8 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
         "_concept": concept,
         "_sortOrder": row.get("sort_order"),
         "_originalPaliText": row["pali_text"],
+        "_translationMatch": bool(row.get("translation_source")),
+        "_translationScope": row.get("translation_scope"),
     }
 
 
@@ -695,6 +713,142 @@ def _candidate_columns() -> str:
     """
 
 
+# Truy vấn dài dán nguyên văn từ bản dịch phải đi thẳng vào kho bản dịch đã căn chỉnh,
+# không bắt Gemini tóm tắt nó thành vài thuật ngữ Pāli rồi hy vọng tìm ngược lại đúng chỗ.
+# Sáu từ đủ phân biệt thao tác trích dẫn với câu hỏi khái niệm ngắn; các truy vấn ngắn vẫn
+# đi qua cả nhánh dịch lẫn pipeline ngữ nghĩa hiện có.
+TRANSLATION_QUOTE_MIN_WORDS = 6
+TRANSLATION_SEARCH_MAX_TERMS = 10
+TRANSLATION_SEARCH_ROW_LIMIT = 80
+_TRANSLATION_WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
+_TRANSLATION_STOPWORDS = {
+    "ai", "ấy", "bạn", "bị", "các", "cái", "cho", "có", "của", "đã", "đang",
+    "đến", "đó", "được", "gì", "hay", "họ", "khi", "không", "kia", "là", "lại",
+    "mà", "một", "này", "nên", "những", "nó", "rằng", "sẽ", "thì", "thế", "tôi",
+    "trong", "từ", "và", "về", "vị", "với",
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
+    "it", "of", "on", "or", "that", "the", "this", "to", "was", "were", "with",
+}
+
+
+def _translation_query_words(query: str, language: str) -> tuple[list[str], int]:
+    """Lấy các từ đặc trưng để dò trực tiếp bản dịch của dịch giả.
+
+    Bản Indacanda trong DB đã được sửa các chữ do text layer PDF tách đôi (`thu ộc` ->
+    `thuộc`). Áp cùng phép sửa cho chuỗi người dùng dán để hai phía còn so được với nhau.
+    Import lười và có fallback: lỗi ở tiện ích PDF không được phép làm hỏng tìm kiếm.
+    """
+    cleaned = str(query or "")
+    if normalize_language(language) == "vi":
+        try:
+            from import_indacanda import mend_spacing
+
+            cleaned = mend_spacing(cleaned)
+        except Exception:  # noqa: BLE001 - nhánh tìm kiếm phải còn chạy khi bộ PDF lỗi
+            pass
+    words = [word.casefold() for word in _TRANSLATION_WORD.findall(cleaned)]
+    unique = list(dict.fromkeys(words))
+    if len(words) < TRANSLATION_QUOTE_MIN_WORDS:
+        picked = [word for word in unique if len(word) >= 2]
+    else:
+        content = [
+            (index, word)
+            for index, word in enumerate(unique)
+            if len(word) >= 3 and word not in _TRANSLATION_STOPWORDS
+        ]
+        # Từ dài thường đặc trưng hơn; giữ thứ tự gốc khi cùng độ dài để truy vấn ổn định.
+        picked = [
+            word
+            for _, word in sorted(content, key=lambda item: (-len(item[1]), item[0]))[
+                :TRANSLATION_SEARCH_MAX_TERMS
+            ]
+        ]
+    return picked, len(words)
+
+
+def _retrieve_translation_candidates_for_docs(
+    query: str,
+    doc_ids: list[str],
+    analysis: dict,
+    limit: int,
+    language: str,
+) -> tuple[list[dict], int]:
+    """Tìm bản dịch rồi trả về passage Pāli hoặc chương song ngữ đã căn chỉnh.
+
+    Dòng cấp đoạn cho vị trí chính xác nhất. Ngoài ra chỉ nhận range của
+    `indacanda_full`: đây là các chương song ngữ đã qua cổng tiêu đề đầu/cuối, phủ đúng
+    một section/range liên tục. Kết quả range mở ở passage neo đầu chương, không giả vờ
+    đoán câu Pāli nào bên trong chương tương ứng với câu Việt được dán.
+    """
+    terms, word_count = _translation_query_words(query, language)
+    if not doc_ids or not terms:
+        return [], word_count
+    probe = " ".join(terms)
+    rows = fetch_all(
+        f"""
+        select
+          {_candidate_columns()},
+          0::float as semantic_score,
+          0 as term_hits,
+          h.source as translation_source,
+          case
+            when h.start_sort_order is not null then 'section'
+            else 'passage'
+          end as translation_scope,
+          ts_rank_cd(
+            to_tsvector('simple', h.translated_text),
+            plainto_tsquery('simple', %s)
+          ) as translation_rank,
+          word_similarity(lower(%s), lower(h.translated_text)) as translation_similarity
+        from human_translations h
+        join passages p on p.id = h.passage_id
+        join documents d on d.id = p.document_id
+        left join sections s on s.id = p.section_id
+        where h.language = %s
+          and (
+            (h.start_sort_order is null and h.end_sort_order is null)
+            or (
+              h.source = 'indacanda_full'
+              and h.start_sort_order is not null
+              and h.end_sort_order is not null
+              and h.document_id = p.document_id
+              and p.sort_order = h.start_sort_order
+            )
+          )
+          and p.document_id = any(%s::uuid[])
+          and to_tsvector('simple', h.translated_text)
+              @@ plainto_tsquery('simple', %s)
+        order by translation_similarity desc, translation_rank desc, p.sort_order asc
+        limit %s
+        """,
+        [
+            probe,
+            str(query or ""),
+            normalize_language(language),
+            doc_ids,
+            probe,
+            min(TRANSLATION_SEARCH_ROW_LIMIT, max(10, limit)),
+        ],
+    )
+    candidates: list[dict] = []
+    for row in rows:
+        score, keyword, concept = _score(row, analysis, base=0.88)
+        translation_strength = min(
+            0.62,
+            float(row.get("translation_rank") or 0) * 1.8
+            + float(row.get("translation_similarity") or 0) * 0.42,
+        )
+        candidates.append(
+            {
+                "row": row,
+                "score": score + translation_strength,
+                "keyword": keyword,
+                "concept": concept,
+            }
+        )
+    return candidates, word_count
+
+
 @lru_cache(maxsize=1)
 def _has_embeddings() -> bool:
     """Bật vector search mà bảng chưa có embedding nào thì mỗi lượt tìm vẫn tốn
@@ -703,11 +857,23 @@ def _has_embeddings() -> bool:
     return bool(row)
 
 
-def _retrieve_candidates(query: str, corpus_types: list[str], pitaka_type: str | None, analysis: dict, limit: int) -> list[dict]:
+def _retrieve_candidates(
+    query: str,
+    corpus_types: list[str],
+    pitaka_type: str | None,
+    analysis: dict,
+    limit: int,
+    language: str = DEFAULT_LANGUAGE,
+) -> list[dict]:
     doc_ids = _document_ids(corpus_types, pitaka_type)
     if not doc_ids:
         return []
     candidates: list[dict] = []
+    if not analysis.get("queryIsPaliLike"):
+        translation_candidates, _ = _retrieve_translation_candidates_for_docs(
+            str(analysis.get("rawQuery") or query), doc_ids, analysis, limit, language
+        )
+        candidates.extend(translation_candidates)
     segment_terms = analysis.get("querySegmentTerms") or []
     query_terms = analysis.get("queryTerms") or []
     keyword_terms = sorted({*analysis["paliHints"], *analysis["mustHavePali"], *analysis["shouldHavePali"]})
@@ -1060,6 +1226,8 @@ def _strip_internal_fields(results: list[dict]) -> None:
         item.pop("_contentWords", None)
         item.pop("_sortOrder", None)
         item.pop("_originalPaliText", None)
+        item.pop("_translationMatch", None)
+        item.pop("_translationScope", None)
 
 
 # Chú giải trích lại nguyên văn Chánh tạng, nên cùng một đoạn văn xuất hiện y hệt ở
@@ -1069,7 +1237,11 @@ CORPUS_PROVENANCE_RANK = {"mul": 3, "att": 2, "tik": 1, "nrf": 0}
 
 
 def _prefer_duplicate(candidate: dict, current: dict) -> bool:
-    """Trong các bản sao giống hệt nhau, giữ bản thuộc bộ gốc nhất; hoà thì xét điểm."""
+    """Giữ bản đã khớp trực tiếp bản dịch; nếu hoà mới ưu tiên bộ gốc rồi xét điểm."""
+    new_translation = bool(candidate["row"].get("translation_source"))
+    old_translation = bool(current["row"].get("translation_source"))
+    if new_translation != old_translation:
+        return new_translation
     new_rank = CORPUS_PROVENANCE_RANK.get(str(candidate["row"].get("corpus_type") or ""), 0)
     old_rank = CORPUS_PROVENANCE_RANK.get(str(current["row"].get("corpus_type") or ""), 0)
     if new_rank != old_rank:
@@ -1214,16 +1386,59 @@ def _rank_candidates(
     """
     local_analysis = analyze_query(query, corpus_types)
     clean_query = str(local_analysis.get("cleanQuery") or query)
-    # Truyen ngon ngu xuong: prompt mo rong truy van co ban rieng cho vi/en/my, khong con
-    # noi cung la "cau hoi tieng Viet" nhu truoc.
-    analysis = merge_expansion(local_analysis, expand_query_with_ai(query, clean_query, language))
-    # Gốc hợp từ vào luôn shouldHavePali để vừa dùng cho truy vấn vừa dùng cho chấm điểm.
-    analysis["paliStems"] = _compound_stems([*(analysis.get("mustHavePali") or []), *(analysis.get("paliExactTerms") or [])])
-    if analysis["paliStems"]:
-        analysis["shouldHavePali"] = [*(analysis.get("shouldHavePali") or []), *analysis["paliStems"]]
-    retrieval_query = str(analysis.get("cleanQuery") or clean_query or query)
-    limit = _candidate_limit(page_size, analysis)
-    candidates = _retrieve_candidates(retrieval_query, corpus_types, pitaka_type, analysis, limit)
+    limit = _candidate_limit(page_size, local_analysis)
+    direct_translation_quote = False
+    candidates: list[dict] = []
+
+    # Một đoạn dịch dài đã được căn chỉnh là bằng chứng trực tiếp mạnh hơn suy luận của
+    # Gemini. Dò nó trước; có kết quả thì bỏ hẳn hai lượt AI mở rộng/rerank, vừa chính xác
+    # hơn vừa tránh timeout cho thao tác paste nguyên văn.
+    if not local_analysis.get("queryIsPaliLike"):
+        doc_ids = _document_ids(corpus_types, pitaka_type)
+        direct_candidates, translation_word_count = _retrieve_translation_candidates_for_docs(
+            query, doc_ids, local_analysis, limit, language
+        )
+        direct_translation_quote = bool(
+            direct_candidates and translation_word_count >= TRANSLATION_QUOTE_MIN_WORDS
+        )
+        if direct_translation_quote:
+            candidates = direct_candidates
+
+    if direct_translation_quote:
+        analysis = dict(local_analysis)
+        analysis["paliStems"] = []
+        analysis["matchedHumanTranslation"] = True
+    else:
+        # Truy vấn ngắn vẫn dùng ngữ nghĩa Pāli hiện có; `_retrieve_candidates` đồng thời
+        # trộn thêm các hit trực tiếp từ bản dịch để exact text không bị AI làm loãng.
+        analysis = merge_expansion(
+            local_analysis, expand_query_with_ai(query, clean_query, language)
+        )
+        # Giữ nguyên câu người dùng cho nhánh dò bản dịch. `cleanQuery` phía dưới có thể
+        # đã là các thuật ngữ Pāli do Gemini sinh ra, không còn là chuỗi Việt để so DB.
+        analysis["rawQuery"] = query
+        # Gốc hợp từ vào luôn shouldHavePali để vừa dùng cho truy vấn vừa dùng cho chấm điểm.
+        analysis["paliStems"] = _compound_stems(
+            [
+                *(analysis.get("mustHavePali") or []),
+                *(analysis.get("paliExactTerms") or []),
+            ]
+        )
+        if analysis["paliStems"]:
+            analysis["shouldHavePali"] = [
+                *(analysis.get("shouldHavePali") or []),
+                *analysis["paliStems"],
+            ]
+        retrieval_query = str(analysis.get("cleanQuery") or clean_query or query)
+        limit = _candidate_limit(page_size, analysis)
+        candidates = _retrieve_candidates(
+            retrieval_query,
+            corpus_types,
+            pitaka_type,
+            analysis,
+            limit,
+            language,
+        )
 
     min_score = float(settings()["search_min_score"])
     by_hash: dict[str, dict] = {}
@@ -1244,7 +1459,11 @@ def _rank_candidates(
         for idx, item in enumerate(rerank_window)
     ]
 
-    reranked = rerank_candidates_with_ai(query, analysis, rerank_candidates, language)
+    reranked = (
+        []
+        if direct_translation_quote
+        else rerank_candidates_with_ai(query, analysis, rerank_candidates, language)
+    )
     if reranked:
         by_id = {item["id"]: item for item in rerank_candidates}
         used: set[str] = set()

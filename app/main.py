@@ -178,7 +178,7 @@ def _is_reader_unit_title(title: str) -> bool:
 # `vin02m3` 14, `s0517m` (Paṭisambhidāmagga) 13. Trường Bộ (`s0101m`/`s0102m`/`s0103m`)
 # KHÔNG có mục nào đổi: `kathā` trong đó luôn có tổ tiên lớp A là bài kinh, nên vẫn leo
 # đúng lên bài kinh. Đó là phép kiểm quan trọng nhất của luật này.
-_READER_CONTEXT_SUFFIXES = ("katha", "khandhako", "khandhakam")
+_READER_CONTEXT_SUFFIXES = ("katha", "khandhako", "khandhakam", "niddeso", "niddesa", "niddesam")
 
 
 # Hai từ này kết thúc bằng `kathā` nhưng KHÔNG phải đơn vị đọc: `aṭṭhakathā` là tên bộ chú
@@ -212,6 +212,12 @@ def _is_reader_unit_row(row: dict) -> bool:
     cùng độ dài (`6. Gatikathā` 13 đoạn -> `Gatikathāvaṇṇanā` 13 đoạn).
     """
     title = str(row.get("title") or "")
+    if title in ("Paṭhamavaggo", "Dutiyavaggo", "Tatiyavaggo", "Catutthavaggo"):
+        # Trong Khaggavisāṇasuttaniddeso (Tiểu Nghĩa Tích), các phẩm con không có số
+        # và là đơn vị đọc nhỏ nhất mà bản dịch hỗ trợ (cỡ 100 đoạn mỗi phẩm).
+        span = row["end_sort_order"] - row["start_sort_order"] + 1
+        if span <= READER_FALLBACK_MAX_PASSAGES:
+            return True
     if _is_reader_unit_title(title):
         return True
     core = _reader_core(title)[1]
@@ -309,6 +315,10 @@ def _is_enumerated_title(title: str) -> bool:
 
 def _canonical_reader_section(section: dict) -> dict:
     """Đưa một mục con lên đơn vị đọc hoàn chỉnh gần nhất trong cây section.
+
+    Đây là bộ suy luận CŨ, hiện chỉ còn được giữ cho các phép audit/import đã viết dựa
+    trên nó. Trang đọc thật không gọi hàm này nữa: quy tắc hiện hành là dùng nguyên
+    `passages.section_id`, tức lớp nguồn sâu nhất mà đoạn đang trực tiếp thuộc về.
 
     `passages.section_id` trỏ vào mục sâu nhất. Ví dụ đoạn 11 của DN 14 trỏ vào
     `Pubbenivāsapaṭisaṃyuttakathā` (4-35), trong khi bài kinh thật là
@@ -686,6 +696,13 @@ def _clip_overreaching_range(row: dict) -> dict:
 
 
 def _reader_section_by_id(section_id: str) -> dict | None:
+    """Lấy đúng section được yêu cầu, không tự nâng lên một tổ tiên có tên "hợp lệ".
+
+    `passages.section_id` đã là khóa của lớp sâu nhất trong trích nguồn. Dùng trực tiếp
+    khóa này làm phạm vi đọc vừa nhất quán cho mọi Tạng, vừa không cần danh sách hậu tố
+    hay ngoại lệ theo nhan đề. Vẫn giữ phép cắt phạm vi XML ghi quá rộng để một section
+    lỗi không nuốt sang section kế tiếp.
+    """
     section = fetch_one(
         """
         select s.id, s.document_id, s.title, s.source_path, s.start_sort_order,
@@ -696,7 +713,7 @@ def _reader_section_by_id(section_id: str) -> dict | None:
         """,
         [section_id],
     )
-    return _canonical_reader_section(section) if section else None
+    return _clip_overreaching_range(section) if section else None
 
 
 def _language_from_header(header: str) -> str | None:
@@ -784,6 +801,31 @@ def search_api(payload: dict, request: Request):
         language=language,
     )
 
+@app.post("/log-timeout")
+def log_timeout(
+    query: str = Form(...),
+    corpus_type: str = Form(...),
+    pitaka_type: str | None = Form(None),
+):
+    from .db import execute
+    from psycopg.types.json import Jsonb
+    try:
+        execute(
+            """
+            insert into search_logs (query, filters, expanded_query, result_passage_ids, status)
+            values (%s, %s::jsonb, %s::jsonb, %s::uuid[], 'timeout')
+            """,
+            [
+                query,
+                Jsonb({"corpusType": resolve_corpus_types(corpus_type), "pitakaType": resolve_pitaka_type(pitaka_type)}),
+                Jsonb({}),
+                [],
+            ],
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+    return {"status": "ok"}
 
 @app.post("/search-page", response_class=HTMLResponse)
 def search_page(
@@ -826,10 +868,9 @@ def search_page(
             if source_id != AI_SOURCE and source_id not in present
         ]
 
-        # Nút đọc toàn bài phải trỏ vào bài kinh cha, không phải mục con sâu nhất mà
-        # đoạn tìm kiếm đang nằm trong đó.
-        reader_section = _reader_section_by_id(str(item.get("sectionId"))) if item.get("sectionId") else None
-        item["readerSectionId"] = str(reader_section["id"]) if reader_section else item.get("sectionId")
+        # `sectionId` do truy vấn passage trả về đã là lớp sâu nhất trong trích nguồn.
+        # Dùng thẳng nó cho trang đọc: không phân tích tên, không nâng lên bài/chương cha.
+        item["readerSectionId"] = item.get("sectionId")
 
     # Địa chỉ trích dẫn phải chỉ được MỘT chỗ. Một tài liệu có thể chứa hai bộ chú giải nối
     # nhau, sinh ra hai section trùng cả tiêu đề lẫn đường dẫn - xem `_duplicate_path_ranks`.
@@ -851,8 +892,7 @@ def search_page(
             language,
         )
 
-    # Tra độ phủ theo BÀI KINH CHA. `passages.section_id` thường là mục con, nên tra
-    # theo section cũ làm Sujato/Indacanda có ở phần khác của bài bị báo nhầm là trống.
+    # Tra độ phủ theo đúng lớp nguồn sâu nhất sẽ được mở trong trang đọc.
     section_sources = sources_for_sections([item.get("readerSectionId") for item in results], language)
     for item in results:
         section_entries = section_sources.get(str(item.get("readerSectionId")), [])
@@ -1310,10 +1350,10 @@ def _section_payload(
     if not section:
         raise HTTPException(status_code=404, detail="Section not found.")
 
-    # Mọi nguồn của dịch giả đều dùng cùng một Pali trọn bài. Trước đây chỉ hai nguồn
-    # cấp bài được nâng lên section cha, còn Indacanda đoạn/Sujato vẫn mở mục con nên
-    # cùng một nút "toàn bộ bài kinh" cho ra ba phạm vi khác nhau.
-    section = _canonical_reader_section(section)
+    # Phạm vi đọc là đúng section sâu nhất đã nhận từ `passages.section_id`; không nâng
+    # lên tổ tiên dựa trên hậu tố nhan đề. Phép cắt chỉ sửa những khoảng XML ghi lấn sang
+    # section không phải hậu duệ, không thay đổi cấp của section.
+    section = _clip_overreaching_range(section)
 
     rows = fetch_all(
         """
@@ -1338,9 +1378,9 @@ def _section_payload(
     else:
         translation, attempted_translation = {"vi": None, "text": None, "fromCache": False, "pending": True}, False
     source_path = section.get("source_path") or []
-    # Bản dịch của dịch giả cho cả bài, ghép theo đúng thứ tự các đoạn đang có.
-    # `covers_whole_sutta=True`: ở đây `rows` là TOÀN BỘ đoạn của bài kinh, nên nguồn cấp
-    # đoạn phủ đủ 100% được dán nhãn "(toàn bộ bài kinh)" - đúng thứ đang hiện ra.
+    # Bản dịch của dịch giả cho toàn bộ section đang đọc, ghép theo đúng thứ tự các đoạn.
+    # Tên tham số `covers_whole_sutta` là hợp đồng cũ của tầng nguồn dịch; tại đây nó có
+    # nghĩa là đã truyền đủ mọi đoạn của phạm vi đang hiển thị.
     official_list = official_translations_merged(
         [str(row["id"]) for row in rows], language, covers_whole_sutta=True
     )
@@ -1700,19 +1740,21 @@ ADMIN_HISTORY_BATCH = 20
 ADMIN_HISTORY_MAX_BATCH = 100
 
 
-def _admin_history_where(keyword: str, only_empty: bool) -> tuple[str, list[object]]:
+def _admin_history_where(keyword: str, only_empty: bool, only_timeout: bool) -> tuple[str, list[object]]:
     conditions: list[str] = []
     params: list[object] = []
     if keyword:
         conditions.append("query ilike %s")
         params.append(f"%{keyword}%")
-    if only_empty:
+    if only_timeout:
+        conditions.append("status = 'timeout'")
+    elif only_empty:
         # Đúng các lượt tìm không ra kết quả nào - chính là nhóm khách muốn soi.
-        conditions.append("coalesce(array_length(result_passage_ids, 1), 0) = 0")
+        conditions.append("coalesce(array_length(result_passage_ids, 1), 0) = 0 and (status is null or status != 'timeout')")
     return (("where " + " and ".join(conditions)) if conditions else ""), params
 
 
-def _admin_history_rows(keyword: str, only_empty: bool, limit: int,
+def _admin_history_rows(keyword: str, only_empty: bool, only_timeout: bool, limit: int,
                         before_time: str | None, before_id: str | None) -> list[dict]:
     """Một mẻ lịch sử, cũ dần kể từ mốc `before`.
 
@@ -1720,7 +1762,7 @@ def _admin_history_rows(keyword: str, only_empty: bool, limit: int,
     lượt tìm kiếm, nên trong lúc người dùng cuộn thì offset bị đẩy lệch - dòng đã xem lại
     hiện lại, dòng chưa xem thì trượt mất. Mốc `(created_at, id)` không bị ảnh hưởng.
     """
-    where_sql, params = _admin_history_where(keyword, only_empty)
+    where_sql, params = _admin_history_where(keyword, only_empty, only_timeout)
     if before_time and before_id:
         cursor_sql = "(created_at, id) < (%s::timestamptz, %s::uuid)"
         where_sql = f"{where_sql} and {cursor_sql}" if where_sql else f"where {cursor_sql}"
@@ -1729,6 +1771,7 @@ def _admin_history_rows(keyword: str, only_empty: bool, limit: int,
         f"""
         select id, query, filters,
                coalesce(array_length(result_passage_ids, 1), 0) as result_count,
+               status,
                created_at
         from search_logs
         {where_sql}
@@ -1744,13 +1787,14 @@ def admin_history(
     request: Request,
     q: str = Query(""),
     only_empty: bool = Query(False),
+    only_timeout: bool = Query(False),
     _: str = Depends(get_current_admin),
 ):
     keyword = q.strip()
-    where_sql, params = _admin_history_where(keyword, only_empty)
+    where_sql, params = _admin_history_where(keyword, only_empty, only_timeout)
 
     # Chỉ mẻ đầu; phần còn lại do trình duyệt xin thêm khi cuộn tới đáy.
-    logs = _admin_history_rows(keyword, only_empty, ADMIN_HISTORY_BATCH, None, None)
+    logs = _admin_history_rows(keyword, only_empty, only_timeout, ADMIN_HISTORY_BATCH, None, None)
 
     total_row = fetch_one(f"select count(*) as cnt from search_logs {where_sql}", params)
     total_logs = total_row["cnt"] if total_row else 0
@@ -1759,9 +1803,12 @@ def admin_history(
     all_logs = all_row["cnt"] if all_row else 0
 
     empty_row = fetch_one(
-        "select count(*) as cnt from search_logs where coalesce(array_length(result_passage_ids, 1), 0) = 0"
+        "select count(*) as cnt from search_logs where coalesce(array_length(result_passage_ids, 1), 0) = 0 and (status is null or status != 'timeout')"
     )
     empty_logs = empty_row["cnt"] if empty_row else 0
+
+    timeout_row = fetch_one("select count(*) as cnt from search_logs where status = 'timeout'")
+    timeout_logs = timeout_row["cnt"] if timeout_row else 0
 
     top_queries = fetch_all(
         """
@@ -1783,12 +1830,14 @@ def admin_history(
             "total_logs": total_logs,
             "all_logs": all_logs,
             "empty_logs": empty_logs,
+            "timeout_logs": timeout_logs,
             "corpus_options": corpus_labels,
             "pitaka_options": pitaka_labels,
             "top_queries": top_queries,
             "batch": ADMIN_HISTORY_BATCH,
             "q": keyword,
             "only_empty": only_empty,
+            "only_timeout": only_timeout,
             "ga_measurement_id": settings().get("ga_measurement_id", ""),
         },
     )
@@ -1798,6 +1847,7 @@ def admin_history(
 def api_admin_history_rows(
     q: str = Query(""),
     only_empty: bool = Query(False),
+    only_timeout: bool = Query(False),
     limit: int = Query(ADMIN_HISTORY_BATCH, ge=1, le=ADMIN_HISTORY_MAX_BATCH),
     before_time: str = Query(""),
     before_id: str = Query(""),
@@ -1810,7 +1860,7 @@ def api_admin_history_rows(
     """
     corpus_labels, pitaka_labels = _admin_filter_labels()
     rows = _admin_history_rows(
-        q.strip(), only_empty, limit + 1, before_time or None, before_id or None
+        q.strip(), only_empty, only_timeout, limit + 1, before_time or None, before_id or None
     )
     has_more = len(rows) > limit
     rows = rows[:limit]
@@ -1831,6 +1881,7 @@ def api_admin_history_rows(
                 "query": row.get("query") or "",
                 "badges": badges,
                 "resultCount": int(row.get("result_count") or 0),
+                "status": row.get("status") or "success",
             }
         )
     return {"rows": payload, "hasMore": has_more}

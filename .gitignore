@@ -19,12 +19,12 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
-export_data.sql
 # Gồm cả uvicorn_8001.log và các log nạp dữ liệu sinh ra khi chạy import_*.py
 *.log
 *.sql
 # Database Dumps and Large Archives
-# Luật này cũng chặn luôn export_data.sql (65 MB) - bản xuất dữ liệu để đẩy sang VPS,
+# Luật `*.sql` cũng chặn luôn export_data.sql (hiện khoảng 180 MB) - bản xuất dữ liệu
+# để đẩy sang VPS,
 # chuyển bằng tay chứ không đi qua kho mã nguồn.
 
 *.dump
@@ -77,9 +77,21 @@ export_data_before_spacing_fix.sql
 # thái DB lúc chạy, nên đưa vào kho mã nguồn chỉ gây nhiễu diff và dễ bị đọc như số liệu
 # hiện hành. Chạy lại script là có bản mới.
 reader_unit_check*.json
+reader_units_*.json
 dev_*_report.json
 dev_*_audit.json
 coverage_report.json
+
+# Script/file dùng một lần để dò hoặc sửa trực tiếp DB local. Logic cần giữ phải được
+# chuyển vào importer, migration hoặc test có tên rõ ràng trước khi commit.
+scratch_*.py
+fix_text*.py
+append_text.py
+check_db.py
+check_unresolved.py
+sample*.txt
+*_output.txt
+vin01m.xml
 
 # Bản dump DB nội bộ (tipitaka-data.dump ~104 MB). Chuyển bằng tay như export_data.sql.
 *.dump

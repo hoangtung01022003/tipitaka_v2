@@ -353,6 +353,11 @@
             <p style="color:#6b7280; font-size:0.85rem; margin:0.4rem 0 0;">Đây là nhóm từ khóa cần ưu tiên tối ưu.</p>
           </div>
           <div class="statCard">
+            <h3>Lượt kết nối bị gián đoạn</h3>
+            <p class="statNum" style="color:#d97706;">{{ timeout_logs }}</p>
+            <p style="color:#6b7280; font-size:0.85rem; margin:0.4rem 0 0;">Lỗi 504 khi thời gian xử lý quá lâu.</p>
+          </div>
+          <div class="statCard">
             <h3>Top từ khóa tìm nhiều nhất</h3>
             <ol class="topQueriesList">
               {% for item in top_queries %}
@@ -368,7 +373,11 @@
           <input type="text" name="q" value="{{ q }}" placeholder="Lọc theo từ khóa tìm kiếm..." />
           <label>
             <input type="checkbox" name="only_empty" value="true" {% if only_empty %}checked{% endif %} />
-            Chỉ hiện lượt không ra kết quả
+            Chỉ hiện không kết quả
+          </label>
+          <label>
+            <input type="checkbox" name="only_timeout" value="true" {% if only_timeout %}checked{% endif %} />
+            Chỉ hiện gián đoạn (timeout)
           </label>
           <button class="toolbarButton" type="submit">Áp dụng</button>
           <a class="toolbarButton ghost" href="/admin/history" style="text-decoration:none;">Xóa bộ lọc</a>
@@ -403,7 +412,9 @@
                     {% endif %}
                   </td>
                   <td>
-                    {% if log.result_count %}
+                    {% if log.status == 'timeout' %}
+                      <span class="emptyBadge" style="background:#fef3c7; color:#d97706;">Gián đoạn (Timeout)</span>
+                    {% elif log.result_count %}
                       {{ log.result_count }} kết quả
                     {% else %}
                       <span class="emptyBadge">0 kết quả</span>
@@ -444,6 +455,7 @@
             const params = new URLSearchParams({
               q: {{ (q or '') | tojson }},
               only_empty: {{ 'true' if only_empty else 'false' }},
+              only_timeout: {{ 'true' if only_timeout else 'false' }},
               limit: String(BATCH),
             });
 
@@ -481,7 +493,14 @@
               tr.appendChild(badges);
 
               const count = document.createElement('td');
-              if (row.resultCount) {
+              if (row.status === 'timeout') {
+                const badge = document.createElement('span');
+                badge.className = 'emptyBadge';
+                badge.style.background = '#fef3c7';
+                badge.style.color = '#d97706';
+                badge.textContent = 'Gián đoạn (Timeout)';
+                count.appendChild(badge);
+              } else if (row.resultCount) {
                 count.textContent = row.resultCount + ' kết quả';
               } else {
                 const badge = document.createElement('span');

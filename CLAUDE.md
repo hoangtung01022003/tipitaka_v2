@@ -195,6 +195,14 @@ Translation payloads carry both `text` (language-neutral) and `vi` (the original
 
 ### The whole-discourse reader unit (`_canonical_reader_section`)
 
+**Superseded for the production reader on 2026-08-21.** The reader now uses the exact
+deepest section referenced by `passages.section_id`; it does not promote by title suffix
+or ancestor range. `_canonical_reader_section` and the tier analysis below remain only
+for historical audit/import scripts. Do not wire that helper back into `_section_payload`
+or `_reader_section_by_id`: doing so changes `Gabbhinīupamā` (3 passages) back into all of
+`Pāyāsisuttaṃ` (56), and `Sudinnabhāṇavāro` (23) back into all of
+`Paṭhamapārājikaṃ` (140), contrary to the current reader contract.
+
 `passages.section_id` points at the deepest subsection, so "Xem toàn bộ bài kinh" has to climb before it can show a discourse. The climb is **two-tier**, and the second tier is what makes the button honest:
 
 1. The nearest ancestor whose title passes `_is_reader_unit_title` — a real discourse.
@@ -615,7 +623,7 @@ The requests live in `feat_new/Yêu cầu.docx` (feature list) and `feat_new/toi
 
 **The client's proposed fallback** was two ideas; only one was buildable now:
    - *Progressive query shortening* (`"có người đi tìm rắn…"` → `"tìm rắn"` → `"rắn"`) — **DONE** in `fallback_search.py`, triggered only when page 1 comes back empty, with the substituted keyword surfaced to the reader.
-   - *Routing through bilingual Pali-facing human translations, then tracing the facing Pali back into the Tipiṭaka* — **partially unblocked.** The round trip the client described (find in translation → read off the facing Pali → search the Pali again in the Tipiṭaka) is redundant: once `human_translations` rows are joined to `passages`, finding the translation *is* finding the passage. With Sujato imported, an English-language search route can be built as a direct query over `human_translations.translated_text` joined back to `passages` — no second lookup. Still to do: the importer for the two Vietnamese editions, and the search branch itself.
+   - *Routing through bilingual Pali-facing human translations, then tracing the facing Pali back into the Tipiṭaka* — **DONE for aligned passage rows and verified Indacanda bilingual sections.** The round trip the client described (find in translation → read off the facing Pali → search the Pali again in the Tipiṭaka) is redundant: `search_engine._retrieve_translation_candidates_for_docs` queries `human_translations.translated_text` and joins the hit straight back to `passages`. A long non-Pāli paste is checked before Gemini and, when matched, skips both AI expansion and AI reranking; short conceptual queries keep the existing semantic route and mix in direct translation hits. Passage rows return the exact Pāli passage. `indacanda_full` range rows are also searchable because their heading boundaries were verified against facing Pāli/Việt pages; they return the first passage of the verified section and never pretend to infer an exact sentence alignment inside it. Other whole-discourse sources remain excluded. Unresolved PDF pairs remain unsearchable until they can be aligned safely.
 
 ### New source material under `feat_new/` (not yet ingested)
 

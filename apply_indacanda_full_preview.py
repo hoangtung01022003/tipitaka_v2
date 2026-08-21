@@ -19,7 +19,11 @@ import sys
 from app.db import get_conn
 from app.text_artifacts import unicode_artifacts
 from import_indacanda import VOLUMES, mend_spacing
-from indacanda_full_extract import OUTPUT_ROOT, SUPPORTED_VOLUMES
+from indacanda_full_extract import (
+    DEEPEST_ALIGNED_SPECS,
+    OUTPUT_ROOT,
+    SUPPORTED_VOLUMES,
+)
 
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -37,6 +41,22 @@ METHOD_RANK = {
     METHOD: 45,
     "manual": 50,
 }
+CV1_EXPECTED_SEGMENTS = 119
+CV1_LAST_SORT_ORDER = 973
+CV1_LEGACY_RANGES = {(0, 352), (353, 478), (479, 754)}
+CV1_SOURCE_REF_PREFIX = "cv1:ttpv_06_Cv_I.pdf:"
+CV2_EXPECTED_SEGMENTS = 73
+CV2_FIRST_SORT_ORDER = 974
+CV2_LAST_SORT_ORDER = 2462
+CV2_LEGACY_RANGES = {
+    (974, 1274),
+    (1275, 1556),
+    (1557, 1695),
+    (2094, 2335),
+    (2336, 2385),
+    (2386, 2462),
+}
+CV2_SOURCE_REF_PREFIX = "cv2:ttpv_07_Cv_II.pdf:"
 
 
 @dataclass(frozen=True)
@@ -167,7 +187,278 @@ def load_verified_volume(volume: str, preview_root: Path) -> tuple[list[Verified
     return verified, len(review_items), hashlib.sha256(manifest_bytes).hexdigest()
 
 
-def build_plan(cursor, items: list[VerifiedItem]) -> list[PlannedItem]:
+def _cv1_direct_run_matches(cursor, item: VerifiedItem, section: dict) -> bool:
+    """Cho phép một run trực tiếp sâu nhất, nhưng không cho range tùy ý.
+
+    Cullavagga I và năm tập nạp lại đều có passage thuộc trực tiếp section cha,
+    đôi khi thành nhiều khoảng rời xen giữa section lá. Mỗi item phải là một run
+    liên tục tối đa do chính section đó sở hữu; không thể nạp lại range cha rộng.
+    """
+    if item.volume != "cv1" and item.volume not in DEEPEST_ALIGNED_SPECS:
+        return False
+    if (
+        str(section["document_id"]) != item.document_id
+        or str(section["title"]) != item.title
+        or item.start < int(section["start_sort_order"])
+        or item.end > int(section["end_sort_order"])
+    ):
+        return False
+
+    expected = item.end - item.start + 1
+    cursor.execute(
+        """
+        select count(*) as total,
+               count(*) filter (where section_id = %s) as directly_owned
+        from passages
+        where document_id = %s and sort_order between %s and %s
+        """,
+        [item.section_id, item.document_id, item.start, item.end],
+    )
+    counts = cursor.fetchone()
+    if (
+        not counts
+        or int(counts["total"]) != expected
+        or int(counts["directly_owned"]) != expected
+    ):
+        return False
+
+    cursor.execute(
+        """
+        select count(*) as same_section_neighbors
+        from passages
+        where document_id = %s and section_id = %s
+          and sort_order in (%s, %s)
+        """,
+        [item.document_id, item.section_id, item.start - 1, item.end + 1],
+    )
+    neighbors = cursor.fetchone()
+    return bool(neighbors) and int(neighbors["same_section_neighbors"]) == 0
+
+
+def cv1_legacy_replacement_ids(
+    cursor, volumes: list[str], items: list[VerifiedItem]
+) -> list[str]:
+    """Xác định đúng ba row chương cv1 cũ chỉ khi bản thay thế đã hoàn chỉnh."""
+    if volumes != ["cv1"]:
+        return []
+
+    ordered = sorted(items, key=lambda item: (item.start, item.end))
+    expected_start = 0
+    coverage_ok = len(ordered) == CV1_EXPECTED_SEGMENTS
+    document_ids = {item.document_id for item in ordered}
+    for item in ordered:
+        if item.start != expected_start or item.end < item.start:
+            coverage_ok = False
+            break
+        expected_start = item.end + 1
+    coverage_ok = (
+        coverage_ok
+        and len(document_ids) == 1
+        and expected_start == CV1_LAST_SORT_ORDER + 1
+    )
+    if not coverage_ok:
+        raise RuntimeError(
+            "cv1: chỉ được thay dữ liệu cũ khi đủ 119 PASS phủ liên tục sort_order 0-973"
+        )
+
+    document_id = next(iter(document_ids))
+    cursor.execute(
+        """
+        select id, start_sort_order, end_sort_order, source_ref, match_method
+        from human_translations
+        where source = %s and document_id = %s
+          and (
+            (start_sort_order = 0 and end_sort_order = 352)
+            or (start_sort_order = 353 and end_sort_order = 478)
+            or (start_sort_order = 479 and end_sort_order = 754)
+          )
+        order by start_sort_order, id
+        """,
+        [SOURCE, document_id],
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return []
+    ranges = {
+        (int(row["start_sort_order"]), int(row["end_sort_order"])) for row in rows
+    }
+    if len(rows) != 3 or ranges != CV1_LEGACY_RANGES:
+        raise RuntimeError("cv1: tập row chương cũ không còn đúng ba range đã kiểm chứng")
+    if any(
+        row.get("match_method") == "manual"
+        or not str(row.get("source_ref") or "").startswith(CV1_SOURCE_REF_PREFIX)
+        for row in rows
+    ):
+        raise RuntimeError("cv1: row chương cũ có nguồn/method được bảo vệ; không tự động thay")
+    return [str(row["id"]) for row in rows]
+
+
+def cv2_legacy_replacement_ids(
+    cursor, volumes: list[str], items: list[VerifiedItem]
+) -> list[str]:
+    """Xác định sáu row chương cv2 cũ chỉ khi đủ 73 section thay thế."""
+    if volumes != ["cv2"]:
+        return []
+
+    ordered = sorted(items, key=lambda item: (item.start, item.end))
+    expected_start = CV2_FIRST_SORT_ORDER
+    coverage_ok = len(ordered) == CV2_EXPECTED_SEGMENTS
+    document_ids = {item.document_id for item in ordered}
+    for item in ordered:
+        if item.start != expected_start or item.end < item.start:
+            coverage_ok = False
+            break
+        expected_start = item.end + 1
+    coverage_ok = (
+        coverage_ok
+        and len(document_ids) == 1
+        and expected_start == CV2_LAST_SORT_ORDER + 1
+    )
+    if not coverage_ok:
+        raise RuntimeError(
+            "cv2: chỉ được thay dữ liệu cũ khi đủ 73 PASS phủ liên tục sort_order 974-2462"
+        )
+
+    document_id = next(iter(document_ids))
+    cursor.execute(
+        """
+        select id, start_sort_order, end_sort_order, translated_text,
+               source_ref, match_method
+        from human_translations
+        where source = %s and document_id = %s
+          and (
+            (start_sort_order = 974 and end_sort_order = 1274)
+            or (start_sort_order = 1275 and end_sort_order = 1556)
+            or (start_sort_order = 1557 and end_sort_order = 1695)
+            or (start_sort_order = 2094 and end_sort_order = 2335)
+            or (start_sort_order = 2336 and end_sort_order = 2385)
+            or (start_sort_order = 2386 and end_sort_order = 2462)
+          )
+        order by start_sort_order, id
+        """,
+        [SOURCE, document_id],
+    )
+    rows = cursor.fetchall()
+    intended_by_range = {(item.start, item.end): item for item in ordered}
+    # Sau lần áp dụng đầu tiên, section sâu nhất đầu tiên (974-1274) tình cờ có
+    # cùng range với row chương cũ. Không được nhận nhầm chính row mới này là
+    # dữ liệu legacy ở lần dry-run kế tiếp.
+    rows = [
+        row
+        for row in rows
+        if not (
+            (intended := intended_by_range.get(
+                (int(row["start_sort_order"]), int(row["end_sort_order"]))
+            ))
+            and row.get("translated_text") == intended.text
+            and row.get("source_ref") == intended.source_ref
+            and row.get("match_method") == METHOD
+        )
+    ]
+    if not rows:
+        return []
+    ranges = {
+        (int(row["start_sort_order"]), int(row["end_sort_order"])) for row in rows
+    }
+    if len(rows) != 6 or ranges != CV2_LEGACY_RANGES:
+        raise RuntimeError("cv2: tập row chương cũ không còn đúng sáu range đã kiểm chứng")
+    if any(
+        row.get("match_method") == "manual"
+        or not str(row.get("source_ref") or "").startswith(CV2_SOURCE_REF_PREFIX)
+        for row in rows
+    ):
+        raise RuntimeError("cv2: row chương cũ có nguồn/method được bảo vệ; không tự động thay")
+    return [str(row["id"]) for row in rows]
+
+
+def deepest_legacy_replacement_ids(
+    cursor, volumes: list[str], items: list[VerifiedItem]
+) -> list[str]:
+    """Thay preview cũ của đúng một PDF theo transaction.
+
+    Chỉ kích hoạt khi manifest đủ 100% segment PASS và phủ liên tục toàn phạm
+    vi đã khóa. Nhờ prefix gồm cả volume+tên PDF, mv1/mv2 dùng chung document
+    nhưng không bao giờ xóa dữ liệu của nhau. Một spec có `replace_range_only`
+    chỉ thay các row chồng đúng phạm vi con đã khóa; các chương khác được giữ lại.
+    """
+    if len(volumes) != 1 or volumes[0] not in DEEPEST_ALIGNED_SPECS:
+        return []
+    volume = volumes[0]
+    spec = DEEPEST_ALIGNED_SPECS[volume]
+    ordered = sorted(items, key=lambda item: (item.start, item.end))
+    expected_start = int(spec["first_sort_order"])
+    coverage_ok = len(ordered) == int(spec["expected_count"])
+    document_ids = {item.document_id for item in ordered}
+    for item in ordered:
+        if item.volume != volume or item.start != expected_start or item.end < item.start:
+            coverage_ok = False
+            break
+        expected_start = item.end + 1
+    coverage_ok = (
+        coverage_ok
+        and len(document_ids) == 1
+        and expected_start == int(spec["last_sort_order"]) + 1
+    )
+    if not coverage_ok:
+        raise RuntimeError(
+            f"{volume}: chỉ thay dữ liệu cũ khi đủ {spec['expected_count']} PASS "
+            f"phủ liên tục sort_order {spec['first_sort_order']}-"
+            f"{spec['last_sort_order']}"
+        )
+
+    document_id = next(iter(document_ids))
+    prefix = f"{volume}:{VOLUMES[volume]['file']}:"
+    range_sql = ""
+    range_params: list[int] = []
+    if spec.get("replace_range_only"):
+        range_sql = "and start_sort_order <= %s and end_sort_order >= %s"
+        range_params = [
+            int(spec["last_sort_order"]),
+            int(spec["first_sort_order"]),
+        ]
+    cursor.execute(
+        f"""
+        select id, start_sort_order, end_sort_order, translated_text,
+               source_ref, match_method
+        from human_translations
+        where source = %s and document_id = %s and source_ref like %s
+          {range_sql}
+        order by start_sort_order, end_sort_order, id
+        """,
+        [SOURCE, document_id, prefix + "%", *range_params],
+    )
+    rows = cursor.fetchall()
+    intended_by_range = {(item.start, item.end): item for item in ordered}
+    stale: list[dict] = []
+    for row in rows:
+        item = intended_by_range.get(
+            (int(row["start_sort_order"]), int(row["end_sort_order"]))
+        )
+        if (
+            item
+            and row.get("translated_text") == item.text
+            and row.get("source_ref") == item.source_ref
+            and row.get("match_method") == METHOD
+        ):
+            continue
+        if row.get("match_method") == "manual":
+            raise RuntimeError(
+                f"{volume}: có row manual trong dữ liệu PDF cũ; không tự động thay"
+            )
+        if not str(row.get("source_ref") or "").startswith(prefix):
+            raise RuntimeError(
+                f"{volume}: gặp row không đúng nguồn PDF; không tự động thay"
+            )
+        stale.append(row)
+    return [str(row["id"]) for row in stale]
+
+
+def build_plan(
+    cursor,
+    items: list[VerifiedItem],
+    ignored_overlap_ids: set[str] | None = None,
+) -> list[PlannedItem]:
+    ignored_overlap_ids = ignored_overlap_ids or set()
     plan: list[PlannedItem] = []
     for item in items:
         cursor.execute(
@@ -181,11 +472,14 @@ def build_plan(cursor, items: list[VerifiedItem]) -> list[PlannedItem]:
         section = cursor.fetchone()
         if not section:
             raise RuntimeError(f"{item.volume}/{item.title}: section không còn trong DB")
-        if (
-            str(section["document_id"]) != item.document_id
-            or int(section["start_sort_order"]) != item.start
-            or int(section["end_sort_order"]) != item.end
-            or str(section["title"]) != item.title
+        exact_section_range = (
+            str(section["document_id"]) == item.document_id
+            and int(section["start_sort_order"]) == item.start
+            and int(section["end_sort_order"]) == item.end
+            and str(section["title"]) == item.title
+        )
+        if not exact_section_range and not _cv1_direct_run_matches(
+            cursor, item, section
         ):
             raise RuntimeError(f"{item.volume}/{item.title}: section/range trong DB đã thay đổi")
 
@@ -212,6 +506,8 @@ def build_plan(cursor, items: list[VerifiedItem]) -> list[PlannedItem]:
             [passage_id, SOURCE],
         )
         current = cursor.fetchone()
+        if current and str(current["id"]) in ignored_overlap_ids:
+            current = None
 
         cursor.execute(
             """
@@ -223,7 +519,9 @@ def build_plan(cursor, items: list[VerifiedItem]) -> list[PlannedItem]:
             """,
             [SOURCE, item.document_id, item.start, item.end],
         )
-        exact_rows = cursor.fetchall()
+        exact_rows = [
+            row for row in cursor.fetchall() if str(row["id"]) not in ignored_overlap_ids
+        ]
         stale_rows = [row for row in exact_rows if str(row["passage_id"]) != passage_id]
 
         cursor.execute(
@@ -238,7 +536,9 @@ def build_plan(cursor, items: list[VerifiedItem]) -> list[PlannedItem]:
             """,
             [SOURCE, item.document_id, item.end, item.start, item.start, item.end],
         )
-        overlapping_rows = cursor.fetchall()
+        overlapping_rows = [
+            row for row in cursor.fetchall() if str(row["id"]) not in ignored_overlap_ids
+        ]
 
         reason = ""
         action = "insert" if current is None else "update"
@@ -282,7 +582,9 @@ def build_plan(cursor, items: list[VerifiedItem]) -> list[PlannedItem]:
     return plan
 
 
-def print_plan(plan: list[PlannedItem], review_count: int) -> None:
+def print_plan(
+    plan: list[PlannedItem], review_count: int, legacy_replacement_count: int = 0
+) -> None:
     counts = {name: sum(entry.action == name for entry in plan) for name in (
         "insert", "update", "unchanged", "blocked"
     )}
@@ -292,6 +594,10 @@ def print_plan(plan: list[PlannedItem], review_count: int) -> None:
         f"không đổi {counts['unchanged']} | bị chặn {counts['blocked']}"
     )
     print(f"Bản neo cũ cùng range sẽ lưu lịch sử rồi dọn: {stale}")
+    print(
+        "Bản chương PDF quá rộng sẽ lưu lịch sử rồi thay nguyên tử: "
+        f"{legacy_replacement_count}"
+    )
     print(f"Mục REVIEW luôn bỏ qua: {review_count}")
     for entry in plan:
         if entry.action == "blocked":
@@ -328,7 +634,9 @@ def apply_plan(
     volumes: list[str],
     review_count: int,
     manifest_hashes: dict[str, str],
+    legacy_replacement_ids: list[str] | None = None,
 ) -> tuple[str, int, int]:
+    legacy_replacement_ids = legacy_replacement_ids or []
     if any(entry.action == "blocked" for entry in plan):
         raise RuntimeError("Có mục BLOCKED; không ghi một phần. Hãy xử lý xung đột trước.")
     for name in (
@@ -346,6 +654,7 @@ def apply_plan(
             "manifest_sha256": manifest_hashes,
             "pass_units": len(plan),
             "review_skipped": review_count,
+            "legacy_pdf_rows_replaced": len(legacy_replacement_ids),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -360,7 +669,12 @@ def apply_plan(
     )
 
     changed = 0
-    stale_removed = 0
+    # Xóa trong cùng transaction, sau khi đã ghi batch và trước INSERT đầu tiên.
+    # Row chương đầu cũ dùng cùng passage neo với segment đầu mới nên không thể trì
+    # hoãn đến cuối vòng lặp; nếu INSERT nào lỗi thì transaction phục hồi toàn bộ.
+    stale_removed = archive_and_delete_stale(
+        cursor, legacy_replacement_ids, batch
+    )
     for entry in plan:
         if entry.action in {"insert", "update"}:
             item = entry.item
@@ -486,17 +800,32 @@ def main() -> None:
         if args.apply:
             with conn.transaction():
                 with conn.cursor() as cursor:
-                    plan = build_plan(cursor, all_items)
-                    print_plan(plan, review_count)
+                    legacy_ids = cv1_legacy_replacement_ids(cursor, volumes, all_items)
+                    legacy_ids += cv2_legacy_replacement_ids(cursor, volumes, all_items)
+                    legacy_ids += deepest_legacy_replacement_ids(
+                        cursor, volumes, all_items
+                    )
+                    plan = build_plan(cursor, all_items, set(legacy_ids))
+                    print_plan(plan, review_count, len(legacy_ids))
                     batch, changed, stale_removed = apply_plan(
-                        cursor, plan, volumes, review_count, manifest_hashes
+                        cursor,
+                        plan,
+                        volumes,
+                        review_count,
+                        manifest_hashes,
+                        legacy_ids,
                     )
             print(f"\nĐÃ GHI DB: {changed} dòng thay đổi | dọn {stale_removed} neo cũ")
             print(f"Đợt nạp: {batch}")
         else:
             with conn.cursor() as cursor:
-                plan = build_plan(cursor, all_items)
-            print_plan(plan, review_count)
+                legacy_ids = cv1_legacy_replacement_ids(cursor, volumes, all_items)
+                legacy_ids += cv2_legacy_replacement_ids(cursor, volumes, all_items)
+                legacy_ids += deepest_legacy_replacement_ids(
+                    cursor, volumes, all_items
+                )
+                plan = build_plan(cursor, all_items, set(legacy_ids))
+            print_plan(plan, review_count, len(legacy_ids))
             if any(entry.action == "blocked" for entry in plan):
                 raise SystemExit("\nDRY-RUN CHƯA ĐẠT: không dùng --apply.")
             print("\nDRY-RUN ĐẠT: chưa có INSERT/UPDATE/DELETE DB.")

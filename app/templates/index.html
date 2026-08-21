@@ -369,6 +369,11 @@
             method: "POST",
             body: data,
           });
+          if (res.status === 504 || res.status === 408) {
+            fetch("/log-timeout", { method: "POST", body: data }).catch(() => {});
+            resultsWrap.innerHTML = `<div class="error">Kết nối bị gián đoạn, xin vui lòng thử lại sau ít phút.</div>`;
+            return;
+          }
           resultsWrap.innerHTML = await res.text();
           hydrateLazyTranslations(resultsWrap);
         } catch (error) {
@@ -387,6 +392,10 @@
           const body = new FormData(loadMoreForm);
           body.set("lang", LANG);
           const res = await fetch("/search-page", { method: "POST", body });
+          if (res.status === 504 || res.status === 408) {
+            fetch("/log-timeout", { method: "POST", body }).catch(() => {});
+            throw new Error("Kết nối bị gián đoạn, xin vui lòng thử lại sau ít phút.");
+          }
           const html = await res.text();
           if (!res.ok) throw new Error(tr("search.loadMoreFailed"));
           loadMoreForm.insertAdjacentHTML("beforebegin", html);

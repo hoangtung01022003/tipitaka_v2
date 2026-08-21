@@ -277,11 +277,11 @@ VOLUMES: dict[str, dict] = {
     "vvpv": {"file": "30_Vv_Pv.pdf", "label": "Thiên Cung Sự, Ngạ Quỷ Sự",
              "docs": ["s0506m.mul.xml", "s0507m.mul.xml"]},
     "ap1": {"file": "ttpv_39_Ap_I.pdf", "label": "Thánh Nhân Ký Sự I",
-            "docs": ["s0510m1.mul.xml", "s0510m2.mul.xml"]},
+            "docs": ["s0510m1.mul.xml", "s0510m2.mul.xml"], "pdf_end_page": 737},
     "ap2": {"file": "ttpv_40_Ap_II.pdf", "label": "Thánh Nhân Ký Sự II",
-            "docs": ["s0510m1.mul.xml", "s0510m2.mul.xml"]},
+            "docs": ["s0510m1.mul.xml", "s0510m2.mul.xml"], "pdf_end_page": 504},
     "ap3": {"file": "ttpv_41_Ap_III.pdf", "label": "Thánh Nhân Ký Sự III",
-            "docs": ["s0510m1.mul.xml", "s0510m2.mul.xml"]},
+            "docs": ["s0510m1.mul.xml", "s0510m2.mul.xml"], "pdf_end_page": 292},
     # Trang nguồn ghi nhãn là "Cp.pdf" nhưng href thật là "ttpv_42_Bv&Cp.pdf" - một tập
     # gộp Phật Sử và Hạnh Tạng, nên phủ được cả hai tài liệu.
     "bvcp": {"file": "ttpv_42_Bv&Cp.pdf", "label": "Phật Sử, Hạnh Tạng",
@@ -293,9 +293,9 @@ VOLUMES: dict[str, dict] = {
     "ja3": {"file": "34_Ja_III.pdf", "label": "Bổn Sanh III",
             "docs": ["s0513m.mul.xml", "s0514m.mul.xml"]},
     # Văn xuôi Tiểu Bộ - tỉ lệ dự kiến thấp như Trường Bộ, chạy sau cùng.
-    "nidd1": {"file": "35_Nidd_I.pdf", "label": "Đại Nghĩa Tích", "docs": ["s0515m.mul.xml"]},
-    "nidd2": {"file": "36_Nidd_II.pdf", "label": "Tiểu Nghĩa Tích", "docs": ["s0516m.mul.xml"]},
-    "pts1": {"file": "ttpv_37_Pts_I.pdf", "label": "Phân Tích Đạo I", "docs": ["s0517m.mul.xml"]},
+    "nidd1": {"file": "35_Nidd_I.pdf", "label": "Đại Nghĩa Tích", "docs": ["s0515m.mul.xml"], "pdf_end_page": 801},
+    "nidd2": {"file": "36_Nidd_II.pdf", "label": "Tiểu Nghĩa Tích", "docs": ["s0516m.mul.xml"], "pdf_end_page": 674},
+    "pts1": {"file": "ttpv_37_Pts_I.pdf", "label": "Phân Tích Đạo I", "docs": ["s0517m.mul.xml"], "pdf_end_page": 584},
     # Tập II không đánh số từng đoạn như 29 PDF còn lại. Thay vì nới `_VERSE` rồi
     # vô tình coi số TRANG là số đoạn, dùng bộ tách riêng dựa vào thụt đầu dòng của
     # sách song ngữ. Giới hạn trang loại hẳn lời nói đầu, phụ chú và thư mục cuối sách.
@@ -307,8 +307,9 @@ VOLUMES: dict[str, dict] = {
         "pdf_start_page": 36,
         "pdf_end_page": 303,
     },
-    "net": {"file": "43_Net.pdf", "label": "Chỉ Đạo (Nettippakaraṇa)", "docs": ["s0519m.mul.xml"]},
-    "pet": {"file": "ttpv_44_Pet.pdf", "label": "Tạng Thích (Peṭakopadesa)", "docs": ["s0520m.nrf.xml"]},
+    # Thân sách kết thúc ở cặp 326/327; trang 328 trắng và 329 đã mở phụ chú.
+    "net": {"file": "43_Net.pdf", "label": "Chỉ Đạo (Nettippakaraṇa)", "docs": ["s0519m.mul.xml"], "pdf_end_page": 327},
+    "pet": {"file": "ttpv_44_Pet.pdf", "label": "Tạng Thích (Peṭakopadesa)", "docs": ["s0520m.nrf.xml"], "pdf_end_page": 399},
     "mil": {"file": "45_Mil.pdf", "label": "Mi Tiên Vấn Đáp", "docs": ["s0518m.nrf.xml"]},
     "dn1": {"file": "10_D_01.pdf", "label": "Trường Bộ tập 1", "docs": ["s0101m.mul.xml"]},
     "dn2": {"file": "11_D_02.pdf", "label": "Trường Bộ tập 2", "docs": ["s0102m.mul.xml"]},
