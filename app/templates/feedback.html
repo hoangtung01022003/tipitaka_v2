@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
     {% if ga_measurement_id %}
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script src="/static/daily-notice.js?v=20260822-daily"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -152,22 +153,7 @@
       });
 
       function setupNotice() {
-        const modal = document.getElementById("noticeModal");
-        if (!modal) return;
-        const version = modal.dataset.noticeVersion || "1";
-        const storageKey = "tipitaka.noticeSeen";
-        let seen = null;
-        try { seen = window.localStorage.getItem(storageKey); } catch (_e) {}
-        if (seen === version) return;
-        modal.classList.remove("hidden");
-        document.body.classList.add("modalOpen");
-        const dismiss = () => {
-          modal.classList.add("hidden");
-          document.body.classList.remove("modalOpen");
-          try { window.localStorage.setItem(storageKey, version); } catch (_e) {}
-        };
-        document.getElementById("noticeClose")?.addEventListener("click", dismiss);
-        modal.addEventListener("click", (event) => { if (event.target === modal) dismiss(); });
+        window.setupDailyNotice(document.getElementById("noticeModal"));
       }
       setupNotice();
     </script>

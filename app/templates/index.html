@@ -116,6 +116,7 @@
       </div>
     </div>
 
+    <script src="/static/daily-notice.js?v=20260822-daily"></script>
     <script id="uiStrings" type="application/json">{{ strings | tojson }}</script>
     <script>
       const S = JSON.parse(document.getElementById("uiStrings").textContent);
@@ -581,36 +582,8 @@
         return false;
       }
 
-      // Chỉ hiện lại bảng thông báo khi nội dung đổi (version tăng), không hiện mỗi lần vào.
       function setupNotice() {
-        if (!noticeModal) return;
-        const version = noticeModal.dataset.noticeVersion || "1";
-        const storageKey = "tipitaka.noticeSeen";
-        let seen = null;
-        try {
-          seen = window.localStorage.getItem(storageKey);
-        } catch (_error) {
-          seen = null;
-        }
-        if (seen === version) return;
-
-        noticeModal.classList.remove("hidden");
-        document.body.classList.add("modalOpen");
-
-        const dismiss = () => {
-          noticeModal.classList.add("hidden");
-          document.body.classList.remove("modalOpen");
-          try {
-            window.localStorage.setItem(storageKey, version);
-          } catch (_error) {
-            /* chế độ riêng tư chặn localStorage thì cứ hiện lại lần sau */
-          }
-        };
-
-        document.getElementById("noticeClose")?.addEventListener("click", dismiss);
-        noticeModal.addEventListener("click", (event) => {
-          if (event.target === noticeModal) dismiss();
-        });
+        window.setupDailyNotice(noticeModal);
       }
 
       window.loadMoreResults = loadMoreResults;
