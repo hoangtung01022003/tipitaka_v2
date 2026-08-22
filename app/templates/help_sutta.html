@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="{{ lang }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ sutta.title }}</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260822-help-sutta" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      .manualSuttaPage { padding-top: 2rem; padding-bottom: 4rem; }
+      .manualSuttaBack { display: inline-flex; margin-bottom: 1rem; color: var(--accent); font-weight: 600; text-decoration: none; }
+      .manualSuttaBack:hover { color: var(--accent-hover); text-decoration: underline; }
+      .manualSuttaViewer { padding: 22px; }
+      .manualSuttaViewer .aiSummaryContainer { margin: 1.25rem 0 0; }
+      .manualTranslationOutput .translation + .translation { margin-top: 0.75rem; }
+      .manualTranslateAction { margin-top: 0.75rem; }
+      .manualTranslateAction .button { width: 100%; }
+      .manualTranslationProgress { margin-top: 0.75rem; }
+      @media (max-width: 768px) {
+        .manualSuttaPage { padding-top: max(18px, env(safe-area-inset-top)); }
+        .manualSuttaViewer { padding: 14px; }
+        .manualSuttaViewer .aiSummaryContainer { margin: 1rem 0 0; padding: 1rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page manualSuttaPage">
+      <a class="manualSuttaBack" href="/help?lang={{ lang }}">{{ t('manualSutta.backGuide') }}</a>
+
+      <section class="sectionViewer manualSuttaViewer" data-manual-sutta data-item-id="{{ sutta.id }}">
+        <header class="sectionHeader">
+          <div class="resultTitle">{{ t('section.thisSutta') }}</div>
+          <h2>{{ sutta.title }}</h2>
+        </header>
+
+        <section class="aiSummaryContainer" data-summary>
+          <div class="aiSummaryHeader">{{ t('summary.title') }}</div>
+          <div class="aiSummaryBody">
+            <div class="loading searchLoading" role="status" style="padding:1rem 0;">
+              <div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div>
+              <div class="loadingText">{{ t('summary.loading') }}</div>
+            </div>
+          </div>
+        </section>
+
+        <div class="sectionColumns">
+          <article class="sectionPassage readerBlock">
+            <div class="readerHeader">
+              <div>
+                <div class="resultTitle">{{ t('manualSutta.paliTitle') }}</div>
+                <p class="meta">{{ t('manualSutta.paliHint') }}</p>
+              </div>
+              <button class="button secondary compact" type="button" data-toggle-reader>{{ t('reader.expand') }}</button>
+            </div>
+            <div class="readerBody collapsed" data-reader-body>
+              {% for paragraph in sutta.paragraphs %}
+                <p class="pali" id="manual-p-{{ loop.index }}">{{ paragraph }}</p>
+              {% endfor %}
+            </div>
+          </article>
+
+          <article class="sectionPassage readerBlock">
+            <div class="readerHeader">
+              <div>
+                <div class="resultTitle">{{ t('manualSutta.translateTitle') }}</div>
+                <p class="meta">{{ t('manualSutta.translateHint') }}</p>
+              </div>
+            </div>
+            <div class="manualTranslationOutput" data-translation-output></div>
+            <div class="manualTranslateAction">
+              <button class="button" type="button" data-translate-next>{{ t('manualSutta.translateButton') }}</button>
+            </div>
+            <div class="manualTranslationProgress" data-translation-progress role="status" aria-live="polite"></div>
+            <p class="notice aiWarning">{{ warning }}</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const LANG = {{ lang | tojson }};
+      const STRINGS = {{ strings | tojson }};
+      const viewer = document.querySelector("[data-manual-sutta]");
+      const itemId = viewer.dataset.itemId;
+
+      function tr(key, values) {
+        let value = STRINGS[key] || key;
+        Object.entries(values || {}).forEach(([name, replacement]) => {
+          value = value.split("{" + name + "}").join(String(replacement));
+        });
+        return value;
+      }
+
+      function escapeHtml(value) {
+        const node = document.createElement("div");
+        node.textContent = String(value || "");
+        return node.innerHTML;
+      }
+
+      document.querySelector("[data-toggle-reader]")?.addEventListener("click", (event) => {
+        const body = document.querySelector("[data-reader-body]");
+        const collapsed = body.classList.toggle("collapsed");
+        event.currentTarget.textContent = tr(collapsed ? "reader.expand" : "reader.collapse");
+      });
+
+      async function loadSummary() {
+        const body = document.querySelector("[data-summary] .aiSummaryBody");
+        try {
+          const params = new URLSearchParams({ lang: LANG });
+          const response = await fetch(`/api/help-sutta/${encodeURIComponent(itemId)}/summary?${params}`);
+          const data = await response.json();
+          if (!response.ok || data.error) throw new Error("summary_failed");
+          if (!Array.isArray(data.points) || data.points.length === 0) {
+            body.innerHTML = `<div class="meta">${escapeHtml(tr("summary.empty"))}</div>`;
+            return;
+          }
+          body.innerHTML = `<ul class="aiSummaryList">${data.points.map((point) => {
+            const targetId = Array.isArray(point.passage_ids) ? point.passage_ids[0] : "";
+            const jumpButton = targetId
+              ? ` <button type="button" class="summaryJumpBtn" data-summary-jump="${escapeHtml(targetId)}">${escapeHtml(tr("summary.readPassage"))}</button>`
+              : "";
+            return `<li><div class="summaryText">${escapeHtml(point.summary_text)}${jumpButton}</div></li>`;
+          }).join("")}</ul>`;
+          body.querySelectorAll("[data-summary-jump]").forEach((button) => {
+            button.addEventListener("click", () => revealPaliParagraph(button.dataset.summaryJump));
+          });
+        } catch (_error) {
+          body.innerHTML = `<div class="error">${escapeHtml(tr("summary.error"))}</div>`;
+        }
+      }
+
+      function revealPaliParagraph(paragraphId) {
+        const target = document.getElementById(paragraphId);
+        if (!target) return;
+        const readerBody = target.closest("[data-reader-body]");
+        if (readerBody?.classList.contains("collapsed")) {
+          readerBody.classList.remove("collapsed");
+          const toggle = document.querySelector("[data-toggle-reader]");
+          if (toggle) toggle.textContent = tr("reader.collapse");
+        }
+        target.classList.add("passageHighlight");
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.setTimeout(() => target.classList.remove("passageHighlight"), 2600);
+      }
+
+      async function translateNext() {
+        const button = document.querySelector("[data-translate-next]");
+        const output = document.querySelector("[data-translation-output]");
+        const progress = document.querySelector("[data-translation-progress]");
+        let chunk = Number(viewer.dataset.nextChunk || 0);
+        let total = Number(viewer.dataset.totalChunks || 0);
+        button.disabled = true;
+
+        try {
+          progress.className = "translationLoading manualTranslationProgress";
+          progress.innerHTML = `<span class="miniSpinner" aria-hidden="true"></span><span>${escapeHtml(
+            tr("manualSutta.translatingPart", { part: chunk + 1, total: total || "..." })
+          )}</span>`;
+          const params = new URLSearchParams({ chunk: String(chunk), lang: LANG });
+          const response = await fetch(`/api/help-sutta/${encodeURIComponent(itemId)}/translate-chunk?${params}`);
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data?.translation?.error || "translation_failed");
+
+          total = Number(data.totalChunks || total);
+          viewer.dataset.totalChunks = String(total);
+          const translatedText = data?.translation?.text || data?.translation?.vi || "";
+          const block = document.createElement("div");
+          block.className = "translation";
+          block.textContent = translatedText;
+          output.appendChild(block);
+          chunk += 1;
+          viewer.dataset.nextChunk = String(chunk);
+
+          if (data.hasMore) {
+            progress.className = "manualTranslationProgress meta";
+            progress.textContent = tr("section.translateNextHint");
+            button.textContent = tr("section.translateNext", { current: chunk + 1, total });
+            button.disabled = false;
+          } else {
+            progress.className = "translationLoading translationDone manualTranslationProgress";
+            progress.textContent = tr("manualSutta.translateDone");
+            button.hidden = true;
+          }
+        } catch (_error) {
+          progress.className = "error manualTranslationProgress";
+          progress.textContent = tr("manualSutta.translateError");
+          button.disabled = false;
+        }
+      }
+
+      document.querySelector("[data-translate-next]")?.addEventListener("click", translateNext);
+      loadSummary();
+    </script>
+  </body>
+</html>

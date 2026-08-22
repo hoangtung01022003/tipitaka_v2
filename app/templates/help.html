@@ -37,7 +37,9 @@
         max-height: 60vh;
         overflow-y: auto;
       }
-      .guideParagraph { padding: 0.5rem 0; border-bottom: 1px dashed #e5e7eb; white-space: pre-line; color: {{ help_page.font_color }} !important; }
+      .guideParagraph { padding: 0.75rem 0; border-bottom: 1px dashed #e5e7eb; color: {{ help_page.font_color }} !important; }
+      .guideText { white-space: pre-line; }
+      .guideSuttaLink { display: inline-flex; margin-top: 0.75rem; text-decoration: none; font-size: 0.9rem; }
       .guideParagraph:last-child { border-bottom: none; }
       .noGuide { color: #6b7280; font-style: italic; }
       .loadMoreWrap { margin-top: 1rem; }
@@ -60,7 +62,12 @@
           <div class="guideBody" id="guideBody">
             {% if help_page['items'] %}
               {% for item in help_page['items'] %}
-                <div class="guideParagraph">{{ item }}</div>
+                <div class="guideParagraph">
+                  <div class="guideText">{{ item.text }}</div>
+                  {% if item.has_sutta %}
+                    <a class="button guideSuttaLink" href="/help-sutta/{{ item.id }}?lang={{ lang }}">{{ t('help.readWholeSutta') }}</a>
+                  {% endif %}
+                </div>
               {% endfor %}
             {% else %}
               <p class="noGuide">{{ t('help.noGuide') }}</p>
@@ -102,7 +109,8 @@
       }
 
       window.__STRINGS__ = {
-        "help.loadMore": {{ t('help.loadMore') | tojson }}
+        "help.loadMore": {{ t('help.loadMore') | tojson }},
+        "help.readWholeSutta": {{ t('help.readWholeSutta') | tojson }}
       };
 
       const batch = {{ help_batch }};
@@ -125,7 +133,17 @@
             items.forEach((item) => {
               const div = document.createElement("div");
               div.className = "guideParagraph";
-              div.textContent = item;
+              const text = document.createElement("div");
+              text.className = "guideText";
+              text.textContent = item.text || "";
+              div.appendChild(text);
+              if (item.has_sutta && item.id) {
+                const link = document.createElement("a");
+                link.className = "button guideSuttaLink";
+                link.href = "/help-sutta/" + encodeURIComponent(item.id) + "?lang=" + encodeURIComponent(LANG);
+                link.textContent = tr("help.readWholeSutta");
+                div.appendChild(link);
+              }
               guideBody.appendChild(div);
             });
             currentPage += 1;

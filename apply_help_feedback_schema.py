@@ -31,6 +31,42 @@ create table if not exists help_guide (
 
 create index if not exists help_guide_language_idx on help_guide (language);
 
+create table if not exists help_guide_items (
+    id                uuid primary key default gen_random_uuid(),
+    language          text not null,
+    position          integer not null default 0,
+    body              text not null default '',
+    sutta_title       text not null default '',
+    sutta_pali_text   text not null default '',
+    created_at        timestamptz not null default now(),
+    updated_at        timestamptz not null default now()
+);
+
+create index if not exists help_guide_items_language_position_idx
+    on help_guide_items (language, position);
+
+-- Chuyển nội dung dạng chuỗi cũ thành từng mục đúng một lần.
+insert into help_guide_items (language, position, body)
+select guide.language, blocks.ordinality - 1, btrim(blocks.body)
+from help_guide guide
+cross join lateral regexp_split_to_table(guide.body, E'\\r?\\n[[:space:]]*\\r?\\n')
+    with ordinality as blocks(body, ordinality)
+where btrim(blocks.body) <> ''
+  and not exists (
+      select 1 from help_guide_items item where item.language = guide.language
+  );
+
+create table if not exists text_summaries (
+    text_hash       text not null,
+    language        text not null,
+    prompt_version  text not null,
+    model           text,
+    source_text     text not null,
+    summary         jsonb not null,
+    created_at      timestamptz not null default now(),
+    primary key (text_hash, language, prompt_version)
+);
+
 create table if not exists user_feedback (
     id         uuid primary key default gen_random_uuid(),
     language   text not null default 'vi',
@@ -50,7 +86,7 @@ def main() -> None:
         return
         
     execute(SCHEMA_SQL)
-    print("Đã áp dụng xong. Bảng help_guide và user_feedback sẵn sàng.")
+    print("Đã áp dụng xong. Bảng hướng dẫn, bài kinh thủ công, cache tóm tắt và góp ý đã sẵn sàng.")
 
 
 if __name__ == "__main__":

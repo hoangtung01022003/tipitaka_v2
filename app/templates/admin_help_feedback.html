@@ -107,8 +107,9 @@
               <div class="field">
                 <label>Nội dung hướng dẫn</label>
                 <input type="hidden" id="body_{{ item.language }}" name="body_{{ item.language }}" value="{{ item.body }}" />
+                <input type="hidden" id="items_{{ item.language }}" name="items_{{ item.language }}" value="{{ item['items'] | tojson | forceescape }}" />
                 <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                  <button type="button" class="button" onclick="addBlock('{{ item.language }}', '', true)" style="flex: 1; padding: 0.5rem 1rem; border: 1px dashed #9ca3af; background: #f9fafb; color: #111827; border-radius: 8px; font-weight: 600; cursor: pointer; min-width: 250px;">+ Thêm mục hướng dẫn mới (Lên đầu)</button>
+                  <button type="button" class="button" onclick="addBlock('{{ item.language }}', {}, true)" style="flex: 1; padding: 0.5rem 1rem; border: 1px dashed #9ca3af; background: #f9fafb; color: #111827; border-radius: 8px; font-weight: 600; cursor: pointer; min-width: 250px;">+ Thêm mục hướng dẫn mới (Lên đầu)</button>
                   <button type="button" class="button" onclick="toggleOldBlocks('{{ item.language }}')" style="padding: 0.5rem 1rem; border: 1px solid #d1d5db; background: #ffffff; color: #111827; border-radius: 8px; font-weight: 600; cursor: pointer;">👁 Ẩn/hiện mục cũ</button>
                   <button type="submit" class="button" style="padding: 0.5rem 1rem; border: 1px solid #d1d5db; background: #ffffff; color: #111827; border-radius: 8px; font-weight: 600; cursor: pointer;">💾 Lưu</button>
                 </div>
@@ -260,19 +261,24 @@
       // Block Editor Logic
       function initBlocks(langCode) {
         const hiddenInput = document.getElementById('body_' + langCode);
+        const itemsInput = document.getElementById('items_' + langCode);
         const container = document.getElementById('blocks_' + langCode);
-        const text = hiddenInput.value || '';
-        const blocks = text.split(/\n\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+        let blocks = [];
+        try { blocks = JSON.parse(itemsInput?.value || '[]'); } catch (_error) { blocks = []; }
+        if (!Array.isArray(blocks) || blocks.length === 0) {
+          const text = hiddenInput.value || '';
+          blocks = text.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean).map(body => ({ body }));
+        }
         
         container.innerHTML = '';
         if (blocks.length === 0) {
-            addBlock(langCode, '');
+            addBlock(langCode, {});
         } else {
-            blocks.forEach(blockText => addBlock(langCode, blockText));
+            blocks.forEach(block => addBlock(langCode, block));
         }
       }
 
-      function addBlock(langCode, text = '', prepend = false) {
+      function addBlock(langCode, item = {}, prepend = false) {
         const container = document.getElementById('blocks_' + langCode);
         const blockDiv = document.createElement('div');
         blockDiv.className = 'guideBlockItem';
@@ -283,12 +289,27 @@
         blockDiv.style.position = 'relative';
 
         blockDiv.innerHTML = `
-            <textarea class="blockInput" rows="3" placeholder="Nhập nội dung cho 1 mục hướng dẫn... Mọi ngắt dòng (Enter) bên trong ô này vẫn được giữ nguyên." style="width: 100%; box-sizing: border-box; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.95rem; line-height: 1.5; resize: vertical; margin-bottom: 0.5rem;"></textarea>
+            <input type="hidden" class="blockId" />
+            <label style="display:block; font-weight:600; color:#374151; margin-bottom:0.35rem;">Câu hỏi / nội dung hướng dẫn</label>
+            <textarea class="blockInput" rows="3" placeholder="Nhập nội dung cho 1 mục hướng dẫn... Mọi ngắt dòng (Enter) bên trong ô này vẫn được giữ nguyên." style="width: 100%; min-height:96px; box-sizing: border-box; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-family: inherit; font-size: 0.95rem; line-height: 1.5; resize: vertical; margin-bottom: 0.75rem;"></textarea>
+            <details class="suttaFields" style="border-top:1px solid #e5e7eb; padding-top:0.75rem; margin-top:0.25rem;">
+              <summary style="cursor:pointer; font-weight:600; color:#2563eb;">Gắn bài kinh Pali (tùy chọn)</summary>
+              <div style="margin-top:0.75rem;">
+                <label style="display:block; font-weight:600; color:#374151; margin-bottom:0.35rem;">Tiêu đề bài kinh</label>
+                <input type="text" class="suttaTitleInput" placeholder="Ví dụ: Dhammasaṅgaṇīmātikā" style="width:100%; box-sizing:border-box; padding:0.6rem; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.95rem; margin-bottom:0.75rem;" />
+                <label style="display:block; font-weight:600; color:#374151; margin-bottom:0.35rem;">Toàn bộ nội dung Pali</label>
+                <textarea class="suttaPaliInput" rows="10" placeholder="Paste toàn bộ nguyên bản Pali vào đây. Có nội dung thì nút “Đọc toàn bộ bài kinh” sẽ xuất hiện dưới mục hướng dẫn." style="width:100%; min-height:220px; box-sizing:border-box; padding:0.6rem; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:0.95rem; line-height:1.55; resize:vertical; margin-bottom:0.5rem;"></textarea>
+              </div>
+            </details>
             <div style="text-align: right;">
                 <button type="button" class="dangerButton" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="this.parentElement.parentElement.remove()">🗑 Xóa mục này</button>
             </div>
         `;
-        blockDiv.querySelector('textarea').value = text;
+        blockDiv.querySelector('.blockId').value = item.id || '';
+        blockDiv.querySelector('.blockInput').value = item.body || '';
+        blockDiv.querySelector('.suttaTitleInput').value = item.sutta_title || '';
+        blockDiv.querySelector('.suttaPaliInput').value = item.sutta_pali_text || '';
+        if (item.sutta_title || item.sutta_pali_text) blockDiv.querySelector('.suttaFields').open = true;
         
         if (prepend) {
             container.insertBefore(blockDiv, container.firstChild);
@@ -323,9 +344,14 @@
               const hiddenInput = card.querySelector('input[id^="body_"]');
               if (hiddenInput) {
                   const langCode = hiddenInput.id.replace('body_', '');
-                  const textareas = card.querySelectorAll('.guideBlockItem textarea');
-                  const values = Array.from(textareas).map(ta => ta.value.trim()).filter(val => val.length > 0);
-                  hiddenInput.value = values.join('\n\n');
+                  const items = Array.from(card.querySelectorAll('.guideBlockItem')).map(block => ({
+                    id: block.querySelector('.blockId').value,
+                    body: block.querySelector('.blockInput').value.trim(),
+                    sutta_title: block.querySelector('.suttaTitleInput').value.trim(),
+                    sutta_pali_text: block.querySelector('.suttaPaliInput').value.trim(),
+                  })).filter(item => item.body.length > 0);
+                  hiddenInput.value = items.map(item => item.body).join('\n\n');
+                  document.getElementById('items_' + langCode).value = JSON.stringify(items);
               }
           });
       });

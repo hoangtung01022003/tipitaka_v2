@@ -14,6 +14,7 @@ from .i18n import DEFAULT_LANGUAGE, TRANSLATION_TARGETS, normalize_language
 
 PROMPT_VERSION = "python-pali-vi-contextual-v5"
 CHUNKED_PROMPT_VERSION = f"{PROMPT_VERSION}-chunked"
+SUMMARY_PROMPT_VERSION = "python-pali-summary-v3-linked-paragraphs"
 TRANSLATION_FALLBACK_CHUNK_CHARS = 3200
 TRANSLATION_RESCUE_CHUNK_CHARS = 900
 BAD_TEXT_MODELS = {"gemini-2.5-flash"}
@@ -399,14 +400,102 @@ def embed_query_vector(text: str) -> str | None:
         return None
 
 
+def summarize_plain_pali_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> dict:
+    """Tóm tắt văn bản Pali thủ công và lưu bền vững theo hash nội dung."""
+    language = normalize_language(language)
+    pali_text = str(pali_text or "").strip()
+    if not pali_text:
+        return {"points": [], "fromCache": False}
+
+    text_hash = _text_hash(pali_text)
+    cached = fetch_one(
+        "select summary from text_summaries "
+        "where text_hash=%s and language=%s and prompt_version=%s",
+        [text_hash, language, SUMMARY_PROMPT_VERSION],
+    )
+    if cached:
+        summary = cached.get("summary")
+        if isinstance(summary, str):
+            summary = json.loads(summary)
+        payload = dict(summary or {"points": []})
+        payload["fromCache"] = True
+        return payload
+
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", pali_text) if part.strip()]
+    paragraph_ids = [f"manual-p-{index}" for index in range(1, len(paragraphs) + 1)]
+    linked_text = "\n\n".join(
+        f"[ID: {paragraph_id}]\n{paragraph}"
+        for paragraph_id, paragraph in zip(paragraph_ids, paragraphs)
+    )
+    allowed_ids = set(paragraph_ids)
+    target_language = TRANSLATION_TARGETS.get(language, TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
+    prompt = (
+        "You are a Buddhist scholar. Read the following complete Pali text and summarize "
+        f"its main teachings in {target_language}. Return no more than 10-15 concise points. "
+        "Do not invent details outside the supplied text. Every paragraph has an ID. For "
+        "each summary point, passage_ids MUST contain one or more exact IDs of the paragraphs "
+        "that support that point.\n\nPali text:\n"
+        + linked_text
+    )
+    client = _client()
+    errors: list[str] = []
+    for model_name in _models_for_call():
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=SectionSummary,
+                    temperature=0.2,
+                ),
+            )
+            data = json.loads(response.text or "{}")
+            points = data.get("points") if isinstance(data, dict) else None
+            if not isinstance(points, list):
+                data = {"points": []}
+            else:
+                for point in points:
+                    if not isinstance(point, dict):
+                        continue
+                    ids = point.get("passage_ids")
+                    point["passage_ids"] = [
+                        passage_id
+                        for passage_id in (ids if isinstance(ids, list) else [])
+                        if passage_id in allowed_ids
+                    ]
+            execute(
+                "insert into text_summaries "
+                "(text_hash, language, prompt_version, model, source_text, summary) "
+                "values (%s, %s, %s, %s, %s, %s::jsonb) "
+                "on conflict (text_hash, language, prompt_version) do update set "
+                "model=excluded.model, source_text=excluded.source_text, "
+                "summary=excluded.summary, created_at=now()",
+                [
+                    text_hash,
+                    language,
+                    SUMMARY_PROMPT_VERSION,
+                    model_name,
+                    pali_text,
+                    json.dumps(data, ensure_ascii=False),
+                ],
+            )
+            data["fromCache"] = False
+            return data
+        except Exception as exc:
+            errors.append(f"{model_name}: {type(exc).__name__}")
+
+    print(f"All models failed to summarize manual Pali text: {errors}")
+    return {"points": [], "fromCache": False, "error": "summary_failed"}
+
+
 _SUMMARY_CACHE = {}
 
 def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUAGE) -> dict:
     """Summarize an entire section into key points with mapped passage IDs."""
     blocks = section_payload.get("paragraphs", [])
     if not blocks:
-            _SUMMARY_CACHE[cache_key] = {"points": []}
-            return _SUMMARY_CACHE[cache_key]
+        return {"points": []}
         
     text_chunks = []
     for block in blocks:

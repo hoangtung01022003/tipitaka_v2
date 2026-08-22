@@ -5,14 +5,15 @@ mỗi ngôn ngữ. Admin viết nội dung KHÔNG giới hạn; trang người d
 nhỏ mỗi lần (mặc định `HELP_GUIDE_BATCH`) và cuộn tới đáy thì nạp thêm, để bài hướng
 dẫn dài mấy chục nghìn ký tự vẫn không làm nặng trang đầu.
 
-Phần thân lưu dạng văn bản trong một cột `body`. Nó được cắt thành "đoạn" ngay khi trả
-về API: mỗi khối văn bản phân tách bởi dòng trắng là một mục trả về. Người dùng nhận
-đúng thứ tự, admin không cần làm gì thêm để "chia chương" - văn bản họ soạn đã đủ cấu
-trúc.
+Mỗi mục hướng dẫn được lưu riêng trong `help_guide_items` để admin có thể gắn đúng một
+bài kinh Pali thủ công vào mục đó. Cột `help_guide.body` vẫn được đồng bộ để tương thích
+với dữ liệu và công cụ triển khai cũ.
 
 `updated_at` là cột để giao diện biết nội dung đã đổi: client giữ nó lại và so với lần
 nạp trước (giống vai trò `version` của `notice.py`, nhưng cất trong DB thay vì JSON).
 """
+
+import re
 
 from app.db import execute, fetch_all, fetch_one
 from app.config import settings
@@ -63,12 +64,48 @@ def _load_row(language: str) -> dict | None:
     )
 
 
+def _load_items(language: str) -> list[dict]:
+    rows = fetch_all(
+        "select id, language, position, body, sutta_title, sutta_pali_text, updated_at "
+        "from help_guide_items where language = %s order by position asc, created_at asc",
+        [normalize_language(language)],
+    )
+    return [
+        {
+            "id": str(row["id"]),
+            "language": str(row["language"]),
+            "position": int(row.get("position") or 0),
+            "body": str(row.get("body") or ""),
+            "sutta_title": str(row.get("sutta_title") or ""),
+            "sutta_pali_text": str(row.get("sutta_pali_text") or ""),
+            "updated_at": (
+                row["updated_at"].isoformat() if row.get("updated_at") else None
+            ),
+        }
+        for row in rows
+    ]
+
+
 def get_help_config() -> list[dict]:
     """Toàn bộ cấu hình cho trang admin - một mục cho mỗi ngôn ngữ."""
     rows = {r["language"]: r for r in fetch_all("select * from help_guide")}
     out = []
     for code in LANGUAGES:
         row = rows.get(code)
+        items = _load_items(code)
+        if not items:
+            items = [
+                {
+                    "id": "",
+                    "language": code,
+                    "position": index,
+                    "body": body,
+                    "sutta_title": "",
+                    "sutta_pali_text": "",
+                    "updated_at": None,
+                }
+                for index, body in enumerate(_split_paragraphs(str((row or {}).get("body") or "")))
+            ]
         out.append(
             {
                 "language": code,
@@ -77,6 +114,7 @@ def get_help_config() -> list[dict]:
                 "font_size": int((row or {}).get("font_size") or 16),
                 "font_color": str((row or {}).get("font_color") or "#333333"),
                 "updated_at": (row or {}).get("updated_at"),
+                "items": items,
             }
         )
     return out
@@ -117,11 +155,27 @@ def get_help_page(language: str, page: int = 1, per_page: int = HELP_GUIDE_BATCH
             "updated_at": None,
         }
 
-    paragraphs = _split_paragraphs(row.get("body"))
-    total = len(paragraphs)
+    stored_items = _load_items(language)
+    if stored_items:
+        public_items = [
+            {
+                "id": item["id"],
+                "text": item["body"],
+                "sutta_title": item["sutta_title"],
+                "has_sutta": bool(item["sutta_pali_text"].strip()),
+            }
+            for item in stored_items
+            if item["body"].strip()
+        ]
+    else:
+        public_items = [
+            {"id": "", "text": paragraph, "sutta_title": "", "has_sutta": False}
+            for paragraph in _split_paragraphs(row.get("body"))
+        ]
+    total = len(public_items)
     page = max(1, int(page or 1))
     start = (page - 1) * per_page
-    items = paragraphs[start : start + per_page]
+    items = public_items[start : start + per_page]
     return {
         "language": language,
         "heading": str(row.get("heading") or DEFAULT_HEADINGS.get(language, "")),
@@ -150,6 +204,24 @@ def save_help(content: dict[str, dict]) -> None:
             font_size = 16
         font_size = max(8, min(72, font_size))
         font_color = str(entry.get("font_color") or "").strip() or "#333333"
+        items_provided = isinstance(entry.get("items"), list)
+        submitted_items = entry.get("items") if items_provided else []
+        clean_items = []
+        for raw_item in submitted_items:
+            if not isinstance(raw_item, dict):
+                continue
+            body_text = str(raw_item.get("body") or "").strip()
+            if not body_text:
+                continue
+            clean_items.append(
+                {
+                    "id": str(raw_item.get("id") or "").strip(),
+                    "body": body_text,
+                    "sutta_title": str(raw_item.get("sutta_title") or "").strip(),
+                    "sutta_pali_text": str(raw_item.get("sutta_pali_text") or "").strip(),
+                }
+            )
+        body = "\n\n".join(item["body"] for item in clean_items) if items_provided else body
 
         existing = _load_row(code)
         if existing:
@@ -164,3 +236,66 @@ def save_help(content: dict[str, dict]) -> None:
                 "values (%s, %s, %s, %s, %s, now())",
                 [code, heading, body, font_size, font_color],
             )
+
+        if not items_provided:
+            continue
+
+        existing_ids = {
+            str(row["id"])
+            for row in fetch_all("select id from help_guide_items where language = %s", [code])
+        }
+        kept_ids: list[str] = []
+        for position, item in enumerate(clean_items):
+            item_id = item["id"] if item["id"] in existing_ids else ""
+            if item_id:
+                execute(
+                    "update help_guide_items set position=%s, body=%s, sutta_title=%s, "
+                    "sutta_pali_text=%s, updated_at=now() where id=%s and language=%s",
+                    [
+                        position,
+                        item["body"],
+                        item["sutta_title"],
+                        item["sutta_pali_text"],
+                        item_id,
+                        code,
+                    ],
+                )
+                kept_ids.append(item_id)
+            else:
+                inserted = fetch_one(
+                    "insert into help_guide_items "
+                    "(language, position, body, sutta_title, sutta_pali_text, updated_at) "
+                    "values (%s, %s, %s, %s, %s, now()) returning id",
+                    [code, position, item["body"], item["sutta_title"], item["sutta_pali_text"]],
+                )
+                if inserted:
+                    kept_ids.append(str(inserted["id"]))
+
+        if kept_ids:
+            execute(
+                "delete from help_guide_items where language=%s and not (id = any(%s::uuid[]))",
+                [code, kept_ids],
+            )
+        else:
+            execute("delete from help_guide_items where language=%s", [code])
+
+
+def get_help_sutta(item_id: str) -> dict | None:
+    """Bài kinh Pali admin gắn vào một mục hướng dẫn."""
+    row = fetch_one(
+        "select id, language, body, sutta_title, sutta_pali_text, updated_at "
+        "from help_guide_items where id::text=%s",
+        [item_id],
+    )
+    if not row or not str(row.get("sutta_pali_text") or "").strip():
+        return None
+    pali_text = str(row["sutta_pali_text"]).strip()
+    return {
+        "id": str(row["id"]),
+        "language": str(row["language"]),
+        "guide_text": str(row.get("body") or ""),
+        "title": str(row.get("sutta_title") or "").strip(),
+        "pali_text": pali_text,
+        "paragraphs": [part.strip() for part in re.split(r"\n\s*\n", pali_text) if part.strip()],
+        "updated_at": row.get("updated_at"),
+    }

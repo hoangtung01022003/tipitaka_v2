@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 from collections import defaultdict
@@ -17,6 +18,7 @@ from .help_guide import (
     HELP_GUIDE_BATCH,
     get_help_config,
     get_help_page,
+    get_help_sutta,
     save_help,
 )
 from .i18n import (
@@ -42,7 +44,13 @@ from .translation_sources import (
     resolve_human_translation,
     unavailable_translation,
 )
-from .translator import public_translation_error, translate_passage, translate_text, translate_text_cached
+from .translator import (
+    public_translation_error,
+    summarize_plain_pali_text,
+    translate_passage,
+    translate_text,
+    translate_text_cached,
+)
 from .user_feedback import (
     FEEDBACK_BATCH,
     FEEDBACK_MAX_CHARS,
@@ -1670,6 +1678,74 @@ def help_api(request: Request, page: int = Query(1, ge=1), lang: str | None = Qu
     return get_help_page(language, page, HELP_GUIDE_BATCH)
 
 
+@app.get("/help-sutta/{item_id}", response_class=HTMLResponse)
+def help_sutta_page(request: Request, item_id: str, lang: str | None = Query(None)):
+    """Trang riêng đọc bài kinh Pali do admin gắn vào một mục hướng dẫn."""
+    language = request_language(request, lang)
+    sutta = get_help_sutta(item_id)
+    if not sutta:
+        raise HTTPException(status_code=404, detail="Manual sutta not found.")
+    if not sutta["title"]:
+        sutta["title"] = t(language, "manualSutta.defaultTitle")
+    return templates.TemplateResponse(
+        "help_sutta.html",
+        _template_context(
+            request,
+            language,
+            sutta=sutta,
+            strings=ui_strings(language),
+            warning=t(language, "translation.aiWarning"),
+            ga_measurement_id=settings().get("ga_measurement_id", ""),
+        ),
+    )
+
+
+@app.get("/api/help-sutta/{item_id}/summary")
+def help_sutta_summary_api(item_id: str, request: Request, lang: str | None = Query(None)):
+    sutta = get_help_sutta(item_id)
+    if not sutta:
+        raise HTTPException(status_code=404, detail="Manual sutta not found.")
+    return summarize_plain_pali_text(sutta["pali_text"], request_language(request, lang))
+
+
+@app.get("/api/help-sutta/{item_id}/translate-chunk")
+def help_sutta_translate_chunk_api(
+    item_id: str,
+    request: Request,
+    chunk: int = Query(0, ge=0),
+    lang: str | None = Query(None),
+):
+    sutta = get_help_sutta(item_id)
+    if not sutta:
+        raise HTTPException(status_code=404, detail="Manual sutta not found.")
+    language = request_language(request, lang)
+    chunks = _chunk_section_text(
+        sutta["pali_text"], max_chars=SECTION_TRANSLATION_STREAM_CHUNK_CHARS
+    )
+    if chunk >= len(chunks):
+        raise HTTPException(status_code=404, detail="Translation chunk not found.")
+    try:
+        translation = translate_text_cached(chunks[chunk], language)
+        ok = bool(translation.get("text") or translation.get("vi"))
+    except Exception:
+        translation = {
+            "vi": None,
+            "text": None,
+            "fromCache": False,
+            "error": public_translation_error(),
+        }
+        ok = False
+    return {
+        "ok": ok,
+        "itemId": sutta["id"],
+        "chunkIndex": chunk,
+        "totalChunks": len(chunks),
+        "hasMore": chunk + 1 < len(chunks),
+        "translation": translation,
+        "warning": t(language, "translation.aiWarning"),
+    }
+
+
 @app.post("/api/feedback")
 def feedback_submit(payload: dict, request: Request):
     """Gửi một góp ý / yêu cầu hỗ trợ về tìm kiếm."""
@@ -2000,15 +2076,19 @@ def admin_help_feedback_page(
 async def admin_help_feedback_save_help(request: Request, _: str = Depends(get_current_admin)):
     """Lưu nội dung hướng dẫn cho từng ngôn ngữ."""
     form = await request.form()
-    content = {
-        code: {
+    content = {}
+    for code in LANGUAGES:
+        try:
+            items = json.loads(str(form.get(f"items_{code}") or "[]"))
+        except json.JSONDecodeError:
+            items = []
+        content[code] = {
             "heading": str(form.get(f"heading_{code}") or ""),
             "body": str(form.get(f"body_{code}") or ""),
+            "items": items if isinstance(items, list) else [],
             "font_size": str(form.get(f"font_size_{code}") or "16"),
             "font_color": str(form.get(f"font_color_{code}") or "#333333"),
         }
-        for code in LANGUAGES
-    }
     save_help(content)
     return RedirectResponse(url="/admin/help-feedback?saved=1", status_code=status.HTTP_302_FOUND)
 
