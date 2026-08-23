@@ -31,6 +31,7 @@ FALLBACK_TEXT_MODELS = [
     "gemini-2.5-flash",
 ]
 PUBLIC_TRANSLATION_ERROR = "Chưa dịch được đoạn này. Vui lòng kiểm tra GEMINI_API_KEY hoặc thử lại sau."
+PUBLIC_SUMMARY_ERROR = "Không thể tạo tóm tắt lúc này. Vui lòng thử lại sau."
 _MODEL_CURSOR = count()
 _MODEL_LOCK = Lock()
 
@@ -607,8 +608,7 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
 
     if not points:
         print(f"All batches failed to generate summary: {errors}")
-        err_msg = errors[0] if errors else "Unknown error"
-        return {"points": [{"summary_text": f"Lỗi API: {err_msg}", "passage_ids": []}]}
+        return {"points": [{"summary_text": PUBLIC_SUMMARY_ERROR, "passage_ids": []}]}
 
     data = {"points": points}
     _SUMMARY_CACHE[cache_key] = data

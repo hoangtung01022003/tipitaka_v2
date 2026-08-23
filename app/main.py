@@ -1512,13 +1512,13 @@ def section_api(section_id: str, request: Request, lang: str | None = Query(None
 @app.get("/api/sections/{section_id}/summary")
 def section_summary_api(section_id: str, request: Request, lang: str | None = Query(None)):
     language = request_language(request, lang)
-    from app.translator import summarize_section_text
+    from app.translator import PUBLIC_SUMMARY_ERROR, summarize_section_text
     try:
         section = _section_payload(section_id, include_translation=False, language=language)
         return summarize_section_text(section, language)
     except Exception as exc:
         print(f"section_summary_api failed for {section_id}: {exc}")
-        return {"points": [{"summary_text": f"Lỗi API: {exc}", "passage_ids": []}]}
+        return {"points": [{"summary_text": PUBLIC_SUMMARY_ERROR, "passage_ids": []}]}
 
 
 @app.get("/api/sections/{section_id}/translate")
