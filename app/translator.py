@@ -15,6 +15,9 @@ from .i18n import DEFAULT_LANGUAGE, TRANSLATION_TARGETS, normalize_language
 PROMPT_VERSION = "python-pali-vi-contextual-v5"
 CHUNKED_PROMPT_VERSION = f"{PROMPT_VERSION}-chunked"
 SUMMARY_PROMPT_VERSION = "python-pali-summary-v3-linked-paragraphs"
+SUMMARY_CHUNK_CHARS = 8000
+SUMMARY_MAX_POINTS = 15
+SUMMARY_MAX_POINTS_PER_CHUNK = 6
 TRANSLATION_FALLBACK_CHUNK_CHARS = 3200
 TRANSLATION_RESCUE_CHUNK_CHARS = 900
 BAD_TEXT_MODELS = {"gemini-2.5-flash"}
@@ -491,47 +494,45 @@ def summarize_plain_pali_text(pali_text: str, language: str = DEFAULT_LANGUAGE) 
 
 _SUMMARY_CACHE = {}
 
-def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUAGE) -> dict:
-    """Summarize an entire section into key points with mapped passage IDs."""
-    blocks = section_payload.get("paragraphs", [])
-    if not blocks:
-        return {"points": []}
-        
-    text_chunks = []
-    for block in blocks:
-        passage_ids = block.get("passageIds", [])
-        pali_text = block.get("text", "").strip()
-        if not pali_text or not passage_ids:
-            continue
-        text_chunks.append(f"[IDs: {', '.join(passage_ids)}]\n{pali_text}")
-    
-    full_text = "\n\n".join(text_chunks)
-    if not full_text.strip():
-        return {"points": []}
 
-    import hashlib
-    cache_key = f"{hashlib.md5(full_text.encode()).hexdigest()}_{language}"
-    if cache_key in _SUMMARY_CACHE:
-        return _SUMMARY_CACHE[cache_key]
+def _batch_summary_chunks(text_chunks: list[str], max_chars: int) -> list[str]:
+    """Gom các đoạn [IDs...] liền kề thành từng batch không vượt quá max_chars.
+
+    Gom theo ranh giới đoạn (không cắt giữa một đoạn) nên mỗi batch vẫn giữ
+    nguyên cặp [IDs]/text; một đoạn đơn lẻ dài hơn max_chars vẫn được giữ
+    trọn vẹn trong batch riêng của nó thay vì bị cắt dở.
+    """
+    batches: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for chunk in text_chunks:
+        chunk_len = len(chunk)
+        if current and current_len + chunk_len > max_chars:
+            batches.append("\n\n".join(current))
+            current = []
+            current_len = 0
+        current.append(chunk)
+        current_len += chunk_len
+    if current:
+        batches.append("\n\n".join(current))
+    return batches
 
 
-    from .i18n import TRANSLATION_TARGETS, normalize_language
-    target_language = TRANSLATION_TARGETS.get(normalize_language(language), TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
-    
+def _summarize_text_batch(batch_text: str, target_language: str, max_points: int) -> dict:
     prompt = (
         f"You are a Buddhist scholar. Read the following Pali text and its passage IDs.\n"
         f"Provide a comprehensive summary of the main points. BẮT BUỘC viết tóm tắt bằng ngôn ngữ: {target_language}.\n"
         f"Group multiple IDs into one summary point if they discuss the same topic.\n"
         f"If they are distinct, separate them. Ensure every point has at least one associated ID from the text.\n"
-        f"CRITICAL: Keep the summary extremely concise. Do not exceed 10-15 main points to avoid timeouts.\n\n"
-        f"Text:\n{full_text}"
+        f"CRITICAL: Keep the summary extremely concise. Do not exceed {max_points} main points to avoid timeouts.\n\n"
+        f"Text:\n{batch_text}"
     )
     api_key = str(settings()["gemini_api_key"])
     client = genai.Client(
         api_key=api_key,
         http_options={"timeout": 60000},
     )
-    
+
     errors = []
     for model_name in _models_for_call():
         try:
@@ -545,19 +546,67 @@ def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUA
                 ),
             )
             if response.text:
-                import json
-                data = json.loads(response.text)
-                _SUMMARY_CACHE[cache_key] = data
-                return data
-            _SUMMARY_CACHE[cache_key] = {"points": []}
-            return _SUMMARY_CACHE[cache_key]
+                return {"points": json.loads(response.text).get("points", [])}
+            return {"points": []}
         except Exception as ex:
             print(f"Summary generation failed for {model_name}: {ex}")
             errors.append(f"{model_name}: {ex}")
-            if "quota" in str(ex).lower() or "429" in str(ex):
-                continue
-            
-    print(f"All models failed to generate summary: {errors}")
-    err_msg = str(errors[0]) if errors else "Unknown error"
-    return {"points": [{"summary_text": f"Lỗi API: {err_msg}", "passage_ids": []}]}
+
+    return {"points": [], "error": errors[0] if errors else "Unknown error"}
+
+
+def summarize_section_text(section_payload: dict, language: str = DEFAULT_LANGUAGE) -> dict:
+    """Summarize an entire section into key points with mapped passage IDs.
+
+    Section dài (nhiều đoạn / commentary dày đặc) được chia thành nhiều batch
+    tối đa SUMMARY_CHUNK_CHARS ký tự Pali và tóm tắt riêng từng batch rồi gộp
+    lại, thay vì nhồi toàn bộ text vào một prompt khổng lồ: prompt càng lớn
+    Gemini càng chậm, mà mỗi lần gọi lại thử lần lượt nhiều model dự phòng
+    nên tổng thời gian dễ vượt quá timeout 60s mặc định của nginx phía
+    trước, khiến trình duyệt nhận lỗi dù backend vẫn đang âm thầm chạy tiếp
+    (và cache lại kết quả cho lượt mở sau).
+    """
+    blocks = section_payload.get("paragraphs", [])
+    if not blocks:
+        return {"points": []}
+
+    text_chunks = []
+    for block in blocks:
+        passage_ids = block.get("passageIds", [])
+        pali_text = block.get("text", "").strip()
+        if not pali_text or not passage_ids:
+            continue
+        text_chunks.append(f"[IDs: {', '.join(passage_ids)}]\n{pali_text}")
+
+    full_text = "\n\n".join(text_chunks)
+    if not full_text.strip():
+        return {"points": []}
+
+    cache_key = f"{hashlib.md5(full_text.encode()).hexdigest()}_{language}"
+    if cache_key in _SUMMARY_CACHE:
+        return _SUMMARY_CACHE[cache_key]
+
+    from .i18n import TRANSLATION_TARGETS, normalize_language
+    target_language = TRANSLATION_TARGETS.get(normalize_language(language), TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
+
+    batches = _batch_summary_chunks(text_chunks, SUMMARY_CHUNK_CHARS)
+    max_points = SUMMARY_MAX_POINTS if len(batches) == 1 else SUMMARY_MAX_POINTS_PER_CHUNK
+
+    points: list[dict] = []
+    errors: list[str] = []
+    for batch_text in batches:
+        result = _summarize_text_batch(batch_text, target_language, max_points)
+        if result.get("points"):
+            points.extend(result["points"])
+        elif result.get("error"):
+            errors.append(result["error"])
+
+    if not points:
+        print(f"All batches failed to generate summary: {errors}")
+        err_msg = errors[0] if errors else "Unknown error"
+        return {"points": [{"summary_text": f"Lỗi API: {err_msg}", "passage_ids": []}]}
+
+    data = {"points": points}
+    _SUMMARY_CACHE[cache_key] = data
+    return data
 
