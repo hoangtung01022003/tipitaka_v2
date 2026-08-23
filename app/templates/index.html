@@ -507,15 +507,9 @@
           container.className = "aiSummaryContainer";
           container.innerHTML = `
             <div class="aiSummaryHeader">${escapeHtml(tr("summary.title"))}</div>
-            <div class="aiSummaryBody">
-              <div class="loading searchLoading" role="status" style="padding: 1rem 0;">
-                <div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div>
-                <div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">${escapeHtml(tr("summary.loading"))}</div>
-                <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #9ca3af;">${escapeHtml(tr("summary.loadingHint"))}</div>
-              </div>
-            </div>
+            <div class="aiSummaryBody"></div>
           `;
-          
+
           const header = modalBody.querySelector(".sectionHeader");
           if (header) {
             header.insertAdjacentElement('afterend', container);
@@ -523,6 +517,15 @@
             modalBody.insertBefore(container, modalBody.firstChild);
           }
         }
+
+        const body = container.querySelector(".aiSummaryBody");
+        body.innerHTML = `
+          <div class="loading searchLoading" role="status" style="padding: 1rem 0;">
+            <div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div>
+            <div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">${escapeHtml(tr("summary.loading"))}</div>
+            <div style="font-size: 0.8rem; margin-top: 0.25rem; color: #9ca3af;">${escapeHtml(tr("summary.loadingHint"))}</div>
+          </div>
+        `;
 
         try {
           const res = await fetch(`/api/sections/${sectionId}/summary?lang=${LANG}`);
@@ -540,12 +543,15 @@
               </li>`;
             });
             html += '</ul>';
-            container.querySelector(".aiSummaryBody").innerHTML = html;
+            body.innerHTML = html;
           } else {
-             container.querySelector(".aiSummaryBody").innerHTML = `<div style="color:#6b7280; font-size: 0.9rem;">${escapeHtml(tr("summary.empty"))}</div>`;
+            body.innerHTML = `<div style="color:#6b7280; font-size: 0.9rem;">${escapeHtml(tr("summary.empty"))}</div>`;
           }
         } catch (error) {
-          container.querySelector(".aiSummaryBody").innerHTML = `<div style="color:#ef4444; font-size: 0.9rem;">${escapeHtml(tr("summary.error"))}</div>`;
+          body.innerHTML = `
+            <div style="color:#ef4444; font-size: 0.9rem; margin-bottom: 0.6rem;">${escapeHtml(tr("summary.error"))}</div>
+            <button type="button" class="summaryJumpBtn" onclick="loadAiSummary('${sectionId}', document.getElementById('sectionModalBody'))">${escapeHtml(tr("summary.retry"))}</button>
+          `;
         }
       }
 

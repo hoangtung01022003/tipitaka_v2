@@ -527,11 +527,15 @@ def _summarize_text_batch(batch_text: str, target_language: str, max_points: int
         f"CRITICAL: Keep the summary extremely concise. Do not exceed {max_points} main points to avoid timeouts.\n\n"
         f"Text:\n{batch_text}"
     )
-    api_key = str(settings()["gemini_api_key"])
-    client = genai.Client(
-        api_key=api_key,
-        http_options={"timeout": 60000},
-    )
+    try:
+        api_key = str(settings()["gemini_api_key"])
+        client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": 60000},
+        )
+    except Exception as ex:
+        print(f"Gemini client init failed: {ex}")
+        return {"points": [], "error": f"client init: {ex}"}
 
     errors = []
     for model_name in _models_for_call():
