@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thư viện tài liệu - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader {
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        border-bottom: 1px solid #374151;
+        text-align: center;
+      }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem {
+        display: block;
+        padding: 0.75rem 1.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: #ef4444;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader { margin-bottom: 1.5rem; }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .card h2 { margin: 0 0 0.25rem; font-size: 1.1rem; color: #111827; }
+      .card .hint { margin: 0 0 1rem; color: #6b7280; font-size: 0.9rem; }
+      .field { margin-bottom: 1rem; }
+      .field label {
+        display: block;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.35rem;
+        font-size: 0.9rem;
+      }
+      .field input[type="text"],
+      .field input[type="file"],
+      .field select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.6rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        font-family: inherit;
+      }
+      .inlineForm { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }
+      .inlineForm .field { margin-bottom: 0; flex: 1; min-width: 200px; }
+      .primaryButton {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 0.65rem 1.4rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .dangerButton {
+        background: #fef2f2;
+        color: #b91c1c;
+        border: 1px solid #fecaca;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .secondaryButton {
+        background: #f3f4f6;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .savedFlag {
+        background: #dcfce7;
+        color: #166534;
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        margin-bottom: 1.25rem;
+      }
+      .errorFlag {
+        background: #fef2f2;
+        color: #b91c1c;
+        padding: 0.6rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        margin-bottom: 1.25rem;
+      }
+      .breadcrumb { margin: 0 0 1.25rem; font-size: 0.9rem; color: #6b7280; }
+      .breadcrumb a { color: #2563eb; text-decoration: none; }
+      .breadcrumb a:hover { text-decoration: underline; }
+
+      /* Bố cục 2 cột: cây thư mục luôn hiện bên trái, khỏi phải bấm xuyên từng tầng
+         mới biết cây đang có gì / file đang nằm đâu. */
+      .libraryLayout { display: flex; gap: 1.5rem; align-items: flex-start; }
+      .treePane {
+        width: 280px;
+        flex-shrink: 0;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem;
+        max-height: calc(100vh - 4rem);
+        overflow-y: auto;
+        position: sticky;
+        top: 2rem;
+      }
+      .treePane h2 { margin: 0 0 0.75rem; font-size: 0.95rem; color: #111827; }
+      .treeRoot, .treeNode {
+        display: block;
+        padding: 0.35rem 0.5rem;
+        border-radius: 6px;
+        color: #374151;
+        text-decoration: none;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .treeRoot:hover, .treeNode:hover { background: #f3f4f6; }
+      .treeRoot.active, .treeNode.active { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+      .tree, .tree ul { list-style: none; margin: 0; padding-left: 1.1rem; }
+      .tree { padding-left: 0.4rem; }
+      .contentPane { flex: 1; min-width: 0; }
+
+      .nodeTable { width: 100%; border-collapse: collapse; }
+      .nodeTable th {
+        text-align: left;
+        font-size: 0.8rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 0.5rem 0.6rem;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .nodeTable td {
+        padding: 0.6rem;
+        border-bottom: 1px solid #f3f4f6;
+        vertical-align: middle;
+      }
+      .nodeName { font-weight: 600; color: #111827; display: flex; align-items: center; gap: 0.4rem; }
+      .nodeSize { color: #9ca3af; font-size: 0.85rem; }
+      .nodeActions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .renameForm { display: inline-flex; gap: 0.35rem; }
+      .renameForm input[type="text"] {
+        padding: 0.3rem 0.5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        width: 160px;
+      }
+      .emptyRow td { text-align: center; color: #9ca3af; padding: 1.5rem; }
+
+      @media (max-width: 900px) {
+        .libraryLayout { flex-direction: column; }
+        .treePane { width: 100%; position: static; max-height: 320px; }
+      }
+    </style>
+    <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
+  </head>
+  <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+    {% set active_page = 'library' %}
+    {% include '_admin_sidebar.html' %}
+
+    {% macro render_folder_tree(nodes, current_id) %}
+      {% for node in nodes %}
+        <li>
+          <a href="/admin/library?parent_id={{ node.id }}" class="treeNode{% if node.id == current_id %} active{% endif %}">📁 {{ node.name }}</a>
+          {% if node.children %}
+            <ul>{{ render_folder_tree(node.children, current_id) }}</ul>
+          {% endif %}
+        </li>
+      {% endfor %}
+    {% endmacro %}
+
+    {% macro folder_options(nodes, depth, current_id) %}
+      {% for node in nodes %}
+        <option value="{{ node.id }}" {% if node.id == current_id %}selected{% endif %}>{{ '    ' * depth }}📁 {{ node.name }}</option>
+        {% if node.children %}{{ folder_options(node.children, depth + 1, current_id) }}{% endif %}
+      {% endfor %}
+    {% endmacro %}
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <h1>Thư viện tài liệu</h1>
+        <p style="color:#6b7280; margin-top:0.25rem;">
+          Cây thư mục bên trái luôn hiện đủ mọi tầng - bấm thẳng vào thư mục cần tới, hoặc chọn
+          thư mục đích ngay trong ô "Tạo thư mục / Tải file" mà không cần bấm xuyên từng cấp.
+        </p>
+      </header>
+
+      {% if saved %}
+        <div class="savedFlag">Đã lưu.</div>
+      {% endif %}
+      {% if error %}
+        <div class="errorFlag">{{ error }}</div>
+      {% endif %}
+
+      {% if not currentParentId %}
+        <div class="card">
+          <h2>Tên nút ở trang chủ</h2>
+          <p class="hint">Chữ hiển thị trên nút dẫn vào thư viện này.</p>
+          <form class="inlineForm" method="post" action="/admin/library/label">
+            <div class="field">
+              <input type="text" name="buttonLabel" value="{{ buttonLabel }}" maxlength="200" required />
+            </div>
+            <button class="primaryButton" type="submit">Lưu tên nút</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <div class="libraryLayout">
+        <nav class="treePane" aria-label="Cây thư mục">
+          <h2>📚 Toàn bộ cây thư mục</h2>
+          <a href="/admin/library" class="treeRoot{% if not currentParentId %} active{% endif %}">🏠 Gốc thư viện</a>
+          <ul class="tree">{{ render_folder_tree(folderTree, currentParentId) }}</ul>
+        </nav>
+
+        <div class="contentPane">
+          <nav class="breadcrumb">
+            <a href="/admin/library">Thư viện tài liệu</a>
+            {% for crumb in breadcrumb %}
+              » <a href="/admin/library?parent_id={{ crumb.id }}">{{ crumb.name }}</a>
+            {% endfor %}
+          </nav>
+
+          <div class="card">
+            <h2>Tạo thư mục</h2>
+            <form class="inlineForm" method="post" action="/admin/library/folder">
+              <div class="field">
+                <label for="folderParent">Tạo trong thư mục</label>
+                <select id="folderParent" name="parent_id">
+                  <option value="" {% if not currentParentId %}selected{% endif %}>🏠 Gốc thư viện</option>
+                  {{ folder_options(folderTree, 1, currentParentId) }}
+                </select>
+              </div>
+              <div class="field">
+                <label for="folderName">Tên thư mục</label>
+                <input type="text" id="folderName" name="name" maxlength="200" required />
+              </div>
+              <button class="primaryButton" type="submit">Tạo thư mục</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>Tải file PDF lên</h2>
+            <p class="hint">Chọn đúng thư mục đích ngay đây - không cần bấm vào thư mục đó trước. Không nhập tên hiển thị thì lấy theo tên file gốc.</p>
+            <form class="inlineForm" method="post" action="/admin/library/upload" enctype="multipart/form-data">
+              <div class="field">
+                <label for="uploadParent">Tải vào thư mục</label>
+                <select id="uploadParent" name="parent_id">
+                  <option value="" {% if not currentParentId %}selected{% endif %}>🏠 Gốc thư viện</option>
+                  {{ folder_options(folderTree, 1, currentParentId) }}
+                </select>
+              </div>
+              <div class="field">
+                <label for="fileName">Tên hiển thị (tuỳ chọn)</label>
+                <input type="text" id="fileName" name="name" maxlength="300" />
+              </div>
+              <div class="field">
+                <label for="fileInput">File PDF</label>
+                <input type="file" id="fileInput" name="file" accept="application/pdf" required />
+              </div>
+              <button class="primaryButton" type="submit">Tải lên</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>Nội dung: {% if breadcrumb %}{{ breadcrumb[-1].name }}{% else %}Gốc thư viện{% endif %}</h2>
+            <table class="nodeTable">
+              <thead>
+                <tr>
+                  <th>Tên</th>
+                  <th>Kích thước</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in items %}
+                  <tr>
+                    <td>
+                      <span class="nodeName">
+                        {% if item.nodeType == 'folder' %}
+                          📁 <a href="/admin/library?parent_id={{ item.id }}">{{ item.name }}</a>
+                        {% else %}
+                          📄 <a href="/library/file/{{ item.id }}" target="_blank" rel="noopener">{{ item.name }}</a>
+                        {% endif %}
+                      </span>
+                    </td>
+                    <td class="nodeSize">{{ formatSize(item.fileSizeBytes) }}</td>
+                    <td>
+                      <div class="nodeActions">
+                        <form class="renameForm" method="post" action="/admin/library/rename">
+                          <input type="hidden" name="parent_id" value="{{ currentParentId }}" />
+                          <input type="hidden" name="node_id" value="{{ item.id }}" />
+                          <input type="text" name="name" value="{{ item.name }}" required />
+                          <button class="secondaryButton" type="submit">Đổi tên</button>
+                        </form>
+                        <form method="post" action="/admin/library/delete" onsubmit="return confirm('Xoá {{ "thư mục này và toàn bộ nội dung bên trong" if item.nodeType == "folder" else "file này" }}? Không thể hoàn tác.');">
+                          <input type="hidden" name="parent_id" value="{{ currentParentId }}" />
+                          <input type="hidden" name="node_id" value="{{ item.id }}" />
+                          <button class="dangerButton" type="submit">Xoá</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr class="emptyRow"><td colspan="3">Chưa có thư mục hoặc file nào trong mục này.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+  </body>
+</html>

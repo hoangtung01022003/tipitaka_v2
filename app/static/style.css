@@ -753,6 +753,30 @@ body.modalOpen {
   text-decoration: none;
 }
 
+.libraryEntryRow {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.libraryEntryLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: 999px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.libraryEntryLink:hover {
+  background: #ffedd5;
+  border-color: #fb923c;
+}
+
 .officialTranslation {
   border-left: 3px solid #b45309;
   padding-left: 0.9rem;

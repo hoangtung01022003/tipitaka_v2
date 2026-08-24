@@ -3,9 +3,10 @@ import re
 import secrets
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlencode
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -14,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .db import execute, fetch_all, fetch_one
+from . import library
 from .help_guide import (
     HELP_GUIDE_BATCH,
     get_help_config,
@@ -773,6 +775,7 @@ def index(request: Request, lang: str | None = Query(None)):
             pitaka_options=pitaka_options(language),
             language_options=language_options(),
             notice=get_notice(language),
+            libraryButtonLabel=library.get_button_label(),
             default_query="",
             ga_measurement_id=settings().get("ga_measurement_id", ""),
         ),
@@ -1674,6 +1677,45 @@ def feedback_page_route(request: Request, lang: str | None = Query(None)):
     )
 
 
+@app.get("/library", response_class=HTMLResponse)
+def library_page(request: Request, parent_id: str | None = Query(None), lang: str | None = Query(None)):
+    """Trang người dùng: duyệt Thư viện tài liệu (cây thư mục PDF admin tự dựng)."""
+    language = request_language(request, lang)
+    current = library.get_node(parent_id) if parent_id else None
+    if parent_id and (not current or current["nodeType"] != "folder"):
+        raise HTTPException(status_code=404, detail="Không tìm thấy thư mục này.")
+    return templates.TemplateResponse(
+        "library.html",
+        _template_context(
+            request,
+            language,
+            breadcrumb=library.get_breadcrumb(parent_id),
+            items=library.list_children_for_browse(parent_id),
+            formatSize=library.format_size,
+            notice=get_notice(language),
+            ga_measurement_id=settings().get("ga_measurement_id", ""),
+        ),
+    )
+
+
+@app.get("/library/file/{node_id}")
+def library_file_download(node_id: str):
+    """Phục vụ PDF để trình duyệt tự mở khung xem có sẵn (inline), không ép tải về."""
+    node = library.get_node(node_id)
+    if not node or node["nodeType"] != "file":
+        raise HTTPException(status_code=404, detail="Không tìm thấy file này.")
+    path = library.resolve_file_path(node)
+    if not path or not path.exists():
+        raise HTTPException(status_code=404, detail="File không còn trên máy chủ.")
+    display_name = node["name"] if node["name"].lower().endswith(".pdf") else f"{node['name']}.pdf"
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=display_name,
+        content_disposition_type="inline",
+    )
+
+
 @app.get("/api/help")
 def help_api(request: Request, page: int = Query(1, ge=1), lang: str | None = Query(None)):
     """Một mẻ nội dung hướng dẫn, để client cuộn trang nạp thêm."""
@@ -1994,6 +2036,118 @@ async def admin_notice_save(request: Request, _: str = Depends(get_current_admin
     }
     save_notice(enabled, content)
     return RedirectResponse(url="/admin/notice?saved=1", status_code=status.HTTP_302_FOUND)
+
+
+def _admin_library_redirect(parent_id: str | None, **extra: str) -> RedirectResponse:
+    params = {}
+    if parent_id:
+        params["parent_id"] = parent_id
+    params.update({key: value for key, value in extra.items() if value})
+    query = f"?{urlencode(params)}" if params else ""
+    return RedirectResponse(url=f"/admin/library{query}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/admin/library", response_class=HTMLResponse)
+def admin_library_page(
+    request: Request,
+    parent_id: str | None = Query(None),
+    saved: bool = Query(False),
+    error: str | None = Query(None),
+    _: str = Depends(get_current_admin),
+):
+    current = library.get_node(parent_id) if parent_id else None
+    if parent_id and (not current or current["nodeType"] != "folder"):
+        raise HTTPException(status_code=404, detail="Không tìm thấy thư mục này.")
+    return templates.TemplateResponse(
+        "admin_library.html",
+        {
+            "request": request,
+            "breadcrumb": library.get_breadcrumb(parent_id),
+            "items": library.list_children(parent_id),
+            "folderTree": library.get_folder_tree(),
+            "currentParentId": parent_id or "",
+            "buttonLabel": library.get_button_label(),
+            "formatSize": library.format_size,
+            "saved": saved,
+            "error": error,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
+@app.post("/admin/library/label")
+async def admin_library_save_label(request: Request, _: str = Depends(get_current_admin)):
+    """Đổi tên nút vào Thư viện tài liệu ở trang chủ."""
+    form = await request.form()
+    library.save_button_label(str(form.get("buttonLabel") or ""))
+    return RedirectResponse(url="/admin/library?saved=1", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/admin/library/folder")
+async def admin_library_create_folder(request: Request, _: str = Depends(get_current_admin)):
+    form = await request.form()
+    parent_id = str(form.get("parent_id") or "").strip() or None
+    try:
+        library.create_folder(parent_id, str(form.get("name") or ""))
+    except ValueError as exc:
+        return _admin_library_redirect(parent_id, error=str(exc))
+    return _admin_library_redirect(parent_id, saved="1")
+
+
+@app.post("/admin/library/rename")
+async def admin_library_rename(request: Request, _: str = Depends(get_current_admin)):
+    form = await request.form()
+    parent_id = str(form.get("parent_id") or "").strip() or None
+    node_id = str(form.get("node_id") or "")
+    try:
+        library.rename_node(node_id, str(form.get("name") or ""))
+    except ValueError as exc:
+        return _admin_library_redirect(parent_id, error=str(exc))
+    return _admin_library_redirect(parent_id, saved="1")
+
+
+@app.post("/admin/library/delete")
+async def admin_library_delete(request: Request, _: str = Depends(get_current_admin)):
+    form = await request.form()
+    parent_id = str(form.get("parent_id") or "").strip() or None
+    node_id = str(form.get("node_id") or "")
+    if node_id:
+        library.delete_node(node_id)
+    return _admin_library_redirect(parent_id, saved="1")
+
+
+@app.post("/admin/library/upload")
+async def admin_library_upload(
+    parent_id: str = Form(""),
+    name: str = Form(""),
+    file: UploadFile = File(...),
+    _: str = Depends(get_current_admin),
+):
+    parent = parent_id.strip() or None
+    original_name = file.filename or ""
+    if not original_name.lower().endswith(".pdf"):
+        await file.close()
+        return _admin_library_redirect(parent, error="Chỉ nhận file PDF.")
+
+    display_name = name.strip() or Path(original_name).stem
+    stored_filename = library.new_stored_filename()
+    dest = library.LIBRARY_FILES_DIR / stored_filename
+    size = 0
+    with dest.open("wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            out.write(chunk)
+    await file.close()
+
+    try:
+        library.create_file_node(parent, display_name, stored_filename, size)
+    except ValueError as exc:
+        dest.unlink(missing_ok=True)
+        return _admin_library_redirect(parent, error=str(exc))
+    return _admin_library_redirect(parent, saved="1")
 
 
 @app.get("/api/admin/history/{log_id}")

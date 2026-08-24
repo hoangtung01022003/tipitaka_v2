@@ -23,7 +23,7 @@ from app.i18n import LANGUAGES, normalize_language
 HELP_GUIDE_BATCH = 20
 
 DEFAULT_HEADINGS = {
-    "vi": "Hướng dẫn và trợ giúp tìm kiếm",
+    "vi": "Hướng dẫn tìm kiếm và tổng hợp các câu hỏi",
     "en": "Search help & guide",
     "my": "ရှာဖွေခြင်းအတွက် အကူအညီနှင့် လမ်းညွှန်",
 }
