@@ -754,21 +754,21 @@ body.modalOpen {
 }
 
 .libraryEntryRow {
-  margin-top: 1rem;
-  text-align: center;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .libraryEntryLink {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.25rem;
+  gap: 0.4rem;
+  padding: 0.35rem 0.9rem;
   border-radius: 999px;
   background: #fff7ed;
   border: 1px solid #fdba74;
   color: #9a3412;
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   text-decoration: none;
 }
 
@@ -955,6 +955,10 @@ body.modalOpen {
     margin-top: 0.35rem;
     justify-content: center;
     gap: 0.5rem;
+  }
+
+  .libraryEntryRow {
+    justify-content: center;
   }
 
   .searchBox,

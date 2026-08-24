@@ -141,7 +141,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "match.semantic": "Có độ gần nghĩa vector và vượt ngưỡng lọc nhiễu.",
         "match.threshold": "Vượt ngưỡng lọc nhiễu theo điểm lexical/proximity.",
                 "match.aiRerank": "Gemini rerank đánh giá đoạn này sát ý tìm kiếm.",
-        "help.title": "Hướng dẫn và trợ giúp tìm kiếm",
+        "help.title": "Hướng dẫn tìm kiếm và tổng hợp các câu hỏi",
         "help.intro": "Nếu bạn nhập từ khóa không ra kết quả hoặc cần hỗ trợ thêm, hãy tham khảo hướng dẫn bên dưới hoặc gửi góp ý cho chúng tôi.",
         "help.readTitle": "Hướng dẫn tìm kiếm",
         "help.loadMore": "Xem thêm",
