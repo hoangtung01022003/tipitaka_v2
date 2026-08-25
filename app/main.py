@@ -2150,6 +2150,18 @@ async def admin_library_upload(
     return _admin_library_redirect(parent, saved="1")
 
 
+@app.post("/admin/library/reorder")
+def admin_library_reorder(payload: dict, _: str = Depends(get_current_admin)):
+    """Ghi lại thứ tự sau khi admin kéo-thả - gọi bằng fetch() nên trả JSON, không
+    redirect như các form khác (kéo-thả không tải lại trang)."""
+    parent_id = str(payload.get("parent_id") or "").strip() or None
+    order = payload.get("order")
+    if not isinstance(order, list):
+        raise HTTPException(status_code=400, detail="Dữ liệu thứ tự không hợp lệ.")
+    library.reorder_children(parent_id, [str(item) for item in order])
+    return {"ok": True}
+
+
 @app.get("/api/admin/history/{log_id}")
 def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
     log = fetch_one("select * from search_logs where id = %s", [log_id])

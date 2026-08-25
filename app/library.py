@@ -40,15 +40,15 @@ def _row_to_node(row: dict) -> dict:
 
 
 def list_children(parent_id: str | None) -> list[dict]:
-    """Thư mục con đứng trước file, nhưng trong mỗi nhóm xếp theo thứ tự TẢI LÊN
-    (cũ trước, mới sau) - không theo bảng chữ cái, vì admin xếp thứ tự thao tác của
-    mình theo trình tự đã tải, không phải theo tên."""
+    """Sắp theo `sort_order` - admin tự kéo-thả để đổi vị trí (xem `reorder_children`),
+    mặc định là thứ tự TẢI LÊN (cũ trước, mới sau) cho tới khi admin sắp lại tay. Không
+    còn ép "thư mục luôn trước file": kéo-thả cho phép xen kẽ tự do nếu admin muốn."""
     rows = fetch_all(
         """
         select id, parent_id, node_type, name, file_size_bytes, created_at
         from library_nodes
         where parent_id is not distinct from %s
-        order by (node_type <> 'folder'), created_at asc
+        order by sort_order asc, created_at asc
         """,
         [parent_id],
     )
@@ -94,7 +94,7 @@ def get_folder_tree() -> list[dict]:
     """Toàn bộ cây thư mục (không gồm file) để vẽ sidebar/dropdown chọn đích - admin
     thấy hết mọi tầng cùng lúc thay vì phải bấm xuyên từng cấp mới biết cây đang có gì."""
     rows = fetch_all(
-        "select id, parent_id, name from library_nodes where node_type = 'folder' order by created_at asc"
+        "select id, parent_id, name from library_nodes where node_type = 'folder' order by sort_order asc, created_at asc"
     )
     by_parent: dict[str | None, list[dict]] = {}
     for row in rows:
@@ -137,6 +137,15 @@ def _name_taken(parent_id: str | None, name: str, exclude_id: str | None = None)
     return row is not None
 
 
+def _next_sort_order(parent_id: str | None) -> int:
+    row = fetch_one(
+        "select coalesce(max(sort_order), -1) + 1 as next_order from library_nodes "
+        "where parent_id is not distinct from %s",
+        [parent_id],
+    )
+    return int(row["next_order"]) if row else 0
+
+
 def create_folder(parent_id: str | None, name: str) -> dict:
     name = name.strip()
     if not name:
@@ -145,11 +154,11 @@ def create_folder(parent_id: str | None, name: str) -> dict:
         raise ValueError("Đã có thư mục hoặc file cùng tên trong mục này.")
     row = fetch_one(
         """
-        insert into library_nodes (parent_id, node_type, name)
-        values (%s, 'folder', %s)
+        insert into library_nodes (parent_id, node_type, name, sort_order)
+        values (%s, 'folder', %s, %s)
         returning id, parent_id, node_type, name, file_size_bytes, created_at
         """,
-        [parent_id, name],
+        [parent_id, name, _next_sort_order(parent_id)],
     )
     return _row_to_node(row)
 
@@ -162,13 +171,33 @@ def create_file_node(parent_id: str | None, name: str, stored_filename: str, siz
         raise ValueError("Đã có thư mục hoặc file cùng tên trong mục này.")
     row = fetch_one(
         """
-        insert into library_nodes (parent_id, node_type, name, file_path, file_size_bytes)
-        values (%s, 'file', %s, %s, %s)
+        insert into library_nodes (parent_id, node_type, name, file_path, file_size_bytes, sort_order)
+        values (%s, 'file', %s, %s, %s, %s)
         returning id, parent_id, node_type, name, file_size_bytes, created_at
         """,
-        [parent_id, name, stored_filename, size_bytes],
+        [parent_id, name, stored_filename, size_bytes, _next_sort_order(parent_id)],
     )
     return _row_to_node(row)
+
+
+def reorder_children(parent_id: str | None, ordered_ids: list[str]) -> None:
+    """Ghi lại thứ tự mới sau khi admin kéo-thả trong `/admin/library`.
+
+    Chỉ những id thực sự là con của `parent_id` mới được cập nhật - JOIN không khớp
+    được hàng nào với id lạ (gửi sai/giả mạo từ ngoài), nên tự động bỏ qua thay vì cần
+    kiểm tra riêng.
+    """
+    if not ordered_ids:
+        return
+    execute(
+        """
+        update library_nodes as n
+        set sort_order = v.pos - 1
+        from unnest(%s::uuid[]) with ordinality as v(id, pos)
+        where n.id = v.id and n.parent_id is not distinct from %s
+        """,
+        [ordered_ids, parent_id],
+    )
 
 
 def rename_node(node_id: str, name: str) -> dict:

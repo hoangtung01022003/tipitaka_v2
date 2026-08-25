@@ -204,6 +204,17 @@
       }
       .emptyRow td { text-align: center; color: #9ca3af; padding: 1.5rem; }
 
+      .dragHandle {
+        width: 1.75rem;
+        text-align: center;
+        color: #9ca3af;
+        cursor: grab;
+        user-select: none;
+        font-size: 1.1rem;
+        touch-action: none; /* để pointermove nhận đủ sự kiện chạm, không bị trình duyệt cướp để cuộn trang */
+      }
+      #nodeTableBody tr.dragging { opacity: 0.35; }
+
       .uploadStatus {
         display: flex;
         align-items: center;
@@ -220,6 +231,45 @@
       @media (max-width: 900px) {
         .libraryLayout { flex-direction: column; }
         .treePane { width: 100%; position: static; max-height: 320px; }
+      }
+
+      /* Cùng breakpoint 768px với admin-mobile.css (dùng chung mọi trang admin) - phần
+         khung sườn (sidebar, nút full-width, padding) đã tự động ăn theo file đó vì
+         dùng chung tên class. Ở đây chỉ xử lý riêng bảng danh sách + form tạo/upload,
+         những thứ không có ở các trang admin khác. */
+      @media (max-width: 768px) {
+        .inlineForm { flex-direction: column; align-items: stretch; }
+        .inlineForm .field { min-width: 0; }
+        .inlineForm > button { width: 100%; }
+
+        .nodeTable thead { display: none; }
+        .nodeTable, .nodeTable tbody { display: block; width: 100%; }
+        .nodeTable tr {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.5rem 0.6rem;
+          margin-bottom: 0.75rem;
+          padding: 0.75rem;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          background: #fff;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+        }
+        .nodeTable tr.emptyRow { display: block; box-shadow: none; border-style: dashed; }
+        .nodeTable td { display: block; padding: 0; border: 0; }
+        .nodeTable td:nth-child(1) { order: 1; }
+        .nodeTable td:nth-child(2) { order: 2; flex: 1; min-width: 0; }
+        .nodeTable td:nth-child(3) { order: 3; }
+        .nodeTable td:nth-child(4) { order: 4; flex: 0 0 100%; }
+        .nodeName { flex-wrap: wrap; overflow-wrap: anywhere; }
+        .renameForm { flex: 1 1 220px; }
+        .renameForm input[type="text"] { flex: 1; width: auto; min-width: 0; }
+        .secondaryButton { min-height: 40px; }
+
+        /* Vùng chạm ⠿ trên desktop chỉ cần vừa icon, nhưng trên di động cần đủ lớn
+           (khuyến nghị ~44px) để ngón tay bấm trúng và kéo được. */
+        .dragHandle { width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; }
       }
     </style>
     <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
@@ -343,17 +393,20 @@
 
           <div class="card">
             <h2>Nội dung: {% if breadcrumb %}{{ breadcrumb[-1].name }}{% else %}Gốc thư viện{% endif %}</h2>
+            <p class="hint">Kéo-thả biểu tượng ⠿ để đổi vị trí - tiện khi nhận thêm file sau nhưng cần chèn vào giữa danh sách đã có.</p>
             <table class="nodeTable">
               <thead>
                 <tr>
+                  <th></th>
                   <th>Tên</th>
                   <th>Kích thước</th>
                   <th>Thao tác</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="nodeTableBody" data-parent-id="{{ currentParentId }}">
                 {% for item in items %}
-                  <tr>
+                  <tr data-node-id="{{ item.id }}">
+                    <td class="dragHandle" title="Kéo để đổi vị trí">⠿</td>
                     <td>
                       <span class="nodeName">
                         {% if item.nodeType == 'folder' %}
@@ -381,7 +434,7 @@
                     </td>
                   </tr>
                 {% else %}
-                  <tr class="emptyRow"><td colspan="3">Chưa có thư mục hoặc file nào trong mục này.</td></tr>
+                  <tr class="emptyRow"><td colspan="4">Chưa có thư mục hoặc file nào trong mục này.</td></tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -405,6 +458,80 @@
           }
         });
       }
+
+      (function () {
+        // Pointer Events thay vì HTML5 Drag API gốc: Drag API chỉ nhận chuột, chạm tay
+        // trên di động không kích hoạt được. Pointer Events gộp chung chuột/chạm/bút vào
+        // một API nên cùng một đoạn code kéo được trên cả desktop lẫn điện thoại.
+        var tbody = document.getElementById("nodeTableBody");
+        if (!tbody) return;
+        var parentId = tbody.getAttribute("data-parent-id") || "";
+        var draggingRow = null;
+
+        tbody.addEventListener("pointerdown", function (event) {
+          var handle = event.target.closest(".dragHandle");
+          if (!handle) return;
+          var row = handle.closest("tr[data-node-id]");
+          if (!row) return;
+          event.preventDefault();
+          draggingRow = row;
+          row.classList.add("dragging");
+          document.addEventListener("pointermove", onPointerMove);
+          document.addEventListener("pointerup", onPointerUp);
+          document.addEventListener("pointercancel", onPointerUp);
+        });
+
+        function onPointerMove(event) {
+          if (!draggingRow) return;
+          event.preventDefault();
+          var after = rowAfterPointer(tbody, event.clientY);
+          if (after == null) {
+            tbody.appendChild(draggingRow);
+          } else if (after !== draggingRow) {
+            tbody.insertBefore(draggingRow, after);
+          }
+        }
+
+        function onPointerUp() {
+          if (!draggingRow) return;
+          draggingRow.classList.remove("dragging");
+          draggingRow = null;
+          document.removeEventListener("pointermove", onPointerMove);
+          document.removeEventListener("pointerup", onPointerUp);
+          document.removeEventListener("pointercancel", onPointerUp);
+          persistOrder();
+        }
+
+        function rowAfterPointer(container, y) {
+          var rows = Array.prototype.filter.call(
+            container.querySelectorAll("tr[data-node-id]"),
+            function (row) { return row !== draggingRow; }
+          );
+          var closest = null;
+          var closestOffset = -Infinity;
+          rows.forEach(function (row) {
+            var box = row.getBoundingClientRect();
+            var offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closestOffset) {
+              closestOffset = offset;
+              closest = row;
+            }
+          });
+          return closest;
+        }
+
+        function persistOrder() {
+          var ids = Array.prototype.map.call(
+            tbody.querySelectorAll("tr[data-node-id]"),
+            function (row) { return row.getAttribute("data-node-id"); }
+          );
+          fetch("/admin/library/reorder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parent_id: parentId, order: ids }),
+          }).catch(function () {});
+        }
+      })();
     </script>
   </body>
 </html>
