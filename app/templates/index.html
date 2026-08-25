@@ -84,7 +84,7 @@
 
           <div class="controls">
             <span class="notice" id="selectedNotice">{{ t('search.noticeReady') }}</span>
-            <button class="button" type="submit">{{ t('search.submit') }}</button>
+            <button class="button" type="submit" id="searchSubmitBtn">{{ t('search.submit') }}</button>
           </div>
         </form>
       </section>
@@ -368,6 +368,15 @@
           </div>
         `;
 
+        // Nút cũng phải đổi chữ, không chỉ khối loading bên dưới: loading có thể bị
+        // cuộn khuất khỏi màn hình, còn nút thì luôn nằm ngay chỗ người dùng vừa bấm -
+        // thiếu dấu hiệu ở đây dễ khiến tưởng bấm chưa ăn nên bấm lại nhiều lần.
+        const submitBtn = document.getElementById("searchSubmitBtn");
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = tr("search.submitting");
+        }
+
         try {
           const res = await fetch("/search-page", {
             method: "POST",
@@ -382,6 +391,11 @@
           hydrateLazyTranslations(resultsWrap);
         } catch (error) {
           resultsWrap.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = tr("search.submit");
+          }
         }
       }
 

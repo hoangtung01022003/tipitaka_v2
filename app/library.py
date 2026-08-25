@@ -40,12 +40,15 @@ def _row_to_node(row: dict) -> dict:
 
 
 def list_children(parent_id: str | None) -> list[dict]:
+    """Thư mục con đứng trước file, nhưng trong mỗi nhóm xếp theo thứ tự TẢI LÊN
+    (cũ trước, mới sau) - không theo bảng chữ cái, vì admin xếp thứ tự thao tác của
+    mình theo trình tự đã tải, không phải theo tên."""
     rows = fetch_all(
         """
         select id, parent_id, node_type, name, file_size_bytes, created_at
         from library_nodes
         where parent_id is not distinct from %s
-        order by (node_type <> 'folder'), name asc
+        order by (node_type <> 'folder'), created_at asc
         """,
         [parent_id],
     )
@@ -91,7 +94,7 @@ def get_folder_tree() -> list[dict]:
     """Toàn bộ cây thư mục (không gồm file) để vẽ sidebar/dropdown chọn đích - admin
     thấy hết mọi tầng cùng lúc thay vì phải bấm xuyên từng cấp mới biết cây đang có gì."""
     rows = fetch_all(
-        "select id, parent_id, name from library_nodes where node_type = 'folder' order by name asc"
+        "select id, parent_id, name from library_nodes where node_type = 'folder' order by created_at asc"
     )
     by_parent: dict[str | None, list[dict]] = {}
     for row in rows:

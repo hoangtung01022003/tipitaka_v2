@@ -65,9 +65,15 @@ def _load_row(language: str) -> dict | None:
 
 
 def _load_items(language: str) -> list[dict]:
+    """Mục mới tạo gần đây nhất hiện lên đầu - ĐÚNG THỨ TỰ ADMIN NHẬP, không theo `position`.
+
+    `position` chỉ là chỉ số của mục trong mảng lúc admin bấm lưu (`save_help` gán lại
+    `enumerate(clean_items)` mỗi lần lưu), không phải thời điểm tạo. `created_at` chỉ
+    được set lúc INSERT và không đổi khi UPDATE, nên mới là tín hiệu đúng "mục nào mới".
+    """
     rows = fetch_all(
         "select id, language, position, body, sutta_title, sutta_pali_text, updated_at "
-        "from help_guide_items where language = %s order by position asc, created_at asc",
+        "from help_guide_items where language = %s order by created_at desc, position desc",
         [normalize_language(language)],
     )
     return [

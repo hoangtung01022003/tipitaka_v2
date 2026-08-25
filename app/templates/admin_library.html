@@ -204,6 +204,19 @@
       }
       .emptyRow td { text-align: center; color: #9ca3af; padding: 1.5rem; }
 
+      .uploadStatus {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 8px;
+        color: #92400e;
+        font-size: 0.9rem;
+      }
+
       @media (max-width: 900px) {
         .libraryLayout { flex-direction: column; }
         .treePane { width: 100%; position: static; max-height: 320px; }
@@ -304,7 +317,7 @@
           <div class="card">
             <h2>Tải file PDF lên</h2>
             <p class="hint">Chọn đúng thư mục đích ngay đây - không cần bấm vào thư mục đó trước. Không nhập tên hiển thị thì lấy theo tên file gốc.</p>
-            <form class="inlineForm" method="post" action="/admin/library/upload" enctype="multipart/form-data">
+            <form class="inlineForm" method="post" action="/admin/library/upload" enctype="multipart/form-data" id="uploadForm">
               <div class="field">
                 <label for="uploadParent">Tải vào thư mục</label>
                 <select id="uploadParent" name="parent_id">
@@ -320,8 +333,12 @@
                 <label for="fileInput">File PDF</label>
                 <input type="file" id="fileInput" name="file" accept="application/pdf" required />
               </div>
-              <button class="primaryButton" type="submit">Tải lên</button>
+              <button class="primaryButton" type="submit" id="uploadSubmitBtn">Tải lên</button>
             </form>
+            <div class="uploadStatus" id="uploadStatus" style="display:none;">
+              <div class="spinner" aria-hidden="true" style="width:22px;height:22px;"></div>
+              <span>Đang tải lên, vui lòng đợi - file càng nặng càng lâu, đừng tắt hay bấm lại trang này.</span>
+            </div>
           </div>
 
           <div class="card">
@@ -373,5 +390,21 @@
       </div>
     </main>
     <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+    <script>
+      var uploadForm = document.getElementById("uploadForm");
+      if (uploadForm) {
+        uploadForm.addEventListener("submit", function () {
+          var btn = document.getElementById("uploadSubmitBtn");
+          var status = document.getElementById("uploadStatus");
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = "Đang tải lên...";
+          }
+          if (status) {
+            status.style.display = "flex";
+          }
+        });
+      }
+    </script>
   </body>
 </html>
