@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ t('site.title') }}</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
     {% if ga_measurement_id %}
     <!-- Google Analytics (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
@@ -39,7 +39,6 @@
             <div class="authLinks">
               {% if current_user %}
                 <span class="authGreeting">{{ t('nav.greeting', username=current_user.username) }}</span>
-                <a class="helpLink" href="/saved">{{ t('nav.saved') }}</a>
                 <a class="helpLink" href="/logout" data-nav-icon="🚪">{{ t('nav.logout') }}</a>
               {% else %}
                 <a class="helpLink" href="/login" data-nav-icon="🔑">{{ t('nav.login') }}</a>
@@ -58,8 +57,15 @@
               <span class="helpLinkDivider">|</span>
               <a class="helpLink" href="/feedback?lang={{ lang }}" data-nav-icon="💬">{{ t('feedback.title') }}</a>
             </div>
-            <div class="libraryEntryRow">
-              <a class="libraryEntryLink" href="/library?lang={{ lang }}">📚 {{ libraryButtonLabel }}</a>
+            <div class="libraryActions">
+              <div class="libraryEntryRow">
+                <a class="libraryEntryLink" href="/library?lang={{ lang }}">📚 {{ libraryButtonLabel }}</a>
+              </div>
+              {% if current_user %}
+                <div class="libraryEntryRow">
+                  <a class="libraryEntryLink" href="/saved">{{ t('nav.saved') }}</a>
+                </div>
+              {% endif %}
             </div>
           </div>
         </div>

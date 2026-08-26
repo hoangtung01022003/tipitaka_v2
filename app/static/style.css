@@ -780,6 +780,19 @@ body.modalOpen {
   font-weight: 600;
 }
 
+.libraryActions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+@media (max-width: 700px) {
+  .libraryActions {
+    flex-direction: column;
+  }
+}
+
 .libraryEntryRow {
   display: flex;
   justify-content: flex-end;
