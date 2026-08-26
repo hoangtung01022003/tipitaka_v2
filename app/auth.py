@@ -62,6 +62,26 @@ def create_user(username: str, password: str) -> dict:
     return row
 
 
+def get_or_create_admin_user() -> dict:
+    """Tìm hoặc tạo một bản ghi user tương ứng với tài khoản admin.
+
+    Admin vốn chỉ có session["admin_logged_in"] mà không có user_id, nên không
+    dùng được các tính năng yêu cầu user (lưu bài kinh, v.v.). Hàm này đảm bảo
+    admin cũng có một dòng trong bảng `users` để liên kết dữ liệu cá nhân."""
+    admin_username = str(settings().get("admin_username", "admin")).strip().lower()
+    user = get_user_by_username(admin_username)
+    if user:
+        return user
+    # Tạo mới với mật khẩu ngẫu nhiên (admin đăng nhập bằng biến môi trường,
+    # không bao giờ dùng mật khẩu trong bảng users).
+    random_pw = secrets.token_hex(32)
+    row = fetch_one(
+        "insert into users (username, password_hash) values (%s, %s) returning *",
+        [admin_username, hash_password(random_pw)],
+    )
+    return row
+
+
 def get_current_user(request: Request) -> dict | None:
     user_id = request.session.get("user_id")
     if not user_id:

@@ -138,11 +138,9 @@
          `autoSaveResultCard` trong index.html. JS phải tự loại bỏ `.resultSaveBar` khỏi
          bản sao trước khi lưu, để không lưu đệ quy chính khối trạng thái này vào bên trong
          nội dung đã lưu. #}
-      {% if current_user %}
-        <div class="resultSaveBar sourceAction">
+      <div class="resultSaveBar sourceAction">
           <button class="button secondary" type="button" data-save-status onclick="manualSaveResultCard(this, this.closest('article'))">{{ t('results.saveFavorite') }}</button>
         </div>
-      {% endif %}
     </article>
   {% endfor %}
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ t('site.title') }}</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
+    <link rel="stylesheet" href="/static/style.css?v=20260826-5" />
     {% if ga_measurement_id %}
     <!-- Google Analytics (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
@@ -30,6 +30,11 @@
           >
             <span></span><span></span><span></span>
           </button>
+          <div class="mobileMenuHint" id="mobileMenuHint">
+            Menu chức năng ở đây nhé!
+            <button type="button" id="closeMobileMenuHint">×</button>
+          </div>
+
           <div class="heroTitleBlock">
             <p class="eyebrow">{{ t('site.eyebrow') }}</p>
             <h1>{{ t('site.title') }}</h1>
@@ -137,6 +142,22 @@
       </div>
     {% endif %}
 
+    
+    <div class="modalOverlay noticeOverlay hidden" id="loginNoticeModal" role="dialog" aria-modal="true" aria-labelledby="loginNoticeModalTitle">
+      <div class="modalPanel noticePanel">
+        <div class="modalTopbar">
+          <h2 id="loginNoticeModalTitle">Yêu cầu đăng nhập</h2>
+        </div>
+        <div class="modalBody noticeBody">
+          Bạn cần đăng nhập để sử dụng tính năng lưu bài kinh yêu thích. Tính năng này giúp bạn lưu trữ những bài kinh muốn đọc lại vào danh sách cá nhân để dễ dàng tra cứu về sau.
+        </div>
+        <div class="noticeActions">
+          <button class="button secondary" type="button" onclick="document.getElementById('loginNoticeModal').classList.add('hidden'); document.body.classList.remove('modalOpen');">Đóng</button>
+          <a class="button" href="/login">Đăng nhập ngay</a>
+        </div>
+      </div>
+    </div>
+
     <div class="modalOverlay hidden" id="sectionModal" role="dialog" aria-modal="true" aria-labelledby="sectionModalTitle">
       <div class="modalPanel">
         <div class="modalTopbar">
@@ -145,9 +166,7 @@
             <h2 id="sectionModalTitle">{{ t('section.compareTitle') }}</h2>
           </div>
           <div class="modalTopbarActions">
-            {% if current_user %}
-              <button class="button secondary compact" type="button" id="sectionSaveBtn" onclick="manualSaveSection(this)">{{ t('results.saveFavorite') }}</button>
-            {% endif %}
+            <button class="button secondary compact" type="button" id="sectionSaveBtn" onclick="manualSaveSection(this)">{{ t('results.saveFavorite') }}</button>
             <button class="modalClose" type="button" id="sectionModalClose" aria-label="{{ t('notice.close') }}">×</button>
           </div>
         </div>
@@ -367,12 +386,28 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind, title, excerpt, html }),
         });
+        if (res.status === 401) {
+          const modal = document.getElementById("loginNoticeModal");
+          if (modal) {
+            modal.classList.remove("hidden");
+            document.body.classList.add("modalOpen");
+          }
+          throw new Error("unauthorized");
+        }
         if (!res.ok) throw new Error("save_failed");
         return res.json();
       }
 
       async function manualSaveResultCard(btn, article) {
-        if (!IS_LOGGED_IN || btn.disabled) return;
+        if (!IS_LOGGED_IN) {
+          const modal = document.getElementById("loginNoticeModal");
+          if (modal) {
+            modal.classList.remove("hidden");
+            document.body.classList.add("modalOpen");
+          }
+          return;
+        }
+        if (btn.disabled) return;
         btn.disabled = true;
         const originalText = btn.textContent;
         btn.textContent = "⏳...";
@@ -397,7 +432,6 @@
           mount ? translateCard(mount) : Promise.resolve(),
           summaryCard ? summarizeExcerptCard(summaryCard) : Promise.resolve(),
         ]);
-        autoSaveResultCard(article);
       }
 
       async function hydrateResults(root = document) {
@@ -597,7 +631,15 @@
       // tải xong rồi mới chụp, để không lưu lúc màn hình còn spinner. Mỗi `sectionId::source`
       // chỉ tự lưu MỘT LẦN trong phiên trình duyệt này dù khách đóng/mở lại nhiều lần.
       async function manualSaveSection(btn) {
-        if (!IS_LOGGED_IN || btn.disabled || !activeSectionId) return;
+        if (!IS_LOGGED_IN) {
+          const modal = document.getElementById("loginNoticeModal");
+          if (modal) {
+            modal.classList.remove("hidden");
+            document.body.classList.add("modalOpen");
+          }
+          return;
+        }
+        if (btn.disabled || !activeSectionId) return;
         btn.disabled = true;
         const originalText = btn.textContent;
         btn.textContent = "⏳...";
@@ -622,7 +664,6 @@
 
       async function hydrateSectionExtras(sectionId, source) {
         await Promise.all([hydrateSectionTranslation(sectionModalBody), loadAiSummary(sectionId, sectionModalBody)]);
-        autoSaveSection(sectionModalBody.querySelector("[data-section-viewer]"));
       }
 
       async function openSection(sectionId, button, source = "ai", focusPassageId = null) {
@@ -922,6 +963,24 @@
       setupExclusiveGroup("pitaka_type");
       updateNotice();
       setupNotice();
+
+      // Hiển thị bong bóng hướng dẫn menu chức năng trên mobile
+      if (!localStorage.getItem('mobileMenuHintClosedV2')) {
+        const hint = document.getElementById('mobileMenuHint');
+        if (hint) {
+          hint.classList.add('show');
+          document.getElementById('closeMobileMenuHint').addEventListener('click', () => {
+            hint.classList.remove('show');
+            localStorage.setItem('mobileMenuHintClosedV2', 'true');
+          });
+          // Tự động ẩn sau 10 giây
+          setTimeout(() => {
+            hint.classList.remove('show');
+            localStorage.setItem('mobileMenuHintClosedV2', 'true');
+          }, 10000);
+        }
+      }
+
     </script>
   </body>
 </html>

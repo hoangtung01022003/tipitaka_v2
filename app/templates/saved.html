@@ -115,12 +115,28 @@
       }
 
       function paliTextFor(passageId) {
+        // Thử lấy từ thẻ script (trang tìm kiếm gốc)
         const node = document.getElementById(`pali-text-${passageId}`);
         try {
-          return node ? JSON.parse(node.textContent || '""') : "";
-        } catch (_error) {
-          return "";
+          if (node) return JSON.parse(node.textContent || '""');
+        } catch (_error) {}
+        // Fallback: lấy từ DOM trực tiếp trong snapshot đã lưu
+        // Tìm article chứa passage, rồi lấy nội dung .pali
+        const article = document.querySelector(`[data-passage-id="${passageId}"]`);
+        if (article) {
+          const paliEl = article.querySelector(".pali");
+          if (paliEl) return paliEl.textContent.trim();
         }
+        // Fallback cuối: tìm trong bất kỳ detailMount nào đang mở
+        for (const mount of document.querySelectorAll("[data-detail-mount]")) {
+          if (mount.classList.contains("hidden")) continue;
+          const innerArticle = mount.querySelector(`[data-passage-id="${passageId}"]`);
+          if (innerArticle) {
+            const paliEl = innerArticle.querySelector(".pali");
+            if (paliEl) return paliEl.textContent.trim();
+          }
+        }
+        return "";
       }
 
       function openModal(content) {
@@ -153,21 +169,21 @@
         if (!card || card.dataset.loaded === "true" || card.dataset.loading === "true") return;
         card.dataset.loading = "true";
         const paliText = paliTextFor(card.dataset.passageId);
+        card.innerHTML = `<div class="loading searchLoading" role="status" style="padding: 1rem 0;"><div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div><div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">Đang dịch...</div></div>`;
         try {
           const res = await fetch("/api/translate-result", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              passageId: card.dataset.passageId,
               paliText,
-              usePassageCache: card.dataset.usePassageCache === "true",
+              passageId: card.dataset.passageId,
               language: LANG,
             }),
           });
           const payload = await res.json();
-          renderTranslation(card, payload.translation || {});
+          renderTranslation(card, payload.translation);
         } catch (error) {
-          renderTranslation(card, { error: error.message });
+          renderTranslation(card, null);
         } finally {
           card.dataset.loaded = "true";
           card.dataset.loading = "false";
@@ -179,6 +195,9 @@
         card.dataset.loading = "true";
         const paliText = paliTextFor(card.dataset.passageId);
         const body = card.querySelector(".aiSummaryBody");
+        if (body) {
+          body.innerHTML = `<div class="loading searchLoading" role="status" style="padding: 1rem 0;"><div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div><div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">Đang tóm tắt...</div></div>`;
+        }
         try {
           const res = await fetch("/api/summarize-excerpt", {
             method: "POST",
@@ -204,15 +223,19 @@
       // nào thì mới gọi AI cho đúng cái đó. Phần nào ảnh chụp lúc lưu đã có sẵn (data-loaded
       // = "true", tức lúc lưu đã dịch/tóm tắt xong) thì vẫn hiển thị y nguyên, không đụng.
       function prepareResultDetail(root) {
-        const mount = root.querySelector("[data-translation-card]");
-        if (mount && mount.dataset.loaded !== "true") {
-          mount.innerHTML = `<button class="button secondary compact" type="button" data-manual-translate>Dịch đoạn này bằng AI</button>`;
-        }
-        const summaryCard = root.querySelector("[data-excerpt-summary-card]");
-        if (summaryCard && summaryCard.dataset.loaded !== "true") {
-          const body = summaryCard.querySelector(".aiSummaryBody");
-          if (body) body.innerHTML = `<button class="button secondary compact" type="button" data-manual-summary>Tóm tắt đoạn này bằng AI</button>`;
-        }
+        root.querySelectorAll("[data-translation-card]").forEach(mount => {
+          if (mount.dataset.loaded !== "true") {
+            mount.dataset.loading = "false";
+            mount.innerHTML = `<button class="button secondary compact" type="button" data-manual-translate>Dịch đoạn này bằng AI</button>`;
+          }
+        });
+        root.querySelectorAll("[data-excerpt-summary-card]").forEach(summaryCard => {
+          if (summaryCard.dataset.loaded !== "true") {
+            summaryCard.dataset.loading = "false";
+            const body = summaryCard.querySelector(".aiSummaryBody");
+            if (body) body.innerHTML = `<button class="button secondary compact" type="button" data-manual-summary>Tóm tắt đoạn này bằng AI</button>`;
+          }
+        });
       }
 
       // --- Y hệt trang chủ: popup "Xem toàn bộ bài kinh" - mở, đổi tab dịch giả, mục lục,
@@ -354,8 +377,9 @@
           }
         }
 
-        if (!root.querySelector(".aiSummaryContainer")) {
-          const container = document.createElement("div");
+        let container = root.querySelector(".aiSummaryContainer");
+        if (!container) {
+          container = document.createElement("div");
           container.className = "aiSummaryContainer";
           container.innerHTML = `
             <div class="aiSummaryHeader">✨ Tóm tắt bài kinh (AI)</div>
@@ -366,6 +390,12 @@
           const header = root.querySelector(".sectionHeader");
           if (header) header.insertAdjacentElement("afterend", container);
           else root.insertBefore(container, root.firstChild);
+        } else {
+          // Khôi phục nút nếu đang kẹt ở trạng thái loading (do chụp lúc đang xoay)
+          const body = container.querySelector(".aiSummaryBody");
+          if (body && body.querySelector(".loading")) {
+             body.innerHTML = `<button class="button secondary compact" type="button" data-retry-summary="${sectionId}">Tóm tắt bài kinh này bằng AI</button>`;
+          }
         }
       }
 

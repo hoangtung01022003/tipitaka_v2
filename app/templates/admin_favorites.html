@@ -3,16 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ target_user.username }} - Người dùng - Admin Tipiṭaka</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
+    <title>Bài kinh yêu thích - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260826-5" />
     <style>
-      body {
-        margin: 0;
-        background-color: #f3f4f6;
-        display: flex;
-        height: 100vh;
-        overflow: hidden;
-      }
+      body { margin: 0; background-color: #f3f4f6; display: flex; height: 100vh; overflow: hidden; }
       .sidebar { width: 250px; background-color: #1f2937; color: white; display: flex; flex-direction: column; flex-shrink: 0; }
       .sidebarHeader { padding: 1.5rem; font-size: 1.25rem; font-weight: 700; border-bottom: 1px solid #374151; text-align: center; }
       .sidebarMenu { flex: 1; padding: 1rem 0; }
@@ -24,16 +18,31 @@
       .adminHeader { margin-bottom: 1.5rem; }
       .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
       .adminHeader p { color: #6b7280; margin-top: 0.25rem; }
-      .backLink { color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
-      .backLink:hover { text-decoration: underline; }
-      .savedCard { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
-      .savedCardHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 1.2rem 1.4rem; }
-      .savedCardHead h3 { margin: 0 0 0.3rem; font-size: 1.05rem; color: #111827; }
-      .savedCardHead p { margin: 0; color: #6b7280; font-size: 0.85rem; }
-      .savedCardDetail { padding: 0 1.4rem 1.4rem; border-top: 1px solid #f3f4f6; }
+
+      /* User group card */
+      .userGroup { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+      .userGroupHead { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.4rem; cursor: pointer; user-select: none; transition: background 0.15s; }
+      .userGroupHead:hover { background: #f9fafb; }
+      .userGroupHead h2 { margin: 0; font-size: 1.1rem; color: #111827; display: flex; align-items: center; gap: 10px; }
+      .userGroupHead h2 .userIcon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #dbeafe; color: #2563eb; font-weight: 700; font-size: 0.85rem; }
+      .userGroupHead .countBadge { background: #eff6ff; color: #1d4ed8; padding: 3px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+      .userGroupHead .chevron { font-size: 1.2rem; color: #9ca3af; transition: transform 0.2s; }
+      .userGroupHead.open .chevron { transform: rotate(180deg); }
+      .userGroupBody { display: none; border-top: 1px solid #f3f4f6; }
+      .userGroupBody.open { display: block; }
+
+      /* Saved card inside group */
+      .savedCard { padding: 1rem 1.4rem; border-bottom: 1px solid #f3f4f6; }
+      .savedCard:last-child { border-bottom: none; }
+      .savedCardHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+      .savedCardHead h3 { margin: 0 0 0.3rem; font-size: 1rem; color: #111827; }
+      .savedCardHead p { margin: 0; color: #6b7280; font-size: 0.82rem; }
+      .savedCardDetail { padding-top: 1rem; }
       .savedCardDetail.hidden { display: none; }
-      .toolbarButton { background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer; }
+      .toolbarButton { background: #2563eb; color: white; border: none; padding: 0.45rem 0.9rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+      .toolbarButton:hover { background: #1d4ed8; }
       .emptyState { padding: 2rem; text-align: center; color: #6b7280; }
+      .kindTag { display: inline-block; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-right: 6px; }
     </style>
     <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
   </head>
@@ -45,40 +54,51 @@
       <span class="adminMobileBrand">Tipiṭaka Admin</span>
     </header>
 
-    {% set active_page = 'users' %}
+    {% set active_page = 'favorites' %}
     {% include '_admin_sidebar.html' %}
 
     <main class="mainContent">
-      <a class="backLink" href="/admin/users">← Danh sách người dùng</a>
       <header class="adminHeader">
-        <h1>{{ target_user.username }}</h1>
-        <p>Đăng ký lúc {{ target_user.created_at.strftime('%H:%M %d/%m/%Y') if target_user.created_at else '' }} · {{ items | length }} bài đã lưu</p>
+        <h1>Bài kinh yêu thích</h1>
+        <p>Tổng hợp bài kinh yêu thích của tất cả người dùng, phân nhóm theo từng tài khoản.</p>
       </header>
 
-      
-      {% if not items %}
-        <div class="emptyState">Người dùng này chưa lưu bài kinh nào.</div>
+      {% if not user_groups %}
+        <div class="emptyState">Chưa có ai lưu bài kinh yêu thích nào.</div>
       {% endif %}
 
-      {% for item in items %}
-        <article class="savedCard" data-saved-card data-item-id="{{ item.id }}">
-          <div class="savedCardHead">
-            <div>
-              <h3>{{ item.title or ('Toàn bộ bài kinh' if item.kind == 'section' else 'Kết quả tìm kiếm') }}</h3>
-              <p>{{ item.excerpt }}</p>
-              <p>{{ item.created_at.strftime('%H:%M %d/%m/%Y') if item.created_at else '' }}</p>
+      {% for group in user_groups %}
+        <section class="userGroup" data-user-group>
+          <div class="userGroupHead" data-toggle-group>
+            <h2>
+              <span class="userIcon">{{ group.username[0] | upper }}</span>
+              {{ group.username }}
+            </h2>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="countBadge">{{ group.records | length }} bài</span>
+              <span class="chevron">▼</span>
             </div>
-            <button class="toolbarButton" type="button" data-toggle-detail>Xem nội dung</button>
           </div>
-          <div class="savedCardDetail hidden" data-detail-mount></div>
-        </article>
+          <div class="userGroupBody">
+            {% for item in group.records %}
+              <article class="savedCard" data-saved-card data-item-id="{{ item.id }}">
+                <div class="savedCardHead">
+                  <div>
+                    <span class="kindTag">{{ 'Bài kinh' if item.kind == 'favorite_section' else 'Kết quả' }}</span>
+                    <h3>{{ item.title or 'Không có tiêu đề' }}</h3>
+                    <p>{{ item.excerpt[:120] }}{% if item.excerpt | length > 120 %}...{% endif %}</p>
+                    <p style="margin-top:4px; font-size:0.78rem; color:#9ca3af;">{{ item.created_at.strftime('%H:%M %d/%m/%Y') if item.created_at else '' }}</p>
+                  </div>
+                  <button class="toolbarButton" type="button" data-toggle-detail>Xem</button>
+                </div>
+                <div class="savedCardDetail hidden" data-detail-mount></div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
       {% endfor %}
     </main>
 
-    {# Popup "Xem toàn bộ bài kinh" - y hệt trang chủ/`/saved`, để nút trong nội dung đã
-       lưu (kind=result) và các nút mở rộng/đổi tab/dịch tiếp bên trong snapshot (kind=section)
-       đều dùng được khi admin xem lại. KHÔNG tự động gọi AI, KHÔNG tự lưu lại - admin chỉ
-       xem, không được tạo thêm bản ghi lưu mới cho người dùng. #}
     <div class="modalOverlay hidden" id="sectionModal" role="dialog" aria-modal="true" aria-labelledby="sectionModalTitle">
       <div class="modalPanel">
         <div class="modalTopbar">
@@ -113,12 +133,28 @@
       }
 
       function paliTextFor(passageId) {
+        // Thử lấy từ thẻ script (trang tìm kiếm gốc)
         const node = document.getElementById(`pali-text-${passageId}`);
         try {
-          return node ? JSON.parse(node.textContent || '""') : "";
-        } catch (_error) {
-          return "";
+          if (node) return JSON.parse(node.textContent || '""');
+        } catch (_error) {}
+        // Fallback: lấy từ DOM trực tiếp trong snapshot đã lưu
+        // Tìm article chứa passage, rồi lấy nội dung .pali
+        const article = document.querySelector(`[data-passage-id="${passageId}"]`);
+        if (article) {
+          const paliEl = article.querySelector(".pali");
+          if (paliEl) return paliEl.textContent.trim();
         }
+        // Fallback cuối: tìm trong bất kỳ detailMount nào đang mở
+        for (const mount of document.querySelectorAll("[data-detail-mount]")) {
+          if (mount.classList.contains("hidden")) continue;
+          const innerArticle = mount.querySelector(`[data-passage-id="${passageId}"]`);
+          if (innerArticle) {
+            const paliEl = innerArticle.querySelector(".pali");
+            if (paliEl) return paliEl.textContent.trim();
+          }
+        }
+        return "";
       }
 
       function openModal(content) {
@@ -134,8 +170,9 @@
         activeSectionId = null;
       }
 
-      // --- Bản dịch AI + tóm tắt AI: chỉ chạy khi bấm nút, không tự động - xem
-      // `renderTranslation`/`translateCard`/`summarizeExcerptCard` trong `saved.html`. ---
+      // --- Y hệt trang chủ: bản dịch AI + tóm tắt AI của đúng trích đoạn tự tải khi hiện
+      // ra, không cần bấm gì - xem `renderTranslation`/`translateCard`/`summarizeExcerptCard`
+      // trong index.html. Chỉ khác một điểm: /saved không tự lưu lại. ---
       function renderTranslation(card, translation) {
         const text = translation && (translation.text || translation.vi);
         if (text) {
@@ -150,6 +187,7 @@
         if (!card || card.dataset.loaded === "true" || card.dataset.loading === "true") return;
         card.dataset.loading = "true";
         const paliText = paliTextFor(card.dataset.passageId);
+        card.innerHTML = `<div class="loading searchLoading" role="status" style="padding: 1rem 0;"><div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div><div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">Đang dịch...</div></div>`;
         try {
           const res = await fetch("/api/translate-result", {
             method: "POST",
@@ -176,6 +214,9 @@
         card.dataset.loading = "true";
         const paliText = paliTextFor(card.dataset.passageId);
         const body = card.querySelector(".aiSummaryBody");
+        if (body) {
+          body.innerHTML = `<div class="loading searchLoading" role="status" style="padding: 1rem 0;"><div class="spinner" aria-hidden="true" style="width:20px;height:20px;"></div><div style="font-size: 0.9rem; margin-top: 0.5rem; color: #6b7280;">Đang tóm tắt...</div></div>`;
+        }
         try {
           const res = await fetch("/api/summarize-excerpt", {
             method: "POST",
@@ -197,24 +238,24 @@
         }
       }
 
-      // Phần nào ảnh chụp lúc lưu ĐÃ dịch/tóm tắt sẵn thì hiện y nguyên; phần nào chưa có
-      // thì thay bằng nút bấm - không tự gọi AI trên trang admin này.
       function prepareResultDetail(root) {
         root.querySelectorAll("[data-translation-card]").forEach(mount => {
           if (mount.dataset.loaded !== "true") {
+            mount.dataset.loading = "false";
             mount.innerHTML = `<button class="button secondary compact" type="button" data-manual-translate>Dịch đoạn này bằng AI</button>`;
           }
         });
         root.querySelectorAll("[data-excerpt-summary-card]").forEach(summaryCard => {
           if (summaryCard.dataset.loaded !== "true") {
+            summaryCard.dataset.loading = "false";
             const body = summaryCard.querySelector(".aiSummaryBody");
             if (body) body.innerHTML = `<button class="button secondary compact" type="button" data-manual-summary>Tóm tắt đoạn này bằng AI</button>`;
           }
         });
       }
 
-      // --- Popup "Xem toàn bộ bài kinh" - mở, đổi tab dịch giả, mục lục, dịch tiếp từng
-      // phần, tóm tắt AI. Xem các hàm cùng tên trong `saved.html`/`index.html`. ---
+      // --- Y hệt trang chủ: popup "Xem toàn bộ bài kinh" - mở, đổi tab dịch giả, mục lục,
+      // dịch tiếp từng phần, tóm tắt AI. Xem các hàm cùng tên trong index.html. ---
       function appendSectionTranslationChunk(viewer, payload) {
         const mount = viewer.querySelector("[data-section-translation]");
         const output = viewer.querySelector("[data-section-translation-output]");
@@ -232,7 +273,7 @@
             body = output.querySelector(".readerBody");
             translatedText = output.querySelector(".translation");
           }
-          translatedText.innerHTML += `${translatedText.innerHTML ? "\n\n" : ""}${escapeHtml(text)}`;
+          translatedText.innerHTML += `${translatedText.innerHTML ? "<br><br>" : ""}${escapeHtml(text)}`;
           if (toggle) toggle.classList.remove("hidden");
         } else if (translation.error) {
           output.insertAdjacentHTML("beforeend", `<div class="error">${escapeHtml(translation.error)}</div>`);
@@ -333,10 +374,11 @@
         }
       }
 
-      // Dịch phần đầu + tóm tắt bài kinh KHÔNG tự chạy khi mở popup/snapshot - chỉ hiện
-      // nút. Nút "Dịch tiếp phần N/M" (dịch DỞ DANG sẵn) và nút tóm tắt lỗi cần thử lại vẫn
-      // dùng chung `data-translate-next-section` / `data-retry-summary`, tái dùng đúng
-      // handler uỷ quyền trong `attachSectionInteractions`.
+      // Khác trang chủ đúng MỘT điểm (như phần kết quả tìm kiếm ở trên): dịch phần đầu +
+      // tóm tắt bài kinh KHÔNG tự chạy khi mở popup/snapshot - chỉ hiện nút. Nút "Dịch tiếp
+      // phần N/M" (dịch DỞ DANG sẵn) và nút tóm tắt lỗi cần thử lại vẫn dùng chung
+      // `data-translate-next-section` / `data-retry-summary` đã có, tái dùng đúng handler
+      // uỷ quyền trong `attachSectionInteractions`.
       function prepareSectionAi(root) {
         const viewer = root.querySelector("[data-section-viewer][data-section-id]");
         if (!viewer) return;
@@ -351,8 +393,9 @@
           }
         }
 
-        if (!root.querySelector(".aiSummaryContainer")) {
-          const container = document.createElement("div");
+        let container = root.querySelector(".aiSummaryContainer");
+        if (!container) {
+          container = document.createElement("div");
           container.className = "aiSummaryContainer";
           container.innerHTML = `
             <div class="aiSummaryHeader">✨ Tóm tắt bài kinh (AI)</div>
@@ -363,6 +406,12 @@
           const header = root.querySelector(".sectionHeader");
           if (header) header.insertAdjacentElement("afterend", container);
           else root.insertBefore(container, root.firstChild);
+        } else {
+          // Khôi phục nút nếu đang kẹt ở trạng thái loading (do chụp lúc đang xoay)
+          const body = container.querySelector(".aiSummaryBody");
+          if (body && body.querySelector(".loading")) {
+             body.innerHTML = `<button class="button secondary compact" type="button" data-retry-summary="${sectionId}">Tóm tắt bài kinh này bằng AI</button>`;
+          }
         }
       }
 
@@ -420,7 +469,7 @@
         return false;
       }
 
-      // Mở popup "Xem toàn bộ bài kinh" - KHÔNG tự lưu lại (admin chỉ xem).
+      // Mở popup "Xem toàn bộ bài kinh" - y hệt `openSection` ở trang chủ, KHÔNG tự lưu lại.
       async function openSection(sectionId, button, source = "ai", focusPassageId = null) {
         if (!sectionId) return;
         const key = `${sectionId}::${source}`;
@@ -493,7 +542,10 @@
 
           // CHỈ khớp đúng cái NÚT "Xem toàn bộ bài kinh" (luôn là <button>) - không phải
           // "[data-section-id]" trơn, vì bên trong popup chính <section data-section-viewer
-          // data-section-id="..."> cũng mang thuộc tính này (đã vá lỗi này ở `saved.html`).
+          // data-section-id="..."> cũng mang thuộc tính này. Không tách riêng thì MỌI cú
+          // click trong popup (mở rộng, đổi tab...) đều bị `.closest()` bắt nhầm thành bấm
+          // lại nút mở, rơi vào nhánh "đã mở sẵn thì thoát" của `openSection` và không làm
+          // gì cả - lỗi thật đã xảy ra, kiểm chứng bằng giả lập click qua jsdom.
           const sectionOpenBtn = event.target.closest("button[data-section-id]");
           if (sectionOpenBtn) {
             event.preventDefault();
@@ -510,6 +562,8 @@
           const tab = event.target.closest("[data-section-tab]");
           if (tab) {
             event.preventDefault();
+            // Đổi bản dịch giả là xem một bản KHÁC với bản đã lưu - luôn mở trong popup
+            // (dữ liệu trực tiếp), giữ nguyên snapshot tĩnh không bị ghi đè.
             const viewer = container.querySelector("[data-section-viewer]");
             if (viewer) openSection(viewer.dataset.sectionId, null, tab.dataset.sectionTab);
             return;
@@ -574,9 +628,20 @@
         if (event.key === "Escape" && !sectionModal.classList.contains("hidden")) closeModal();
       });
 
+      // Toggle user group
+      document.querySelectorAll("[data-toggle-group]").forEach((head) => {
+        head.addEventListener("click", () => {
+          head.classList.toggle("open");
+          const body = head.nextElementSibling;
+          body.classList.toggle("open");
+        });
+      });
+
+      
       document.querySelectorAll("[data-saved-card]").forEach((card) => {
         const itemId = card.dataset.itemId;
         const toggleBtn = card.querySelector("[data-toggle-detail]");
+        const deleteBtn = card.querySelector("[data-delete-item]");
         const detailMount = card.querySelector("[data-detail-mount]");
 
         attachSectionInteractions(detailMount);
@@ -584,25 +649,44 @@
         toggleBtn.addEventListener("click", async () => {
           if (!detailMount.classList.contains("hidden")) {
             detailMount.classList.add("hidden");
-            toggleBtn.textContent = "Xem nội dung";
+            toggleBtn.textContent = "Xem chi tiết";
             return;
           }
           if (!detailMount.dataset.loaded) {
-            detailMount.innerHTML = "<p>Đang tải...</p>";
+            detailMount.innerHTML = "<p class=\"notice\">Đang tải...</p>";
             try {
               const res = await fetch(`/api/admin/users/saved/${itemId}`);
+              if (res.status === 401) {
+                // Phiên đăng nhập hết hạn (VD: server dev vừa reload) - nói rõ ra thay vì
+                // để lẫn với trường hợp bài lưu thật sự trống, tránh gây hiểu lầm mất dữ liệu.
+                detailMount.innerHTML = "<p class=\"notice\">Phiên đăng nhập đã hết hạn. <a href=\"/login\">Đăng nhập lại</a> rồi thử lại.</p>";
+                return;
+              }
               if (!res.ok) throw new Error("fetch_failed");
               const data = await res.json();
-              detailMount.innerHTML = data.content_html || "<p>Không có nội dung.</p>";
+              detailMount.innerHTML = data.content_html || "<p class=\"notice\">Không có nội dung.</p>";
               detailMount.dataset.loaded = "true";
+              // Phần nào ảnh chụp lúc lưu ĐÃ dịch/tóm tắt sẵn thì hiện y nguyên; phần nào
+              // chưa có thì thay bằng nút bấm - không tự gọi AI trên trang này.
               prepareResultDetail(detailMount);
               prepareSectionAi(detailMount);
             } catch (error) {
-              detailMount.innerHTML = "<p>Không tải được nội dung đã lưu, hoặc phiên đăng nhập admin đã hết hạn - thử tải lại trang.</p>";
+              detailMount.innerHTML = "<p class=\"notice\">Không tải được nội dung đã lưu.</p>";
             }
           }
           detailMount.classList.remove("hidden");
           toggleBtn.textContent = "Thu gọn";
+        });
+
+        if(deleteBtn) deleteBtn.addEventListener("click", async () => {
+          if (!window.confirm("Xoá bài kinh đã lưu này?")) return;
+          deleteBtn.disabled = true;
+          try {
+            await fetch(`/api/saved/${itemId}/delete`, { method: "POST" });
+            card.remove();
+          } catch (error) {
+            deleteBtn.disabled = false;
+          }
         });
       });
     </script>

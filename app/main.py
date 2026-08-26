@@ -848,6 +848,9 @@ def login_submit(
     # nhập vào vai admin bằng mật khẩu của chính họ.
     if auth.verify_admin_credentials(username, password):
         request.session["admin_logged_in"] = True
+        # Admin cũng cần user_id để dùng các tính năng cá nhân (lưu bài kinh, v.v.)
+        admin_user = auth.get_or_create_admin_user()
+        request.session["user_id"] = str(admin_user["id"])
         return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
 
     user = auth.get_user_by_username(username)
@@ -1981,6 +1984,7 @@ def admin_login_page(request: Request):
 @app.get("/admin/logout")
 def admin_logout(request: Request):
     request.session.pop("admin_logged_in", None)
+    request.session.pop("user_id", None)
     return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
 
@@ -2032,6 +2036,15 @@ def _admin_history_rows(keyword: str, only_empty: bool, only_timeout: bool, limi
         [*params, limit],
     )
 
+
+
+@app.get("/admin/favorites", response_class=HTMLResponse)
+def admin_favorites_page(request: Request, _: str = Depends(get_current_admin)):
+    user_groups = saved_items.list_all_favorites_grouped()
+    return templates.TemplateResponse(
+        "admin_favorites.html",
+        {"request": request, "user_groups": user_groups},
+    )
 
 @app.get("/admin/history", response_class=HTMLResponse)
 def admin_history(
@@ -2453,7 +2466,7 @@ def admin_user_saved_page(user_id: str, request: Request, _: str = Depends(get_c
             "request": request,
             "target_user": target_user,
             "items": saved_items.list_saved_items(user_id),
-        },
+                    },
     )
 
 

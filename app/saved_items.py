@@ -55,3 +55,34 @@ def get_saved_item(item_id: str, user_id: str | None = None) -> dict | None:
 
 def delete_saved_item(item_id: str, user_id: str) -> None:
     execute("delete from saved_items where id = %s and user_id = %s", [item_id, user_id])
+
+def list_all_favorites(limit: int = 500) -> list[dict]:
+    return fetch_all(
+        "select s.id, s.user_id, s.kind, s.title, s.excerpt, s.created_at, u.username as user_username "
+        "from saved_items s "
+        "join users u on s.user_id = u.id "
+        "where s.kind in ('favorite_result', 'favorite_section') "
+        "order by s.created_at desc limit %s",
+        [limit],
+    )
+
+
+def list_all_favorites_grouped() -> list[dict]:
+    """Trả về danh sách bài kinh yêu thích phân nhóm theo user.
+
+    Mỗi phần tử: {"user_id", "username", "records": [...], "latest_at"}.
+    Sắp theo user có lưu gần nhất trước, bài trong mỗi user cũng mới nhất trước."""
+    rows = list_all_favorites(limit=1000)
+    groups: dict[str, dict] = {}
+    for row in rows:
+        uid = str(row["user_id"])
+        if uid not in groups:
+            groups[uid] = {
+                "user_id": uid,
+                "username": row["user_username"],
+                "records": [],
+                "latest_at": row["created_at"],
+            }
+        groups[uid]["records"].append(row)
+    # Sắp theo user lưu gần nhất trước
+    return sorted(groups.values(), key=lambda g: g["latest_at"], reverse=True)

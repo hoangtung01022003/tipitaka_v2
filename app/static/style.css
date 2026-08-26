@@ -964,6 +964,7 @@ body.modalOpen {
     align-items: center;
     justify-content: flex-start;
     gap: 12px;
+    position: relative;
   }
 
   .eyebrow {
@@ -1063,9 +1064,13 @@ body.modalOpen {
      dưới sẽ vô tác dụng nếu thiếu dòng này - khối tiêu đề sẽ đẩy tràn nút ba gạch ra ngoài
      thay vì tự cắt bớt chữ. */
   .heroTitleBlock {
-    min-width: 0;
-    flex: 1 1 auto;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: max-content;
     text-align: center;
+    z-index: 10;
+    pointer-events: none;
   }
 
   /* Nhỏ hơn hẳn bản trước - giờ tiêu đề đứng chung hàng với nút ba gạch (không còn tự
@@ -1406,6 +1411,7 @@ body.modalOpen {
   .noticeActions {
     padding:
       0 14px max(14px, env(safe-area-inset-bottom));
+    gap: 12px;
   }
 }
 
@@ -1540,4 +1546,65 @@ body.modalOpen {
   color: #9a3412;
   border-color: #fb923c;
   transform: translateX(2px);
+}
+
+/* Tooltip cho mobile menu */
+.mobileMenuHint {
+  display: none; /* mặc định ẩn trên desktop */
+  position: absolute;
+  top: 100%;
+  left: 10px; top: calc(100% + 5px);
+  background-color: var(--accent);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  margin-top: 10px;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  animation: bounceHint 2s infinite;
+}
+
+.mobileMenuHint::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent transparent var(--accent) transparent;
+}
+
+.mobileMenuHint.show {
+  display: flex;
+}
+
+#closeMobileMenuHint {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+#closeMobileMenuHint:hover {
+  opacity: 1;
+}
+
+@keyframes bounceHint {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@media (min-width: 769px) {
+  .mobileMenuHint {
+    display: none !important;
+  }
 }
