@@ -868,6 +868,17 @@ def logout(request: Request):
     return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
 
 
+
+@app.get("/favorites", response_class=HTMLResponse)
+def favorites_page(request: Request, lang: str | None = Query(None), user: dict = Depends(auth.require_user_page)):
+    language = request_language(request, lang)
+    items = saved_items.list_saved_items(str(user["id"]), kind_group="favorites")
+    return templates.TemplateResponse(
+        "saved.html",
+        _template_context(request, language, user=user, items=items, is_favorites=True),
+    )
+
+
 @app.get("/saved", response_class=HTMLResponse)
 def saved_page(request: Request, lang: str | None = Query(None), user: dict = Depends(auth.require_user_page)):
     language = request_language(request, lang)

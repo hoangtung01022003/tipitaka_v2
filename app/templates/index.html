@@ -59,9 +59,12 @@
             </div>
             <div class="libraryActions">
               <div class="libraryEntryRow">
-                <a class="libraryEntryLink" href="/library?lang={{ lang }}">📚 {{ libraryButtonLabel }}</a>
+                <a class="libraryEntryLink" href="/library?lang={{ lang }}">{{ libraryButtonLabel }}</a>
               </div>
               {% if current_user %}
+                <div class="libraryEntryRow">
+                  <a class="libraryEntryLink" href="/favorites">{{ t('nav.favorites') }}</a>
+                </div>
                 <div class="libraryEntryRow">
                   <a class="libraryEntryLink" href="/saved">{{ t('nav.saved') }}</a>
                 </div>
@@ -394,6 +397,7 @@
           mount ? translateCard(mount) : Promise.resolve(),
           summaryCard ? summarizeExcerptCard(summaryCard) : Promise.resolve(),
         ]);
+        autoSaveResultCard(article);
       }
 
       async function hydrateResults(root = document) {
@@ -618,6 +622,7 @@
 
       async function hydrateSectionExtras(sectionId, source) {
         await Promise.all([hydrateSectionTranslation(sectionModalBody), loadAiSummary(sectionId, sectionModalBody)]);
+        autoSaveSection(sectionModalBody.querySelector("[data-section-viewer]"));
       }
 
       async function openSection(sectionId, button, source = "ai", focusPassageId = null) {
