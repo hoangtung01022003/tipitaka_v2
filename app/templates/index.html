@@ -880,6 +880,7 @@
 
       heroMenuToggle?.addEventListener("click", () => {
         setHeroDrawerOpen(!heroTopRight.classList.contains("open"));
+        document.getElementById("mobileMenuHint")?.classList.remove("show");
       });
       heroDrawerBackdrop?.addEventListener("click", () => setHeroDrawerOpen(false));
       document.addEventListener("keydown", (event) => {
