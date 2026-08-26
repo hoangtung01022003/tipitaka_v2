@@ -37,6 +37,24 @@
       </div>
       <p class="pali">{{ item.paliText }}</p>
 
+      {# Tóm tắt AI riêng cho đúng trích đoạn ngắn này - một tóm tắt là đủ, khác popup
+         "Xem toàn bộ bài kinh" vốn tóm tắt nhiều điểm cho cả bài. Tải lười giống khối
+         dịch AI bên dưới, xem `hydrateLazyExcerptSummaries` trong index.html. #}
+      <div
+        class="aiSummaryContainer excerptSummary"
+        data-excerpt-summary-card
+        data-passage-id="{{ item.id }}"
+        data-loaded="false"
+      >
+        <div class="aiSummaryHeader">{{ t('results.excerptSummaryTitle') }}</div>
+        <div class="aiSummaryBody">
+          <div class="loading searchLoading excerptSummaryLoading" role="status" aria-live="polite">
+            <span class="miniSpinner" aria-hidden="true"></span>
+            <span>{{ t('results.excerptSummaryLoading') }}</span>
+          </div>
+        </div>
+      </div>
+
       {# Khách chốt thứ tự: khối AI của ĐÚNG đoạn Pali trên đứng trước, rồi mới tới các
          bản dịch chính thức của cả bài kinh. AI tải bất đồng bộ nên chỗ này hiện spinner
          một nhịp trước khi có chữ. #}
@@ -115,6 +133,16 @@
       {% endfor %}
 
       <div class="notice">{{ item.matchReason }}</div>
+
+      {# Tự động lưu vào lịch sử của khách đã đăng nhập, không cần bấm gì - xem
+         `autoSaveResultCard` trong index.html. JS phải tự loại bỏ `.resultSaveBar` khỏi
+         bản sao trước khi lưu, để không lưu đệ quy chính khối trạng thái này vào bên trong
+         nội dung đã lưu. #}
+      {% if current_user %}
+        <div class="resultSaveBar sourceAction">
+          <span class="resultSaveStatus" data-save-status></span>
+        </div>
+      {% endif %}
     </article>
   {% endfor %}
 
@@ -129,10 +157,12 @@
          vì bộ kết quả đang hiển thị là của từ khóa đó chứ không phải câu gốc. #}
       {% set paging_query = result.fallback.usedQuery if (result.fallback and result.fallback.used) else result.query %}
       <input type="hidden" name="query" value="{{ paging_query }}" />
-      <input type="hidden" name="corpus_type" value="{{ corpus_type }}" />
-      {% if pitaka_type %}
-        <input type="hidden" name="pitaka_type" value="{{ pitaka_type }}" />
-      {% endif %}
+      {% for c in corpus_type %}
+        <input type="hidden" name="corpus_type" value="{{ c }}" />
+      {% endfor %}
+      {% for p in pitaka_type %}
+        <input type="hidden" name="pitaka_type" value="{{ p }}" />
+      {% endfor %}
       <input type="hidden" name="lang" value="{{ lang }}" />
       <input type="hidden" name="page" value="{{ result.pagination.page + 1 }}" />
       <button class="button secondary" type="submit">{{ t('search.loadMore') }}</button>

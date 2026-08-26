@@ -107,13 +107,13 @@ def build_query_ladder(query: str) -> list[str]:
 def run_fallback(
     query: str,
     corpus_types: list[str],
-    pitaka_type: str | None,
+    pitaka_types: list[str],
     page_size: int,
     search_fn,
 ) -> dict | None:
     """Chạy lần lượt các bậc rút gọn, dừng ở bậc đầu tiên có kết quả.
 
-    `search_fn(query, corpus_types, pitaka_type, page, page_size)` là hàm tìm kiếm
+    `search_fn(query, corpus_types, pitaka_types, page, page_size)` là hàm tìm kiếm
     của pipeline chính, truyền vào để tránh import vòng.
     """
     ladder = build_query_ladder(query)
@@ -124,7 +124,7 @@ def run_fallback(
     for step in ladder:
         tried.append(step)
         try:
-            result = search_fn(step, corpus_types, pitaka_type, 1, page_size)
+            result = search_fn(step, corpus_types, pitaka_types, 1, page_size)
         except Exception:  # noqa: BLE001 - fallback không được phép làm hỏng request chính
             continue
         if result.get("results"):

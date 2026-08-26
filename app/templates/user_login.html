@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Đăng nhập Admin - Tipiṭaka</title>
+    <title>Đăng nhập - Tipiṭaka</title>
     <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
     <style>
       body {
@@ -11,7 +11,7 @@
         justify-content: center;
         align-items: center;
         min-height: 100vh;
-        background-color: #f3f4f6;
+        background-color: #f8f2e9;
       }
       .loginCard {
         background: white;
@@ -26,7 +26,7 @@
         font-weight: 700;
         margin-bottom: 1.5rem;
         text-align: center;
-        color: #111827;
+        color: #171411;
       }
       .formGroup {
         margin-bottom: 1rem;
@@ -45,26 +45,20 @@
         font-size: 1rem;
         box-sizing: border-box;
       }
-      .formGroup input:focus {
-        outline: none;
-        border-color: #2563eb;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-      }
       .submitBtn {
         width: 100%;
         padding: 0.75rem;
-        background-color: #2563eb;
+        background-color: #9f3232;
         color: white;
         border: none;
         border-radius: 8px;
         font-size: 1rem;
         font-weight: 600;
         cursor: pointer;
-        margin-top: 1rem;
-        transition: background-color 0.2s;
+        margin-top: 0.5rem;
       }
       .submitBtn:hover {
-        background-color: #1d4ed8;
+        background-color: #882a2a;
       }
       .errorMsg {
         background-color: #fee2e2;
@@ -75,26 +69,36 @@
         text-align: center;
         font-size: 0.875rem;
       }
+      .switchLink {
+        display: block;
+        text-align: center;
+        margin-top: 1rem;
+        font-size: 0.9rem;
+        color: #9f3232;
+      }
     </style>
     <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
   </head>
   <body>
     <div class="loginCard">
-      <h1>Admin Đăng Nhập</h1>
+      <h1>Đăng nhập</h1>
       {% if error %}
         <div class="errorMsg">{{ error }}</div>
       {% endif %}
-      <form method="POST" action="/admin/login">
+      <form method="POST" action="/login">
+        <input type="hidden" name="next" value="{{ next }}" />
         <div class="formGroup">
-          <label for="username">Tài khoản</label>
-          <input type="text" id="username" name="username" required autofocus />
+          <label for="username">Tên đăng nhập</label>
+          <input type="text" id="username" name="username" required autofocus value="{{ username or '' }}" />
         </div>
         <div class="formGroup">
           <label for="password">Mật khẩu</label>
           <input type="password" id="password" name="password" required />
         </div>
-        <button type="submit" class="submitBtn">Đăng Nhập</button>
+        <button type="submit" class="submitBtn">Đăng nhập</button>
       </form>
+      <a class="switchLink" href="/register?next={{ next | urlencode }}">Chưa có tài khoản? Đăng ký</a>
+      <a class="switchLink" href="/">← Về trang tìm kiếm</a>
     </div>
   </body>
 </html>

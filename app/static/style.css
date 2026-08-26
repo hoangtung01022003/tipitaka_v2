@@ -529,6 +529,13 @@ body.modalOpen {
   margin-bottom: 4px;
 }
 
+.modalTopbarActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
 .modalClose {
   width: 38px;
   height: 38px;
@@ -704,6 +711,13 @@ body.modalOpen {
   gap: 0.5rem;
 }
 
+/* Nút ba gạch + lớp phủ của Navigation Drawer chỉ dùng trên mobile - ẩn hẳn ở desktop,
+   không đổi bố cục hiện có. */
+.heroMenuToggle,
+.heroDrawerBackdrop {
+  display: none;
+}
+
 .languageSwitch {
   display: inline-flex;
   align-items: center;
@@ -728,11 +742,18 @@ body.modalOpen {
   cursor: pointer;
 }
 
-.helpLinks {
+.helpLinks,
+.authLinks {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0;
+}
+
+.authLinks {
+  margin-top: 0.3rem;
 }
 
 .helpLinkDivider {
@@ -751,6 +772,12 @@ body.modalOpen {
 .helpLink:hover {
   color: var(--accent-hover);
   text-decoration: none;
+}
+
+.authGreeting {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 .libraryEntryRow {
@@ -916,13 +943,126 @@ body.modalOpen {
     margin-bottom: 20px;
   }
 
+  /* Header dạng thanh: ba gạch nằm song song với tiêu đề, giống app bar. Tagline phụ
+     ("Tra cứu Pali bằng AI") ẩn trên mobile để đỡ chiếm chỗ. */
   .heroTop {
-    display: block;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
   }
 
+  .eyebrow {
+    display: none;
+  }
+
+  .heroMenuToggle {
+    display: inline-flex;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 5px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 254, 250, 0.9);
+    cursor: pointer;
+  }
+
+  .heroMenuToggle span {
+    width: 20px;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--text);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  .heroMenuToggle[aria-expanded="true"] span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+
+  .heroMenuToggle[aria-expanded="true"] span:nth-child(2) {
+    opacity: 0;
+  }
+
+  .heroMenuToggle[aria-expanded="true"] span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+
+  /* Navigation Drawer: xổ ngang từ trái, có lớp phủ (backdrop) đóng khi bấm ra ngoài -
+     cùng kiểu với sidebar admin, chỉ đổi màu cho hợp giao diện trang chính. */
+  .heroDrawerBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: block;
+    border: 0;
+    padding: 0;
+    background: rgba(23, 20, 17, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+
+  .heroDrawerBackdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .heroTopRight {
+    display: flex;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 950;
+    width: min(82vw, 320px);
+    height: 100dvh;
+    margin: 0;
+    padding:
+      max(20px, env(safe-area-inset-top))
+      18px
+      max(20px, env(safe-area-inset-bottom))
+      max(18px, env(safe-area-inset-left));
+    border-radius: 0;
+    border: 0;
+    border-right: 1px solid var(--line);
+    background: var(--card);
+    box-shadow: 10px 0 30px rgba(23, 20, 17, 0.25);
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+    align-items: stretch;
+  }
+
+  .heroTopRight.open {
+    transform: translateX(0);
+  }
+
+  body.heroMenuOpen {
+    overflow: hidden;
+  }
+
+  /* Item flex mặc định không co dưới độ rộng nội dung (min-width: auto), nên ellipsis ở
+     dưới sẽ vô tác dụng nếu thiếu dòng này - khối tiêu đề sẽ đẩy tràn nút ba gạch ra ngoài
+     thay vì tự cắt bớt chữ. */
+  .heroTitleBlock {
+    min-width: 0;
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  /* Nhỏ hơn hẳn bản trước - giờ tiêu đề đứng chung hàng với nút ba gạch (không còn tự
+     chiếm cả hàng như khi chưa có drawer), phải đủ nhỏ để không xuống dòng. */
   .hero h1 {
-    font-size: clamp(32px, 11vw, 42px);
-    line-height: 1.08;
+    font-size: clamp(19px, 5.5vw, 24px);
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .hero > p {
@@ -930,35 +1070,109 @@ body.modalOpen {
     line-height: 1.55;
   }
 
-  .languageSwitch {
-    width: 100%;
-    justify-content: space-between;
-    margin-top: 16px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: rgba(255, 254, 250, 0.74);
-  }
-
-    .languageSwitch select,
   .sourceSelect {
     min-height: 44px;
     max-width: 68%;
     font-size: 16px;
   }
 
+  /* Nội dung Drawer dựng lại thành DANH SÁCH MỤC MENU chuẩn mobile (mỗi mục một hàng đầy
+     đủ chiều rộng, có icon, viền phân cách) thay vì các liên kết chữ nhỏ nối "|" như bản
+     desktop - bản đó bê nguyên sang mobile nhìn rối, chữ bé, khó bấm trúng. Mọi rule ở đây
+     đều CHỈ áp trong `.heroTopRight` để không đụng `.helpLink` dùng lại ở `saved.html`
+     (nút "← Tipiṭaka AI Search", không nằm trong drawer nào). */
   .heroTopRight {
+    gap: 0;
+  }
+
+  .heroTopRight .authGreeting {
+    display: block;
+    padding: 2px 4px 14px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .heroTopRight .authLinks,
+  .heroTopRight .helpLinks {
+    flex-direction: column;
     align-items: stretch;
+    justify-content: flex-start;
+    gap: 0;
+    width: 100%;
   }
 
-  .helpLinks {
-    margin-top: 0.35rem;
-    justify-content: center;
-    gap: 0.5rem;
+  .heroTopRight .helpLink {
+    display: flex;
+    align-items: center;
+    min-height: 46px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--line);
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--text);
   }
 
-  .libraryEntryRow {
+  .heroTopRight .helpLink[data-nav-icon]::before {
+    content: attr(data-nav-icon);
+    margin-right: 10px;
+    font-size: 1.05rem;
+  }
+
+  .heroTopRight .helpLinkDivider {
+    display: none;
+  }
+
+  .heroTopRight .languageSwitch {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 10px;
+    margin-top: 10px;
+    padding: 10px 4px;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: none;
+  }
+
+  .heroTopRight .languageSwitchLabel {
+    display: flex;
+    align-items: center;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .heroTopRight .languageSwitchLabel[data-nav-icon]::before {
+    content: attr(data-nav-icon);
+    margin-right: 10px;
+    font-size: 1.05rem;
+  }
+
+  .heroTopRight .languageSwitch select {
+    min-height: 44px;
+    max-width: 68%;
+    margin-left: auto;
+    font-size: 16px;
+  }
+
+  .heroTopRight .libraryEntryRow {
     justify-content: center;
+    width: 100%;
+    margin-top: 18px;
+  }
+
+  .heroTopRight .libraryEntryLink {
+    width: 100%;
+    max-width: 100%;
+    justify-content: center;
+    white-space: normal;
+    line-height: 1.35;
+    padding: 12px;
+    border-radius: 12px;
   }
 
   .searchBox,
@@ -1209,6 +1423,36 @@ body.modalOpen {
 
  
  
+/* Tóm tắt AI cho trích đoạn ngắn ở thẻ kết quả - dùng lại đúng class .aiSummaryContainer
+   của popup "Xem toàn bộ bài kinh" nhưng margin gọn hơn để vừa trong .result. */
+.excerptSummary {
+  margin: 14px 0 0;
+  padding: 1rem 1.1rem;
+}
+
+.excerptSummary .aiSummaryHeader {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.resultSaveBar {
+  margin-top: 10px;
+  min-height: 1.2em;
+}
+
+.resultSaveStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #286028;
+}
+
+.resultSaveStatus:empty {
+  display: none;
+}
+
 /* AI Summary Styles */
 .aiSummaryContainer {
   background: #fdf8f6;

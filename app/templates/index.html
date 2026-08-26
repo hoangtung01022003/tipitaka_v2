@@ -20,13 +20,33 @@
     <main class="page">
       <header class="hero">
         <div class="heroTop">
-          <div>
+          <button
+            class="heroMenuToggle"
+            type="button"
+            id="heroMenuToggle"
+            aria-label="Menu"
+            aria-expanded="false"
+            aria-controls="heroTopRight"
+          >
+            <span></span><span></span><span></span>
+          </button>
+          <div class="heroTitleBlock">
             <p class="eyebrow">{{ t('site.eyebrow') }}</p>
             <h1>{{ t('site.title') }}</h1>
           </div>
-                    <div class="heroTopRight">
+          <button class="heroDrawerBackdrop" type="button" id="heroDrawerBackdrop" aria-label="Đóng menu" tabindex="-1"></button>
+                    <div class="heroTopRight" id="heroTopRight">
+            <div class="authLinks">
+              {% if current_user %}
+                <span class="authGreeting">{{ t('nav.greeting', username=current_user.username) }}</span>
+                <a class="helpLink" href="/saved">{{ t('nav.saved') }}</a>
+                <a class="helpLink" href="/logout" data-nav-icon="🚪">{{ t('nav.logout') }}</a>
+              {% else %}
+                <a class="helpLink" href="/login" data-nav-icon="🔑">{{ t('nav.login') }}</a>
+              {% endif %}
+            </div>
             <label class="languageSwitch">
-              <span class="languageSwitchLabel">{{ t('language.label') }}</span>
+              <span class="languageSwitchLabel" data-nav-icon="🌐">{{ t('language.label') }}</span>
               <select id="languageSelect" aria-label="{{ t('language.label') }}">
                 {% for item in language_options %}
                   <option value="{{ item.value }}" {% if item.value == lang %}selected{% endif %}>{{ item.label }}</option>
@@ -34,9 +54,9 @@
               </select>
             </label>
             <div class="helpLinks">
-              <a class="helpLink" href="/help?lang={{ lang }}">{{ t('help.title') }}</a>
+              <a class="helpLink" href="/help?lang={{ lang }}" data-nav-icon="📖">{{ t('help.title') }}</a>
               <span class="helpLinkDivider">|</span>
-              <a class="helpLink" href="/feedback?lang={{ lang }}">{{ t('feedback.title') }}</a>
+              <a class="helpLink" href="/feedback?lang={{ lang }}" data-nav-icon="💬">{{ t('feedback.title') }}</a>
             </div>
             <div class="libraryEntryRow">
               <a class="libraryEntryLink" href="/library?lang={{ lang }}">📚 {{ libraryButtonLabel }}</a>
@@ -58,10 +78,11 @@
 
           <div class="stepBlock">
             <p class="questionText">{{ t('search.corpusQuestion') }}</p>
-            <div class="choiceGrid">
+            <p class="meta">{{ t('search.multiSelectHint') }}</p>
+            <div class="choiceGrid" data-choice-group="corpus_type">
               {% for item in corpus_options %}
                 <label class="choiceButton">
-                  <input type="radio" name="corpus_type" value="{{ item.value }}" required {% if item.value == 'all' %}checked{% endif %} />
+                  <input type="checkbox" name="corpus_type" value="{{ item.value }}" {% if item.value == 'all' %}checked{% endif %} />
                   <span>{{ item.label }}</span>
                   <small>{{ item.description }}</small>
                 </label>
@@ -71,10 +92,11 @@
 
           <div class="stepBlock" id="pitakaBlock">
             <p class="questionText">{{ t('search.pitakaQuestion') }}</p>
-            <div class="choiceGrid">
+            <p class="meta">{{ t('search.multiSelectHint') }}</p>
+            <div class="choiceGrid" data-choice-group="pitaka_type">
               {% for item in pitaka_options %}
                 <label class="choiceButton">
-                  <input type="radio" name="pitaka_type" value="{{ item.value }}" {% if item.value == 'all' %}checked{% endif %} />
+                  <input type="checkbox" name="pitaka_type" value="{{ item.value }}" {% if item.value == 'all' %}checked{% endif %} />
                   <span>{{ item.label }}</span>
                   <small>{{ item.description }}</small>
                 </label>
@@ -113,7 +135,12 @@
             <p class="eyebrow modalEyebrow">{{ t('section.allTitle') }}</p>
             <h2 id="sectionModalTitle">{{ t('section.compareTitle') }}</h2>
           </div>
-          <button class="modalClose" type="button" id="sectionModalClose" aria-label="{{ t('notice.close') }}">×</button>
+          <div class="modalTopbarActions">
+            {% if current_user %}
+              <span class="resultSaveStatus" id="sectionSaveStatus"></span>
+            {% endif %}
+            <button class="modalClose" type="button" id="sectionModalClose" aria-label="{{ t('notice.close') }}">×</button>
+          </div>
         </div>
         <div class="modalBody" id="sectionModalBody"></div>
       </div>
@@ -124,6 +151,7 @@
     <script>
       const S = JSON.parse(document.getElementById("uiStrings").textContent);
       const LANG = {{ lang | tojson }};
+      const IS_LOGGED_IN = {{ (current_user is not none) | tojson }};
 
       function tr(key, values) {
         let template = S[key] || key;
@@ -143,35 +171,79 @@
       const sectionModal = document.getElementById("sectionModal");
       const sectionModalBody = document.getElementById("sectionModalBody");
       const sectionModalClose = document.getElementById("sectionModalClose");
+      const sectionSaveStatus = document.getElementById("sectionSaveStatus");
       const noticeModal = document.getElementById("noticeModal");
       const sectionHtmlCache = new Map();
       const sectionLoadingSet = new Set();
+      const sectionAutoSavedKeys = new Set();
       let activeSectionId = null;
 
-      function updateNotice() {
-        const corpus = form.querySelector("input[name='corpus_type']:checked");
-        const pitaka = form.querySelector("input[name='pitaka_type']:checked");
+      function checkedValues(name) {
+        return Array.from(form.querySelectorAll(`input[name='${name}']:checked`)).map((el) => el.value);
+      }
 
-        if (!corpus) {
+      // Tích được nhiều Tạng cùng lúc. "Tất cả" và các mục lẻ loại trừ nhau: bấm "Tất cả"
+      // thì tắt hết mục lẻ, bấm một mục lẻ thì tự tắt "Tất cả". Không cho phép bỏ trống -
+      // tick hết đi thì tự quay về "Tất cả".
+      function setupExclusiveGroup(groupName) {
+        const boxes = Array.from(form.querySelectorAll(`input[name='${groupName}']`));
+        const allBox = boxes.find((el) => el.value === "all");
+        if (!allBox) return;
+
+        boxes.forEach((box) => {
+          box.addEventListener("change", () => {
+            if (box === allBox) {
+              if (allBox.checked) {
+                boxes.forEach((other) => {
+                  if (other !== allBox) other.checked = false;
+                });
+              } else {
+                allBox.checked = true; // không cho bỏ trống "Tất cả" nếu chưa tick mục nào khác
+              }
+            } else if (box.checked) {
+              allBox.checked = false;
+            }
+
+            if (!boxes.some((el) => el.checked)) {
+              allBox.checked = true;
+            }
+            updateNotice();
+          });
+        });
+      }
+
+      function updateNotice() {
+        const corpusValues = checkedValues("corpus_type");
+        if (!corpusValues.length) {
           selectedNotice.textContent = tr("search.noticeChoose");
           return;
         }
 
-        // Ngoại điển không thuộc Tạng nào nên ẩn hẳn phần chọn Tạng.
-        if (corpus.value === "nrf") {
+        // Ngoại điển không thuộc Tạng nào - chỉ ẩn phần chọn Tạng khi CHỈ chọn Ngoại điển.
+        // Chọn kèm phần khác (VD Ngoại điển + Tam Tạng) thì Tạng vẫn cần hiện ra để lọc
+        // phần Tam Tạng; Ngoại điển tự động không bị lọc theo Tạng ở tầng backend.
+        if (corpusValues.length === 1 && corpusValues[0] === "nrf") {
           pitakaBlock.style.display = "none";
           form.querySelectorAll("input[name='pitaka_type']").forEach((item) => {
-            item.checked = false;
+            item.checked = item.value === "all";
           });
-          const label = corpus.parentElement.querySelector("span")?.textContent || corpus.value;
+          const nrfBox = form.querySelector("input[name='corpus_type'][value='nrf']");
+          const label = nrfBox?.parentElement.querySelector("span")?.textContent || "nrf";
           selectedNotice.textContent = tr("search.noticeNoPitaka", { label });
           return;
         }
 
         pitakaBlock.style.display = "block";
-        selectedNotice.textContent = pitaka
-          ? tr("search.noticeReady")
-          : tr("search.noticeChoosePitaka");
+        selectedNotice.textContent = tr("search.noticeReady");
+      }
+
+      // `sectionSaveStatus` là phần tử TĨNH trong modalTopbar, dùng lại cho mọi bài kinh
+      // mở ra - `key` (`sectionId::source`) quyết định hiện "Đã lưu" hay để trống, vì
+      // tự động lưu chỉ chạy MỘT LẦN cho mỗi key trong phiên trình duyệt này (tránh mở đi
+      // mở lại cùng một bài lại tạo thêm bản ghi lịch sử trùng lặp) - xem `autoSaveSection`.
+      function updateSectionSaveStatus(key) {
+        if (!sectionSaveStatus) return;
+        sectionSaveStatus.textContent = sectionAutoSavedKeys.has(key) ? tr("results.saved") : "";
       }
 
       function openModal(content) {
@@ -239,15 +311,91 @@
         }
       }
 
-      async function hydrateLazyTranslations(root = document) {
-        const cards = Array.from(root.querySelectorAll("[data-translation-card][data-loaded='false']"));
+      // Tóm tắt AI riêng cho trích đoạn ngắn (khác tóm tắt nhiều điểm của popup "Xem toàn
+      // bộ bài kinh") - tải lười giống bản dịch AI, cùng nhịp `hydrateLazyTranslations`.
+      async function summarizeExcerptCard(card) {
+        if (!card || card.dataset.loaded === "true" || card.dataset.loading === "true") return;
+        card.dataset.loading = "true";
+        const passageId = card.dataset.passageId;
+        const textNode = document.getElementById(`pali-text-${passageId}`);
+        let paliText = "";
+        try {
+          paliText = textNode ? JSON.parse(textNode.textContent || '""') : "";
+        } catch (_error) {
+          paliText = "";
+        }
+
+        const body = card.querySelector(".aiSummaryBody");
+        try {
+          const res = await fetch("/api/summarize-excerpt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paliText, language: LANG }),
+          });
+          const payload = await res.json();
+          const summary = (payload && payload.summary) || "";
+          body.innerHTML = summary
+            ? `<div class="summaryText">${escapeHtml(summary)}</div>`
+            : `<div class="notice">${escapeHtml(tr("results.excerptSummaryEmpty"))}</div>`;
+        } catch (error) {
+          body.innerHTML = `<div class="notice">${escapeHtml(tr("results.excerptSummaryEmpty"))}</div>`;
+        } finally {
+          card.dataset.loaded = "true";
+          card.dataset.loading = "false";
+        }
+      }
+
+      // Lưu bài kinh (⭐) TỰ ĐỘNG, không cần bấm - khách chỉ cần đã đăng nhập. Chụp lại
+      // NGUYÊN VĂN HTML đang hiển thị (đúng yêu cầu khách: "lưu y hệt như hiện tại") ngay
+      // khi bản dịch AI + tóm tắt AI của đúng thẻ đó đã tải xong, không lưu sớm lúc còn
+      // spinner. `postSavedItem` im lặng bỏ qua nếu lỗi - tự động lưu không nên làm phiền
+      // người đọc bằng thông báo lỗi.
+      async function postSavedItem(kind, title, excerpt, html) {
+        const res = await fetch("/api/saved", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, title, excerpt, html }),
+        });
+        if (!res.ok) throw new Error("save_failed");
+        return res.json();
+      }
+
+      async function autoSaveResultCard(article) {
+        if (!IS_LOGGED_IN || article.dataset.autoSaved) return;
+        article.dataset.autoSaved = "pending";
+        const statusEl = article.querySelector("[data-save-status]");
+        try {
+          const clone = article.cloneNode(true);
+          clone.querySelectorAll(".resultSaveBar").forEach((el) => el.remove());
+          const title = (clone.querySelector(".source")?.textContent || "").trim();
+          const excerpt = (clone.querySelector(".pali")?.textContent || "").trim();
+          await postSavedItem("result", title, excerpt, clone.outerHTML);
+          article.dataset.autoSaved = "true";
+          if (statusEl) statusEl.textContent = tr("results.saved");
+        } catch (error) {
+          article.dataset.autoSaved = ""; // cho phép thử lại nếu lần này lỗi
+        }
+      }
+
+      async function hydrateResultCard(article) {
+        const mount = article.querySelector("[data-translation-card]");
+        const summaryCard = article.querySelector("[data-excerpt-summary-card]");
+        await Promise.all([
+          mount ? translateCard(mount) : Promise.resolve(),
+          summaryCard ? summarizeExcerptCard(summaryCard) : Promise.resolve(),
+        ]);
+        await autoSaveResultCard(article);
+      }
+
+      async function hydrateResults(root = document) {
+        const cards = Array.from(root.querySelectorAll("article.result[data-passage-id]"));
         const workers = 3;
         let index = 0;
 
         async function runWorker() {
           while (index < cards.length) {
             const card = cards[index++];
-            await translateCard(card);
+            await hydrateResultCard(card);
           }
         }
 
@@ -348,11 +496,12 @@
       async function submitSearch(event) {
         event.preventDefault();
         const data = new FormData(form);
-        const corpus = data.get("corpus_type");
-        const pitaka = data.get("pitaka_type");
+        const corpusValues = data.getAll("corpus_type");
+        const pitakaValues = data.getAll("pitaka_type");
 
-        if (!corpus) return;
-        if (corpus !== "nrf" && !pitaka) {
+        if (!corpusValues.length) return;
+        const onlyNrf = corpusValues.length === 1 && corpusValues[0] === "nrf";
+        if (!onlyNrf && !pitakaValues.length) {
           selectedNotice.textContent = tr("search.noticePitakaRequired");
           return;
         }
@@ -388,7 +537,7 @@
             return;
           }
           resultsWrap.innerHTML = await res.text();
-          hydrateLazyTranslations(resultsWrap);
+          hydrateResults(resultsWrap);
         } catch (error) {
           resultsWrap.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
         } finally {
@@ -417,7 +566,7 @@
           const html = await res.text();
           if (!res.ok) throw new Error(tr("search.loadMoreFailed"));
           loadMoreForm.insertAdjacentHTML("beforebegin", html);
-          hydrateLazyTranslations(resultsWrap);
+          hydrateResults(resultsWrap);
           loadMoreForm.remove();
         } catch (error) {
           if (button) {
@@ -431,6 +580,34 @@
       // `focusPassageId`: đoạn vừa khớp tìm kiếm. KHÔNG nướng vào HTML cache được vì cùng
       // một bài kinh mở từ hai kết quả khác nhau sẽ cần nhảy tới hai chỗ khác nhau - nên
       // luôn áp SAU khi HTML đã vào DOM.
+      // Tự động lưu popup "Xem toàn bộ bài kinh" - đợi bản dịch AI (đợt đầu) + tóm tắt AI
+      // tải xong rồi mới chụp, để không lưu lúc màn hình còn spinner. Mỗi `sectionId::source`
+      // chỉ tự lưu MỘT LẦN trong phiên trình duyệt này dù khách đóng/mở lại nhiều lần.
+      async function autoSaveSection(sectionId, source) {
+        if (!IS_LOGGED_IN) return;
+        const key = `${sectionId}::${source}`;
+        if (sectionAutoSavedKeys.has(key)) return;
+        // Khách có thể đã đóng modal hoặc chuyển sang bài khác trong lúc chờ tải xong -
+        // chỉ lưu khi modal vẫn đang mở ĐÚNG bài này, tránh lưu nhầm nội dung.
+        if (activeSectionId !== key) return;
+        const viewer = sectionModalBody.querySelector("[data-section-viewer]");
+        if (!viewer) return;
+        try {
+          const title = (viewer.querySelector("h2")?.textContent || "").trim();
+          const excerpt = (viewer.querySelector(".pali")?.textContent || "").trim();
+          await postSavedItem("section", title, excerpt, viewer.outerHTML);
+          sectionAutoSavedKeys.add(key);
+          updateSectionSaveStatus(key);
+        } catch (error) {
+          // im lặng bỏ qua - tự động lưu không nên làm phiền người đọc bằng lỗi
+        }
+      }
+
+      async function hydrateSectionExtras(sectionId, source) {
+        await Promise.all([hydrateSectionTranslation(sectionModalBody), loadAiSummary(sectionId, sectionModalBody)]);
+        await autoSaveSection(sectionId, source);
+      }
+
       async function openSection(sectionId, button, source = "ai", focusPassageId = null) {
         if (!sectionId) return;
         const key = `${sectionId}::${source}`;
@@ -442,8 +619,8 @@
         if (sectionHtmlCache.has(key)) {
           activeSectionId = key;
           openModal(sectionHtmlCache.get(key));
-          hydrateSectionTranslation(sectionModalBody);
-          loadAiSummary(sectionId, sectionModalBody);
+          updateSectionSaveStatus(key);
+          hydrateSectionExtras(sectionId, source);
           return;
         }
         if (sectionLoadingSet.has(key)) {
@@ -474,8 +651,8 @@
           if (!res.ok) throw new Error(tr("section.loadFailed"));
           sectionHtmlCache.set(key, html);
           sectionModalBody.innerHTML = html;
-          hydrateSectionTranslation(sectionModalBody);
-          loadAiSummary(sectionId, sectionModalBody);
+          updateSectionSaveStatus(key);
+          hydrateSectionExtras(sectionId, source);
         } catch (error) {
           sectionModalBody.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
         } finally {
@@ -630,6 +807,27 @@
         window.location.href = `/?lang=${encodeURIComponent(languageSelect.value)}`;
       });
 
+      // Navigation Drawer chỉ hiện trên mobile (CSS ẩn hẳn ở desktop) - ba gạch song song
+      // tiêu đề, xổ ngang từ trái, có lớp phủ đóng khi bấm ra ngoài hoặc bấm Esc.
+      const heroMenuToggle = document.getElementById("heroMenuToggle");
+      const heroTopRight = document.getElementById("heroTopRight");
+      const heroDrawerBackdrop = document.getElementById("heroDrawerBackdrop");
+
+      function setHeroDrawerOpen(open) {
+        heroTopRight.classList.toggle("open", open);
+        heroDrawerBackdrop.classList.toggle("open", open);
+        heroMenuToggle.setAttribute("aria-expanded", String(open));
+        document.body.classList.toggle("heroMenuOpen", open);
+      }
+
+      heroMenuToggle?.addEventListener("click", () => {
+        setHeroDrawerOpen(!heroTopRight.classList.contains("open"));
+      });
+      heroDrawerBackdrop?.addEventListener("click", () => setHeroDrawerOpen(false));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && heroTopRight.classList.contains("open")) setHeroDrawerOpen(false);
+      });
+
       resultsWrap.addEventListener("submit", (event) => {
         const loadMoreForm = event.target.closest(".loadMoreForm");
         if (!loadMoreForm) return;
@@ -703,6 +901,8 @@
         toggleReader(readerButton);
       });
 
+      setupExclusiveGroup("corpus_type");
+      setupExclusiveGroup("pitaka_type");
       updateNotice();
       setupNotice();
     </script>

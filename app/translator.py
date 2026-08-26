@@ -493,6 +493,76 @@ def summarize_plain_pali_text(pali_text: str, language: str = DEFAULT_LANGUAGE) 
     return {"points": [], "fromCache": False, "error": "summary_failed"}
 
 
+EXCERPT_SUMMARY_PROMPT_VERSION = "python-pali-excerpt-summary-v1"
+
+
+def summarize_excerpt_text(pali_text: str, language: str = DEFAULT_LANGUAGE) -> dict:
+    """Tóm tắt NGẮN (một đoạn văn) cho trích đoạn Pali hiện ở kết quả tìm kiếm.
+
+    Khác `summarize_plain_pali_text`: đoạn trích ngắn nên khách chỉ cần một câu tóm tắt
+    duy nhất, không phải danh sách nhiều điểm gắn `passage_ids` như bản tóm tắt cả bài
+    kinh trong popup "Xem toàn bộ bài kinh". Dùng chung bảng cache `text_summaries` nhưng
+    `prompt_version` riêng nên không lẫn với cache của hàm kia.
+    """
+    language = normalize_language(language)
+    pali_text = str(pali_text or "").strip()
+    if not pali_text:
+        return {"summary": "", "fromCache": False}
+
+    text_hash = _text_hash(pali_text)
+    cached = fetch_one(
+        "select summary from text_summaries "
+        "where text_hash=%s and language=%s and prompt_version=%s",
+        [text_hash, language, EXCERPT_SUMMARY_PROMPT_VERSION],
+    )
+    if cached:
+        summary = cached.get("summary")
+        if isinstance(summary, str):
+            summary = json.loads(summary)
+        return {"summary": (summary or {}).get("summary", ""), "fromCache": True}
+
+    target_language = TRANSLATION_TARGETS.get(language, TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
+    prompt = (
+        "You are a Buddhist scholar. Read the following short Pali excerpt and summarize "
+        f"its meaning in ONE short paragraph (2-3 sentences), in {target_language}. "
+        "Do not invent details outside the supplied text.\n\nPali text:\n" + pali_text
+    )
+    client = _client()
+    errors: list[str] = []
+    for model_name in _models_for_call():
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(temperature=0.2),
+            )
+            summary_text = (response.text or "").strip()
+            if not summary_text:
+                raise ValueError("empty response")
+            execute(
+                "insert into text_summaries "
+                "(text_hash, language, prompt_version, model, source_text, summary) "
+                "values (%s, %s, %s, %s, %s, %s::jsonb) "
+                "on conflict (text_hash, language, prompt_version) do update set "
+                "model=excluded.model, source_text=excluded.source_text, "
+                "summary=excluded.summary, created_at=now()",
+                [
+                    text_hash,
+                    language,
+                    EXCERPT_SUMMARY_PROMPT_VERSION,
+                    model_name,
+                    pali_text,
+                    json.dumps({"summary": summary_text}, ensure_ascii=False),
+                ],
+            )
+            return {"summary": summary_text, "fromCache": False}
+        except Exception as exc:
+            errors.append(f"{model_name}: {type(exc).__name__}")
+
+    print(f"All models failed to summarize excerpt: {errors}")
+    return {"summary": "", "fromCache": False, "error": "summary_failed"}
+
+
 _SUMMARY_CACHE = {}
 
 

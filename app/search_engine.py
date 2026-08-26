@@ -39,26 +39,31 @@ def resolve_corpus_types(value: str | list[str] | None) -> list[str]:
     return valid or list(ALL_CORPUS_TYPES)
 
 
-def resolve_pitaka_type(value: str | None) -> str | None:
-    """"all" hoặc rỗng đều nghĩa là không lọc theo Tạng.
+def resolve_pitaka_types(value: str | list[str] | None) -> list[str]:
+    """Chuẩn hoá lựa chọn Tạng - khách giờ tích chọn được nhiều Tạng cùng lúc.
 
-    Giá trị KHÔNG có trong `PITAKA_PREFIXES` cũng trả `None`, vì trước đây nó cho qua và
-    làm sập toàn bộ tìm kiếm: `_pitaka_sql` sinh `like any(%s)` nhưng
-    `PITAKA_PREFIXES.get(...)` ra rỗng nên tham số bị bỏ, và psycopg báo "the query has 2
-    placeholders but 1 parameters were passed". `pitaka_type` là form field thường, nên chỉ
+    Danh sách RỖNG nghĩa là không lọc theo Tạng (tìm mọi Tạng) - cùng quy ước với
+    `resolve_corpus_types`. Trả rỗng cho cả `None`, chuỗi rỗng, `"all"`, danh sách rỗng,
+    hoặc danh sách chỉ toàn giá trị lạ.
+
+    Giá trị KHÔNG có trong `PITAKA_PREFIXES` bị lọc bỏ (không phải báo lỗi), vì trước đây
+    một giá trị lạ lọt qua từng làm sập toàn bộ tìm kiếm: `_pitaka_sql` sinh `like any(%s)`
+    nhưng tra `PITAKA_PREFIXES` ra rỗng nên tham số bị bỏ, và psycopg báo "the query has 2
+    placeholders but 1 parameters were passed". `pitaka_types` là form field thường, nên chỉ
     cần một trang cũ còn mở, một client gọi `/search`, hay một key bị đổi tên là sập.
 
-    Chọn `None` (tìm mọi Tạng) chứ không phải báo lỗi, và cố ý KHÔNG casefold: cả hai đều
-    là suy diễn ý người gửi. `None` là hướng duy nhất không thể hiện ÍT dữ liệu hơn hiện
-    tại - trước bản sửa các giá trị ấy trả về lỗi, tức không có kết quả nào.
-
-    Mọi giá trị UI thật (`all`/`vinaya`/`sutta`/`abhidhamma`) đi qua nhánh dưới y như
-    trước; đã so từng id tài liệu trên 30 tổ hợp corpus × Tạng, không đổi một mã nào.
+    Cố ý KHÔNG casefold: suy diễn ý người gửi theo hướng "bỏ qua" chứ không "đoán đúng".
     """
-    candidate = str(value or "").strip()
-    if not candidate or candidate == SEARCH_ALL:
-        return None
-    return candidate if candidate in PITAKA_PREFIXES else None
+    if value is None:
+        return []
+    values = [value] if isinstance(value, str) else list(value)
+    stripped = [str(item or "").strip() for item in values]
+    if not stripped or SEARCH_ALL in stripped:
+        return []
+    valid = {item for item in stripped if item in PITAKA_PREFIXES}
+    # Sắp xếp để chọn {vinaya, sutta} hay {sutta, vinaya} đều ra cùng một cache key
+    # (`_ranked_cache_key`) và cùng một dòng log, bất kể thứ tự tick chọn/gửi form.
+    return sorted(valid)
 
 SNIPPET_MIN_CHARS = 900
 SNIPPET_MAX_CHARS = 2600
@@ -325,15 +330,16 @@ def _source_label(corpus_type: str) -> str:
     }.get(corpus_type, corpus_type)
 
 
-def _pitaka_label(pitaka_type: str | None, corpus_type: str) -> str | None:
-    if not pitaka_type:
+def _pitaka_label(pitaka_types: list[str], corpus_type: str) -> str | None:
+    if not pitaka_types:
         return None
-    base = {
+    names = {
         "vinaya": "Vinayapiṭaka",
         "sutta": "Suttapiṭaka",
         "abhidhammapitaka": "Abhidhammapiṭaka",
         "abhidhamma": "Abhidhammapiṭaka",
-    }.get(pitaka_type, pitaka_type)
+    }
+    base = " + ".join(names.get(item, item) for item in pitaka_types)
     if corpus_type == "mul":
         return base
     return f"{base} ({_source_label(corpus_type)})"
@@ -417,7 +423,7 @@ def _nearby_heading_title(row: dict) -> str | None:
     return None
 
 
-def _clean_source_items(source: list[str], pitaka_type: str | None) -> list[str]:
+def _clean_source_items(source: list[str], pitaka_types: list[str]) -> list[str]:
     noisy = {
         "Namo tassa bhagavato arahato sammāsambuddhassa",
         "Nidānavaṇṇanā niṭṭhitā.",
@@ -438,11 +444,11 @@ def _clean_source_items(source: list[str], pitaka_type: str | None) -> list[str]
     return clean
 
 
-def _display_source(row: dict, corpus_types: list[str], pitaka_type: str | None) -> str:
+def _display_source(row: dict, corpus_types: list[str], pitaka_types: list[str]) -> str:
     section_source = _source_path_from_value(row.get("section_source_path"))
     passage_source = _source_path(row.get("hierarchy") or {})
     source = section_source or passage_source
-    clean = _clean_source_items(source, pitaka_type)
+    clean = _clean_source_items(source, pitaka_types)
     # Ưu tiên corpus thật của chính dòng này. Nếu lấy corpus_types[0] thì ở chế độ
     # "tìm tất cả" mọi kết quả đều bị gán nhãn theo lựa chọn đầu tiên (sai nguồn).
     corpus = str(row.get("corpus_type") or (corpus_types[0] if corpus_types else "mul"))
@@ -476,14 +482,20 @@ def _append_nearby_heading_to_source(item: dict) -> None:
         item["sourcePath"] = " -> ".join([*parts, nearby_heading])
 
 
-def _pitaka_sql(pitaka_type: str | None) -> tuple[str, list[str]]:
-    if not pitaka_type:
+def _pitaka_sql(pitaka_types: list[str]) -> tuple[str, list[str]]:
+    if not pitaka_types:
         return "", []
-    return "and lower(d.file_name) like any(%s)", PITAKA_PREFIXES.get(pitaka_type, [])
+    prefixes = [prefix for pitaka in pitaka_types for prefix in PITAKA_PREFIXES.get(pitaka, [])]
+    if not prefixes:
+        return "", []
+    # Ngoại điển (`nrf`) không thuộc Tạng nào, nên khi khách chọn kèm nrf cùng phần khác
+    # (VD Ngoại điển + Tam Tạng) và lọc theo Tạng, nrf phải luôn lọt qua bộ lọc này thay vì
+    # bị loại vì tên file không khớp tiền tố `vin%`/`s%`/`abh%` nào cả.
+    return "and (d.corpus_type = 'nrf' or lower(d.file_name) like any(%s))", prefixes
 
 
-def _document_ids(corpus_types: list[str], pitaka_type: str | None) -> list[str]:
-    pitaka_sql, pitaka_params = _pitaka_sql(pitaka_type)
+def _document_ids(corpus_types: list[str], pitaka_types: list[str]) -> list[str]:
+    pitaka_sql, pitaka_params = _pitaka_sql(pitaka_types)
     rows = fetch_all(
         f"""
         select id
@@ -632,7 +644,7 @@ def _paragraph_no(row: dict) -> str:
     )
 
 
-def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_types: list[str], pitaka_type: str | None, rank: int, analysis: dict, language: str = DEFAULT_LANGUAGE) -> dict:
+def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_types: list[str], pitaka_types: list[str], rank: int, analysis: dict, language: str = DEFAULT_LANGUAGE) -> dict:
     section_id = row.get("section_id")
     match_reason = (
         t(
@@ -654,7 +666,7 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
         "id": str(row["id"]),
         "rank": rank,
         "score": round(score, 4),
-        "sourcePath": _display_source(row, corpus_types, pitaka_type),
+        "sourcePath": _display_source(row, corpus_types, pitaka_types),
         "paragraphNo": _paragraph_no(row),
         "paliText": row["pali_text"],
         "contextExpanded": False,
@@ -678,7 +690,7 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
     }
 
 
-def _insert_log(query: str, corpus_types: list[str], pitaka_type: str | None, analysis: dict, result_ids: list[str]) -> None:
+def _insert_log(query: str, corpus_types: list[str], pitaka_types: list[str], analysis: dict, result_ids: list[str]) -> None:
     execute(
         """
         insert into search_logs (query, filters, expanded_query, result_passage_ids)
@@ -686,7 +698,7 @@ def _insert_log(query: str, corpus_types: list[str], pitaka_type: str | None, an
         """,
         [
             query,
-            Jsonb({"corpusType": corpus_types, "pitakaType": pitaka_type}),
+            Jsonb({"corpusType": corpus_types, "pitakaType": pitaka_types}),
             Jsonb(analysis),
             result_ids,
         ],
@@ -860,12 +872,12 @@ def _has_embeddings() -> bool:
 def _retrieve_candidates(
     query: str,
     corpus_types: list[str],
-    pitaka_type: str | None,
+    pitaka_types: list[str],
     analysis: dict,
     limit: int,
     language: str = DEFAULT_LANGUAGE,
 ) -> list[dict]:
-    doc_ids = _document_ids(corpus_types, pitaka_type)
+    doc_ids = _document_ids(corpus_types, pitaka_types)
     if not doc_ids:
         return []
     candidates: list[dict] = []
@@ -1085,8 +1097,8 @@ _RANKED_CACHE_MAX = 32
 _RANKED_CACHE: "OrderedDict[tuple, tuple[float, tuple[dict, list[dict]]]]" = OrderedDict()
 
 
-def _ranked_cache_key(query: str, corpus_types: list[str], pitaka_type: str | None, language: str) -> tuple:
-    return (" ".join(query.split()).lower(), tuple(corpus_types), pitaka_type, language)
+def _ranked_cache_key(query: str, corpus_types: list[str], pitaka_types: list[str], language: str) -> tuple:
+    return (" ".join(query.split()).lower(), tuple(corpus_types), tuple(pitaka_types), language)
 
 
 def _ranked_cache_get(key: tuple) -> tuple[dict, list[dict]] | None:
@@ -1285,14 +1297,14 @@ def _rerank_limit(ranked: list[dict], analysis: dict) -> int:
 def _run_query_shortening_fallback(
     query: str,
     corpus_types: list[str],
-    pitaka_type: str | None,
+    pitaka_types: list[str],
     page_size: int,
     include_translations: bool,
     language: str,
 ) -> dict | None:
     from .fallback_search import run_fallback
 
-    def search_step(step_query: str, step_corpus: list[str], step_pitaka: str | None, step_page: int, step_size: int) -> dict:
+    def search_step(step_query: str, step_corpus: list[str], step_pitaka: list[str], step_page: int, step_size: int) -> dict:
         return search_passages(
             step_query,
             step_corpus,
@@ -1305,13 +1317,13 @@ def _run_query_shortening_fallback(
             language=language,
         )
 
-    return run_fallback(query, corpus_types, pitaka_type, page_size, search_step)
+    return run_fallback(query, corpus_types, pitaka_types, page_size, search_step)
 
 
 def search_passages(
     query: str,
     corpus_types: list[str],
-    pitaka_type: str | None,
+    pitaka_types: list[str],
     page: int = 1,
     page_size: int = 5,
     include_translations: bool = True,
@@ -1321,14 +1333,14 @@ def search_passages(
 ) -> dict:
     language = normalize_language(language)
     corpus_types = resolve_corpus_types(corpus_types)
-    pitaka_type = resolve_pitaka_type(pitaka_type)
+    pitaka_types = resolve_pitaka_types(pitaka_types)
 
-    cache_key = _ranked_cache_key(query, corpus_types, pitaka_type, language)
+    cache_key = _ranked_cache_key(query, corpus_types, pitaka_types, language)
     cached = _ranked_cache_get(cache_key) if page > 1 else None
     if cached is not None:
         analysis, candidate_results = cached
     else:
-        analysis, candidate_results = _rank_candidates(query, corpus_types, pitaka_type, page_size, language)
+        analysis, candidate_results = _rank_candidates(query, corpus_types, pitaka_types, page_size, language)
         _ranked_cache_put(cache_key, (analysis, candidate_results))
 
     results = _page_results(candidate_results, page, page_size)
@@ -1341,10 +1353,10 @@ def search_passages(
     _strip_internal_fields(results)
 
     if not results and allow_fallback and page == 1:
-        fallback = _run_query_shortening_fallback(query, corpus_types, pitaka_type, page_size, include_translations, language)
+        fallback = _run_query_shortening_fallback(query, corpus_types, pitaka_types, page_size, include_translations, language)
         if fallback:
             fallback_result = fallback["result"]
-            _insert_log(query, corpus_types, pitaka_type, analysis, [item["id"] for item in fallback_result["results"]])
+            _insert_log(query, corpus_types, pitaka_types, analysis, [item["id"] for item in fallback_result["results"]])
             fallback_result["query"] = query
             fallback_result["fallback"] = {
                 "used": True,
@@ -1355,7 +1367,7 @@ def search_passages(
             return fallback_result
 
     if log_search:
-        _insert_log(query, corpus_types, pitaka_type, analysis, [item["id"] for item in results])
+        _insert_log(query, corpus_types, pitaka_types, analysis, [item["id"] for item in results])
 
     start = (page - 1) * page_size
     return {
@@ -1375,7 +1387,7 @@ def search_passages(
 def _rank_candidates(
     query: str,
     corpus_types: list[str],
-    pitaka_type: str | None,
+    pitaka_types: list[str],
     page_size: int,
     language: str,
 ) -> tuple[dict, list[dict]]:
@@ -1394,7 +1406,7 @@ def _rank_candidates(
     # Gemini. Dò nó trước; có kết quả thì bỏ hẳn hai lượt AI mở rộng/rerank, vừa chính xác
     # hơn vừa tránh timeout cho thao tác paste nguyên văn.
     if not local_analysis.get("queryIsPaliLike"):
-        doc_ids = _document_ids(corpus_types, pitaka_type)
+        doc_ids = _document_ids(corpus_types, pitaka_types)
         direct_candidates, translation_word_count = _retrieve_translation_candidates_for_docs(
             query, doc_ids, local_analysis, limit, language
         )
@@ -1434,7 +1446,7 @@ def _rank_candidates(
         candidates = _retrieve_candidates(
             retrieval_query,
             corpus_types,
-            pitaka_type,
+            pitaka_types,
             analysis,
             limit,
             language,
@@ -1455,7 +1467,7 @@ def _rank_candidates(
     rerank_limit = _rerank_limit(ranked, analysis)
     rerank_window = ranked[:rerank_limit]
     rerank_candidates = [
-        _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_type, idx + 1, analysis, language)
+        _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_types, idx + 1, analysis, language)
         for idx, item in enumerate(rerank_window)
     ]
 
@@ -1481,13 +1493,13 @@ def _rank_candidates(
 
         remaining_candidates = [item for item in rerank_candidates if item["id"] not in used]
         tail = [
-            _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_type, rerank_limit + idx + 1, analysis, language)
+            _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_types, rerank_limit + idx + 1, analysis, language)
             for idx, item in enumerate(ranked[rerank_limit:])
         ]
         candidate_results = [*reranked_items, *remaining_candidates, *tail]
     else:
         candidate_results = [
-            _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_type, idx + 1, analysis, language)
+            _candidate(item["row"], item["score"], item["keyword"], item["concept"], corpus_types, pitaka_types, idx + 1, analysis, language)
             for idx, item in enumerate(ranked)
         ]
 

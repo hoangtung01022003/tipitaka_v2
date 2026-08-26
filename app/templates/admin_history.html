@@ -407,8 +407,13 @@
                         <span class="filterBadge">{{ corpus_options.get(c, c) }}</span>
                       {% endfor %}
                     {% endif %}
+                    {# Dòng cũ lưu pitakaType là một chuỗi, dòng mới (sau khi cho chọn nhiều
+                       Tạng) lưu một danh sách - xử lý cả hai dạng, không đụng dữ liệu cũ. #}
                     {% if log.filters and log.filters.pitakaType %}
-                      <span class="filterBadge">{{ pitaka_options.get(log.filters.pitakaType, log.filters.pitakaType) }}</span>
+                      {% set pt = log.filters.pitakaType %}
+                      {% for p in ([pt] if pt is string else pt) %}
+                        <span class="filterBadge">{{ pitaka_options.get(p, p) }}</span>
+                      {% endfor %}
                     {% endif %}
                   </td>
                   <td>

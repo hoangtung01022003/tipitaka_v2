@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Người dùng - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260813-responsive" />
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar { width: 250px; background-color: #1f2937; color: white; display: flex; flex-direction: column; flex-shrink: 0; }
+      .sidebarHeader { padding: 1.5rem; font-size: 1.25rem; font-weight: 700; border-bottom: 1px solid #374151; text-align: center; }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem { display: block; padding: 0.75rem 1.5rem; color: #d1d5db; text-decoration: none; font-weight: 500; }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn { display: block; width: 100%; padding: 0.5rem; text-align: center; background-color: #ef4444; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader { margin-bottom: 1.5rem; }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .adminHeader p { color: #6b7280; margin-top: 0.25rem; }
+      .historyTableWrap { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+      table.adminTable { width: 100%; border-collapse: collapse; text-align: left; }
+      table.adminTable th, table.adminTable td { padding: 1rem 1.2rem; border-bottom: 1px solid #f3f4f6; }
+      table.adminTable th { background: #f9fafb; color: #374151; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+      table.adminTable tr:hover { background: #f9fafb; }
+      .savedCountBadge { display: inline-block; background: #eff6ff; color: #1d4ed8; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; }
+      .viewLink { color: #2563eb; font-weight: 600; text-decoration: none; }
+      .viewLink:hover { text-decoration: underline; }
+      .emptyState { padding: 2rem; text-align: center; color: #6b7280; }
+
+      /* `admin-mobile.css` biến mỗi hàng bảng `table.adminTable` thành 1 thẻ trên mobile,
+         nhưng nhãn `td::before` của nó gắn cứng cho đúng 6 cột của bảng lịch sử tìm kiếm -
+         bảng người dùng chỉ có 4 cột khác nghĩa nên phải ghi đè riêng bằng id, chỉ trong
+         đúng breakpoint đó (ngoài mobile, `::before` vẫn hiện dù không cần grid nên phải
+         bọc lại cùng @media, không thì chữ nhãn lẫn vào text trên desktop). */
+      @media (max-width: 768px) {
+        #usersTable td:nth-child(1)::before { content: "Tên đăng nhập"; }
+        #usersTable td:nth-child(2)::before { content: "Ngày đăng ký"; }
+        #usersTable td:nth-child(3)::before { content: "Số bài đã lưu"; }
+        #usersTable td:nth-child(4)::before { content: none; }
+        #usersTable td:last-child a { display: block; width: 100%; min-height: 42px; line-height: 42px; text-align: center; }
+      }
+    </style>
+    <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
+  </head>
+  <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+
+    {% set active_page = 'users' %}
+    {% include '_admin_sidebar.html' %}
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <h1>Người dùng</h1>
+        <p>Tài khoản khách đã đăng ký và số bài kinh mỗi người đã lưu. Tách riêng khỏi "Lịch sử tìm kiếm" (ẩn danh) ở mục bên cạnh.</p>
+      </header>
+
+      {% if not users %}
+        <div class="historyTableWrap">
+          <div class="emptyState">Chưa có tài khoản người dùng nào đăng ký.</div>
+        </div>
+      {% else %}
+        <div class="historyTableWrap">
+          <table class="adminTable" id="usersTable">
+            <thead>
+              <tr>
+                <th>Tên đăng nhập</th>
+                <th>Ngày đăng ký</th>
+                <th>Số bài đã lưu</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in users %}
+                <tr>
+                  <td>{{ u.username }}</td>
+                  <td>{{ u.created_at.strftime('%H:%M %d/%m/%Y') if u.created_at else '' }}</td>
+                  <td><span class="savedCountBadge">{{ u.saved_count }}</span></td>
+                  <td><a class="viewLink" href="/admin/users/{{ u.id }}">Xem chi tiết →</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+  </body>
+</html>

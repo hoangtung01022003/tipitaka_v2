@@ -1,6 +1,5 @@
 import json
 import re
-import secrets
 from collections import defaultdict
 from pathlib import Path
 from urllib.parse import urlencode
@@ -15,7 +14,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .db import execute, fetch_all, fetch_one
+from . import auth
 from . import library
+from . import saved_items
 from .help_guide import (
     HELP_GUIDE_BATCH,
     get_help_config,
@@ -35,7 +36,7 @@ from .i18n import (
 )
 from .notice import get_notice, get_notice_config, save_notice
 from .normalize import normalize_pali
-from .search_engine import resolve_corpus_types, resolve_pitaka_type, search_passages, _display_source
+from .search_engine import resolve_corpus_types, resolve_pitaka_types, search_passages, _display_source
 from .translation_sources import (
     AI_SOURCE,
     SOURCE_ORDER,
@@ -48,6 +49,7 @@ from .translation_sources import (
 )
 from .translator import (
     public_translation_error,
+    summarize_excerpt_text,
     summarize_plain_pali_text,
     translate_passage,
     translate_text,
@@ -778,6 +780,7 @@ def index(request: Request, lang: str | None = Query(None)):
             libraryButtonLabel=library.get_button_label(),
             default_query="",
             ga_measurement_id=settings().get("ga_measurement_id", ""),
+            current_user=auth.get_current_user(request),
         ),
     )
     response.set_cookie(
@@ -790,12 +793,130 @@ def index(request: Request, lang: str | None = Query(None)):
     return response
 
 
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, next: str | None = Query(None)):
+    if auth.get_current_user(request):
+        return RedirectResponse(url=next or "/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse("register.html", {"request": request, "next": next or "/"})
+
+
+@app.post("/register", response_class=HTMLResponse)
+def register_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    next: str = Form("/"),
+):
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            "register.html",
+            {"request": request, "error": "Mật khẩu xác nhận không khớp.", "next": next, "username": username},
+        )
+    try:
+        user = auth.create_user(username, password)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            "register.html", {"request": request, "error": str(exc), "next": next, "username": username}
+        )
+    request.session["user_id"] = str(user["id"])
+    return RedirectResponse(url=next or "/", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str | None = Query(None)):
+    """UI đăng nhập DÙNG CHUNG cho cả admin lẫn khách - xem `login_submit`. Trang quản trị
+    cũ ở `/admin/login` giờ chỉ còn là bí danh render cùng template này (giữ URL cho các
+    liên kết/bookmark cũ và cho `dev_http_check.py`), không còn form riêng."""
+    if request.session.get("admin_logged_in"):
+        return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
+    if auth.get_current_user(request):
+        return RedirectResponse(url=next or "/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse("user_login.html", {"request": request, "next": next or "/"})
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/"),
+):
+    # Gõ đúng tài khoản admin (biến môi trường) thì vào thẳng trang quản trị, bỏ qua
+    # `next` - đúng yêu cầu khách "admin login thì cũng sang được trang admin luôn".
+    # Kiểm tra admin TRƯỚC để một khách tạo tài khoản trùng tên admin cũng không thể đăng
+    # nhập vào vai admin bằng mật khẩu của chính họ.
+    if auth.verify_admin_credentials(username, password):
+        request.session["admin_logged_in"] = True
+        return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
+
+    user = auth.get_user_by_username(username)
+    if not user or not auth.verify_password(password, user["password_hash"]):
+        return templates.TemplateResponse(
+            "user_login.html",
+            {"request": request, "error": "Sai tên đăng nhập hoặc mật khẩu.", "next": next, "username": username},
+        )
+    # Đăng nhập bằng tài khoản khách thường thì KHÔNG bao giờ vào được trang admin - chỉ
+    # `session["admin_logged_in"]` (đặt ở nhánh trên) mới qua được `get_current_admin`.
+    request.session["user_id"] = str(user["id"])
+    return RedirectResponse(url=next or "/", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    request.session.pop("user_id", None)
+    return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/saved", response_class=HTMLResponse)
+def saved_page(request: Request, lang: str | None = Query(None), user: dict = Depends(auth.require_user_page)):
+    language = request_language(request, lang)
+    items = saved_items.list_saved_items(str(user["id"]))
+    # `content_html` không cần cho danh sách (nặng, chỉ hiện khi bấm xem) - nạp riêng qua
+    # `/api/saved/{id}` để trang tải nhanh dù đã lưu nhiều bài.
+    return templates.TemplateResponse(
+        "saved.html",
+        _template_context(request, language, user=user, items=items),
+    )
+
+
+@app.get("/api/saved/{item_id}")
+def api_saved_detail(item_id: str, user: dict = Depends(auth.require_user_api)):
+    item = saved_items.get_saved_item(item_id, str(user["id"]))
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy.")
+    item["id"] = str(item["id"])
+    item["created_at"] = item["created_at"].isoformat() if item.get("created_at") else None
+    return item
+
+
+@app.post("/api/saved")
+def api_save_item(payload: dict, user: dict = Depends(auth.require_user_api)):
+    kind = str(payload.get("kind") or "")
+    title = str(payload.get("title") or "")
+    excerpt = str(payload.get("excerpt") or "")
+    html = str(payload.get("html") or "")
+    try:
+        row = saved_items.save_item(str(user["id"]), kind, title, excerpt, html)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    row["id"] = str(row["id"])
+    row["created_at"] = row["created_at"].isoformat() if row.get("created_at") else None
+    return {"ok": True, "item": row}
+
+
+@app.post("/api/saved/{item_id}/delete")
+def api_delete_saved_item(item_id: str, user: dict = Depends(auth.require_user_api)):
+    saved_items.delete_saved_item(item_id, str(user["id"]))
+    return {"ok": True}
+
+
 @app.post("/search")
 def search_api(payload: dict, request: Request):
     query = str(payload.get("query", "")).strip()
     filters = payload.get("filters") or {}
     corpus_types = resolve_corpus_types(filters.get("corpusType"))
-    pitaka_type = resolve_pitaka_type(filters.get("pitakaType"))
+    pitaka_types = resolve_pitaka_types(filters.get("pitakaType"))
     page = int(payload.get("page") or 1)
     page_size = min(20, int(payload.get("pageSize") or 5))
     if not query:
@@ -805,7 +926,7 @@ def search_api(payload: dict, request: Request):
     return search_passages(
         query,
         corpus_types,
-        pitaka_type,
+        pitaka_types,
         page,
         page_size,
         include_translations=include_translations,
@@ -815,8 +936,8 @@ def search_api(payload: dict, request: Request):
 @app.post("/log-timeout")
 def log_timeout(
     query: str = Form(...),
-    corpus_type: str = Form(...),
-    pitaka_type: str | None = Form(None),
+    corpus_type: list[str] = Form(...),
+    pitaka_type: list[str] = Form([]),
 ):
     from .db import execute
     from psycopg.types.json import Jsonb
@@ -828,7 +949,7 @@ def log_timeout(
             """,
             [
                 query,
-                Jsonb({"corpusType": resolve_corpus_types(corpus_type), "pitakaType": resolve_pitaka_type(pitaka_type)}),
+                Jsonb({"corpusType": resolve_corpus_types(corpus_type), "pitakaType": resolve_pitaka_types(pitaka_type)}),
                 Jsonb({}),
                 [],
             ],
@@ -842,8 +963,8 @@ def log_timeout(
 def search_page(
     request: Request,
     query: str = Form(...),
-    corpus_type: str = Form(...),
-    pitaka_type: str | None = Form(None),
+    corpus_type: list[str] = Form(...),
+    pitaka_type: list[str] = Form([]),
     page: int = Form(1),
     lang: str | None = Form(None),
 ):
@@ -851,7 +972,7 @@ def search_page(
     result = search_passages(
         query,
         resolve_corpus_types(corpus_type),
-        resolve_pitaka_type(pitaka_type),
+        resolve_pitaka_types(pitaka_type),
         page,
         5,
         include_translations=False,
@@ -948,6 +1069,7 @@ def search_page(
             corpus_type=corpus_type,
             pitaka_type=pitaka_type,
             append_mode=page > 1,
+            current_user=auth.get_current_user(request),
         ),
     )
 
@@ -1005,6 +1127,20 @@ def translate_result_api(payload: dict, request: Request):
             "warning": warning,
             "source": source,
         }
+
+
+@app.post("/api/summarize-excerpt")
+def summarize_excerpt_api(payload: dict, request: Request):
+    """Tóm tắt AI (một đoạn ngắn) cho đúng trích đoạn Pali hiện ở thẻ kết quả tìm kiếm -
+    khác popup "Xem toàn bộ bài kinh", ở đây một tóm tắt là đủ, xem `summarize_excerpt_text`."""
+    pali_text = str(payload.get("paliText") or "").strip()
+    language = request_language(request, payload.get("language"))
+    if not pali_text:
+        raise HTTPException(status_code=400, detail="Missing paliText.")
+    try:
+        return summarize_excerpt_text(pali_text, language)
+    except Exception:
+        return {"summary": "", "fromCache": False, "error": "summary_failed"}
 
 
 def _split_long_paragraph_safely(paragraph: str, max_chars: int) -> list[str]:
@@ -1813,7 +1949,7 @@ def handle_exception(_request: Request, exc: Exception):
 
 def get_current_admin(request: Request):
     if not request.session.get("admin_logged_in"):
-        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"Location": "/admin/login"})
+        raise HTTPException(status_code=status.HTTP_302_FOUND, headers={"Location": "/login"})
     return True
 
 
@@ -1821,37 +1957,20 @@ def get_current_admin(request: Request):
 def admin_root(request: Request):
     if request.session.get("admin_logged_in"):
         return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
-    return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
 
-@app.get("/admin/login", response_class=HTMLResponse)
+@app.get("/admin/login", response_class=HTMLResponse, include_in_schema=False)
 def admin_login_page(request: Request):
-    if request.session.get("admin_logged_in"):
-        return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("admin_login.html", {"request": request})
-
-
-@app.post("/admin/login")
-def admin_login_post(request: Request, username: str = Form(...), password: str = Form(...)):
-    current_username_bytes = username.encode("utf8")
-    correct_username_bytes = str(settings().get("admin_username", "")).encode("utf8")
-    is_correct_username = secrets.compare_digest(current_username_bytes, correct_username_bytes)
-
-    current_password_bytes = password.encode("utf8")
-    correct_password_bytes = str(settings().get("admin_password", "")).encode("utf8")
-    is_correct_password = secrets.compare_digest(current_password_bytes, correct_password_bytes)
-
-    if not (is_correct_username and is_correct_password):
-        return templates.TemplateResponse("admin_login.html", {"request": request, "error": "Sai tên đăng nhập hoặc mật khẩu"})
-    
-    request.session["admin_logged_in"] = True
-    return RedirectResponse(url="/admin/history", status_code=status.HTTP_302_FOUND)
+    """Bí danh của `/login` - giữ URL cũ (bookmark, `dev_http_check.py`) hoạt động, nhưng
+    dùng ĐÚNG một UI đăng nhập chung, không còn form/route đăng nhập riêng cho admin."""
+    return login_page(request, next=None)
 
 
 @app.get("/admin/logout")
 def admin_logout(request: Request):
     request.session.pop("admin_logged_in", None)
-    return RedirectResponse(url="/admin/login", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
 
 # Không còn trần: cuộn tới đâu tải tới đó, mỗi lượt một mẻ nhỏ. Trước đây phải chọn số
@@ -1990,9 +2109,11 @@ def api_admin_history_rows(
     for row in rows:
         filters = row.get("filters") or {}
         badges = [corpus_labels.get(c, c) for c in (filters.get("corpusType") or [])]
+        # Dòng cũ lưu `pitakaType` là một chuỗi; sau khi cho chọn nhiều Tạng, dòng mới lưu
+        # một danh sách. Chuẩn hoá cả hai dạng, không sửa dữ liệu cũ trong DB.
         pitaka = filters.get("pitakaType")
-        if pitaka:
-            badges.append(pitaka_labels.get(pitaka, pitaka))
+        pitaka_list = [pitaka] if isinstance(pitaka, str) else (pitaka or [])
+        badges.extend(pitaka_labels.get(p, p) for p in pitaka_list)
         created = row.get("created_at")
         payload.append(
             {
@@ -2190,9 +2311,10 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
         passage_map = {str(row["id"]): row for row in rows}
         passages = [passage_map[str(pid)] for pid in passage_ids if str(pid) in passage_map]
 
-    pitaka_type = None
+    pitaka_types: list[str] = []
     if log.get("filters"):
-        pitaka_type = log["filters"].get("pitakaType")
+        pitaka = log["filters"].get("pitakaType")
+        pitaka_types = [pitaka] if isinstance(pitaka, str) else (pitaka or [])
 
     return {
         "log": {
@@ -2208,7 +2330,7 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
                 "paragraph_no": p.get("display_paragraph_no") or p.get("xml_paragraph_no") or p.get("paragraph_no"),
                 "pali_text": p["pali_text"],
                 "translated_text": p["translated_text"],
-                "breadcrumb": _display_source(p, [p["corpus_type"]], pitaka_type)
+                "breadcrumb": _display_source(p, [p["corpus_type"]], pitaka_types)
             } for p in passages
         ]
     }
@@ -2296,4 +2418,42 @@ def admin_analytics_page(request: Request, _: str = Depends(get_current_admin)):
             "ga_measurement_id": settings().get("ga_measurement_id", ""),
         },
     )
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users_page(request: Request, _: str = Depends(get_current_admin)):
+    """Tách riêng khỏi "Lịch sử tìm kiếm" (bảng `search_logs`, ẩn danh, không đổi) - đây
+    là tài khoản khách đã đăng ký và số bài mỗi người đã lưu, xem `db/migrations/010` và
+    `011`."""
+    return templates.TemplateResponse(
+        "admin_users.html",
+        {"request": request, "users": auth.list_users_with_counts()},
+    )
+
+
+@app.get("/admin/users/{user_id}", response_class=HTMLResponse)
+def admin_user_saved_page(user_id: str, request: Request, _: str = Depends(get_current_admin)):
+    target_user = auth.get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng này.")
+    return templates.TemplateResponse(
+        "admin_user_saved.html",
+        {
+            "request": request,
+            "target_user": target_user,
+            "items": saved_items.list_saved_items(user_id),
+        },
+    )
+
+
+@app.get("/api/admin/users/saved/{item_id}")
+def api_admin_saved_detail(item_id: str, _: str = Depends(get_current_admin)):
+    """Admin xem nội dung MỘT bài đã lưu bất kỳ - không giới hạn theo `user_id` như phía
+    người dùng, vì admin đã qua `get_current_admin`."""
+    item = saved_items.get_saved_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Không tìm thấy.")
+    item["id"] = str(item["id"])
+    item["created_at"] = item["created_at"].isoformat() if item.get("created_at") else None
+    return item
 

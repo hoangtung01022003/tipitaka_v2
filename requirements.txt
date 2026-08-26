@@ -13,3 +13,6 @@ itsdangerous==2.2.0
 # chay importer se bao ModuleNotFoundError.
 pypdf==6.15.0
 pdfplumber==0.11.9
+
+# Hash mat khau cho tai khoan nguoi dung (dang ky/dang nhap o trang tim kiem).
+bcrypt==4.2.1
