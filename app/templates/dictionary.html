@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="{{ lang }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ t('dictionary.pageTitle') }}</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
+    <link rel="stylesheet" href="/static/dictionary.css?v=20260827-3" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script src="/static/daily-notice.js?v=20260822-daily"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+  </head>
+  <body>
+    <main
+      class="dictPage"
+      id="dictPage"
+      data-lang="{{ lang }}"
+      data-initial-query="{{ initial_query }}"
+      data-strings='{{ {
+        "summaryTitle": t("dictionary.summaryTitle"),
+        "viTitle": t("dictionary.viTitle"),
+        "enTitle": t("dictionary.enTitle"),
+        "searching": t("dictionary.searching"),
+        "empty": t("dictionary.empty"),
+        "error": t("dictionary.error"),
+        "translationMissing": t("dictionary.translationMissing"),
+        "historyEmpty": t("dictionary.historyEmpty"),
+        "credit": t("dictionary.credit"),
+        "openInDpd": t("dictionary.openInDpd")
+      } | tojson }}'
+    >
+      <a class="dictBack" href="/?lang={{ lang }}">{{ t('dictionary.backHome') }}</a>
+      <h1>{{ t('dictionary.pageTitle') }}</h1>
+      <p class="dictIntro">{{ t('dictionary.intro') }}</p>
+
+      <div class="dictSearchBar">
+        <div class="dictInputWrap">
+          <input
+            type="text"
+            id="dictInput"
+            class="dictInput"
+            placeholder="{{ t('dictionary.placeholder') }}"
+            value="{{ initial_query }}"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="dictSuggest"
+            aria-label="{{ t('dictionary.placeholder') }}"
+          />
+          <ul class="dictSuggest" id="dictSuggest" role="listbox" hidden></ul>
+        </div>
+        <button type="button" class="dictButton" id="dictSubmit">{{ t('dictionary.submit') }}</button>
+        <button type="button" class="dictButton secondary" id="dictClear">{{ t('dictionary.clear') }}</button>
+      </div>
+
+      <div class="dictLayout">
+        <aside class="dictPanel dictHistory">
+          <h2>{{ t('dictionary.historyTitle') }}</h2>
+          <div id="dictHistoryList"></div>
+          <button type="button" class="dictHistoryClear" id="dictHistoryClear" hidden>
+            {{ t('dictionary.historyClear') }}
+          </button>
+        </aside>
+
+        <section id="dictResults"></section>
+      </div>
+    </main>
+
+    <script src="/static/dictionary.js?v=20260827-3"></script>
+  </body>
+</html>

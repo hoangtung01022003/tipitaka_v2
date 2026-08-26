@@ -1,0 +1,573 @@
+/* Trang tra cứu từ điển Pāḷi.
+ *
+ * Phần dưới mục "Thành phần của DPD" là các lớp do máy chủ dpdict.net sinh ra trong HTML
+ * trả về (div.dpd, a.dpd-button, table.inflection, table.freq...). Ta KHÔNG dựng lại
+ * những khối đó bằng tay - giữ nguyên HTML của họ thì mỗi lần DPD thêm mục mới là có
+ * ngay, nên phía mình chỉ cần có kiểu dáng cho chúng. Quy tắc phỏng theo biểu định kiểu
+ * của dpdict.net (CC BY-NC-SA), đổi màu xanh của họ sang màu đỏ trầm của trang này để
+ * không lạc lõng giữa các trang khác.
+ *
+ * Mọi thứ bọc trong `.dictPage` để không đụng tới `style.css`.
+ */
+
+.dictPage {
+  width: min(1350px, calc(100vw - 48px));
+  margin: 0 auto;
+  padding: 40px 0 64px;
+  --dpd-line: var(--accent);
+  --dpd-line-soft: rgba(159, 50, 50, 0.28);
+  --dpd-fill: #fffefa;
+}
+
+.dictBack {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.dictBack:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.dictPage h1 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(26px, 3.2vw, 34px);
+  font-weight: 700;
+}
+
+.dictIntro {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 70ch;
+}
+
+/* ---------------------------------------------------------------- ô tìm kiếm */
+
+.dictSearchBar {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.dictInputWrap {
+  position: relative;
+  flex: 1 1 340px;
+  min-width: 240px;
+}
+
+.dictInput {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 17px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.dictInput:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.dictButton {
+  padding: 12px 22px;
+  font-size: 16px;
+  font-family: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.dictButton:hover {
+  background: var(--accent-hover);
+}
+
+.dictButton.secondary {
+  color: var(--muted);
+  background: var(--card);
+  border-color: var(--line);
+}
+
+.dictButton.secondary:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Danh sách gợi ý xổ ngay dưới ô nhập, đúng như mô tả trong yêu cầu. */
+.dictSuggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(52, 38, 24, 0.14);
+}
+
+.dictSuggest[hidden] {
+  display: none;
+}
+
+.dictSuggest li {
+  padding: 9px 12px;
+  border-radius: 7px;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.dictSuggest li[aria-selected="true"],
+.dictSuggest li:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------- bố cục hai cột */
+
+.dictLayout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.dictPanel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.dictPanel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.dictHistory ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dictHistory li + li {
+  margin-top: 2px;
+}
+
+.dictHistory button {
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+  color: var(--accent);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.dictHistory button:hover {
+  background: var(--accent-soft);
+}
+
+.dictHistoryEmpty,
+.dictStatus {
+  margin: 0;
+  color: var(--soft);
+  font-size: 15px;
+}
+
+.dictHistoryClear {
+  margin-top: 10px;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--soft);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.dictStatus {
+  padding: 20px 0;
+}
+
+.dictStatus.error {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------- mục từ */
+
+.dictEntry + .dictEntry {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.dictEntry > h3 {
+  margin: 0 0 8px;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.dictBoxLabel {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--soft);
+}
+
+/* Khối tiếng Việt đặt TRÊN, tô đậm hơn khối tiếng Anh để mắt đọc vào đó trước. */
+.dictVi .dpd {
+  background: var(--accent-soft);
+  font-size: 1.05rem;
+}
+
+.dictEn {
+  margin-top: 10px;
+}
+
+.dictEn .dpd {
+  color: var(--muted);
+}
+
+.dictNoTranslation {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--soft);
+  font-style: italic;
+}
+
+.dictCredit {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--soft);
+  line-height: 1.6;
+}
+
+.dictCredit a {
+  color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .dictPage {
+    width: calc(100vw - 28px);
+    padding-top: 24px;
+  }
+
+  .dictLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Trên điện thoại, danh sách đã tra xuống dưới kết quả - phần người dùng cần thấy
+     ngay là nghĩa của từ, không phải lịch sử. */
+  .dictHistory {
+    order: 2;
+  }
+}
+
+/* ============================================================================
+ * Thành phần của DPD (lớp nằm trong HTML do dpdict.net trả về)
+ * ==========================================================================*/
+
+.dictPage .dpd {
+  border: 2px solid var(--dpd-line);
+  border-radius: 7px;
+  line-height: 1.5;
+  overflow: auto;
+  padding: 8px 12px;
+  text-align: left;
+  background: var(--dpd-fill);
+}
+
+.dictPage .dpd p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.dictPage h3.dpd {
+  border: none;
+  padding: 0;
+  background: none;
+  font-size: 1.4rem;
+  margin: 18px 0 4px;
+}
+
+.dictPage p.heading {
+  margin: 0;
+  padding: 2px 0;
+}
+
+.dictPage p.dpd-footer {
+  border-top: 1px solid var(--dpd-line-soft);
+  font-size: 80%;
+  padding: 5px 0;
+  margin-top: 5px;
+  color: var(--soft);
+}
+
+.dictPage hr.dpd {
+  background-color: var(--line);
+  width: 100%;
+  border: none;
+  height: 1px;
+  margin: 8px 0;
+  display: block;
+}
+
+.dictPage span.gray {
+  color: var(--soft);
+}
+
+/* nút mở/đóng các khối grammar, examples, declension... */
+.dictPage div.button-box {
+  margin: 6px 0 4px;
+  display: flex;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dictPage a.dpd-button {
+  background-color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 13px;
+  padding: 3px 9px;
+  text-decoration: none;
+  user-select: none;
+}
+
+.dictPage a.dpd-button:hover,
+.dictPage a.dpd-button.active {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.dictPage a.dpd-button.play {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.dictPage a.dpd-button.play svg {
+  width: 1em;
+  height: 1em;
+  fill: #fff;
+  stroke: #fff;
+}
+
+.dictPage .hidden {
+  display: none;
+}
+
+.dictPage div.content {
+  margin: 6px 0;
+}
+
+.dictPage .dpd-link,
+.dictPage .epd,
+.dictPage a.sutta_link {
+  color: var(--accent);
+}
+
+/* bảng: ngữ pháp, biến cách, nhóm từ, tần suất */
+.dictPage table {
+  margin: 4px 0;
+  border-collapse: collapse;
+  max-width: 100%;
+}
+
+.dictPage table.grammar,
+.dictPage table.family,
+.dictPage table.sutta-info,
+.dictPage table.root_info {
+  border: none;
+}
+
+.dictPage table.grammar th,
+.dictPage table.family th,
+.dictPage table.sutta-info th,
+.dictPage table.root_info th {
+  color: var(--accent);
+  font-weight: 700;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  padding: 0 8px 2px 0;
+}
+
+.dictPage table.root_info th {
+  white-space: normal;
+}
+
+.dictPage table.family td {
+  padding-right: 7px;
+}
+
+.dictPage table.inflection {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 2px;
+}
+
+.dictPage table.inflection th,
+.dictPage table.inflection td {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 5px;
+  text-align: center;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
+.dictPage table.inflection th {
+  border-color: var(--dpd-line-soft);
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dictPage table.grammar_dict {
+  border: none;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.dictPage .grammar_dict th {
+  color: var(--accent);
+  text-align: left;
+  padding: 2px 10px 2px 0;
+  white-space: nowrap;
+}
+
+.dictPage .grammar_dict td {
+  padding: 2px 10px 0 0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.dictPage .variants td:nth-child(2) {
+  white-space: nowrap;
+}
+
+.dictPage table.root_matrix {
+  width: 100%;
+}
+
+.dictPage table.root_matrix th,
+.dictPage table.root_matrix td {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px;
+  line-height: 1.5;
+  vertical-align: top;
+}
+
+.dictPage table.root_matrix th {
+  border-color: var(--dpd-line-soft);
+  color: var(--accent);
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.dictPage table.root_matrix td b {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Bảng tần suất: DPD tô đậm dần theo mức xuất hiện. Giữ nguyên thang 11 mức của họ,
+   chuyển sang tông đỏ của trang. */
+.dictPage table.freq {
+  border-collapse: separate;
+  border-spacing: 2px;
+}
+
+.dictPage table.freq thead th {
+  text-align: center;
+  color: var(--accent);
+}
+
+.dictPage table.freq tbody th {
+  border: 1px solid var(--dpd-line-soft);
+  border-radius: 7px;
+  padding: 5px 10px;
+  text-align: center;
+  vertical-align: middle;
+  color: var(--accent);
+}
+
+.dictPage table.freq td {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 0.8em;
+  min-width: 30px;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+  width: 2.5em;
+}
+
+.dictPage table.freq td.void,
+.dictPage table.freq td.gap {
+  border-color: transparent;
+}
+
+.dictPage table.freq td.gr0 { color: transparent; }
+.dictPage table.freq td.gr1 { background-color: rgba(159, 50, 50, 0.10); }
+.dictPage table.freq td.gr2 { background-color: rgba(159, 50, 50, 0.18); }
+.dictPage table.freq td.gr3 { background-color: rgba(159, 50, 50, 0.26); }
+.dictPage table.freq td.gr4 { background-color: rgba(159, 50, 50, 0.34); }
+.dictPage table.freq td.gr5 { background-color: rgba(159, 50, 50, 0.44); }
+.dictPage table.freq td.gr6 { background-color: rgba(159, 50, 50, 0.56); color: #fff; }
+.dictPage table.freq td.gr7 { background-color: rgba(159, 50, 50, 0.68); color: #fff; }
+.dictPage table.freq td.gr8 { background-color: rgba(159, 50, 50, 0.80); color: #fff; }
+.dictPage table.freq td.gr9 { background-color: rgba(159, 50, 50, 0.90); color: #fff; }
+.dictPage table.freq td.gr10 { background-color: rgba(159, 50, 50, 1); color: #fff; }
+
+/* Khối "Tóm tắt": danh sách các mục từ tìm được, bấm để nhảy xuống mục tương ứng. */
+.dictSummary p.summary,
+.dictSummary p.root-summary {
+  margin: 0 0 4px;
+  line-height: 1.6;
+}
+
+.dictSummary .summary-link,
+.dictSummary .root-summary-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.dictSummary .summary-link:hover,
+.dictSummary .root-summary-link:hover {
+  text-decoration: underline;
+}

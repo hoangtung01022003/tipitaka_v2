@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
 from .db import execute, fetch_all, fetch_one
 from . import auth
+from . import dictionary
 from . import library
 from . import saved_items
 from .help_guide import (
@@ -1825,6 +1826,53 @@ def feedback_page_route(request: Request, lang: str | None = Query(None)):
             ga_measurement_id=settings().get("ga_measurement_id", ""),
         ),
     )
+
+
+@app.get("/dictionary", response_class=HTMLResponse)
+def dictionary_page(request: Request, q: str | None = Query(None), lang: str | None = Query(None)):
+    """Trang người dùng: tra cứu từ điển Pāḷi (nguồn dpdict.net).
+
+    `?q=` để mở thẳng một từ - cần cho việc gửi link và cho nút quay lại của trình duyệt.
+    Nội dung mục từ KHÔNG dựng ở đây mà do client gọi `/api/dictionary/lookup`: một lượt tra
+    mất ~2 giây lấy dữ liệu cộng với thời gian dịch, chờ đủ chừng đó rồi mới trả trang thì
+    người dùng chỉ thấy trình duyệt đứng im.
+    """
+    language = request_language(request, lang)
+    return templates.TemplateResponse(
+        "dictionary.html",
+        _template_context(
+            request,
+            language,
+            initial_query=(q or "").strip(),
+            notice=get_notice(language),
+            ga_measurement_id=settings().get("ga_measurement_id", ""),
+        ),
+    )
+
+
+@app.get("/api/dictionary/suggest")
+def dictionary_suggest_api(q: str = Query(""), limit: int = Query(dictionary.SUGGEST_LIMIT, ge=1, le=50)):
+    """Gợi ý từ khi đang gõ. Chạy hoàn toàn tại chỗ nên không gọi ra ngoài."""
+    return {"query": q, "words": dictionary.suggest(q, limit)}
+
+
+@app.get("/api/dictionary/lookup")
+def dictionary_lookup_api(
+    request: Request,
+    q: str = Query(...),
+    lang: str | None = Query(None),
+    translate: bool = Query(True),
+):
+    """Nội dung mục từ, kèm bản dịch.
+
+    Lỗi của dpdict.net trả 502 chứ không phải 500: đây là dịch vụ bên ngoài hỏng, không
+    phải lỗi của trang này, và giao diện cần phân biệt để báo đúng cho người dùng.
+    """
+    language = request_language(request, lang)
+    try:
+        return dictionary.lookup(q, language, translate=translate)
+    except dictionary.DictionaryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/library", response_class=HTMLResponse)

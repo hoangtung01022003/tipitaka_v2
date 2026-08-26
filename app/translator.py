@@ -15,6 +15,9 @@ from .i18n import DEFAULT_LANGUAGE, TRANSLATION_TARGETS, normalize_language
 PROMPT_VERSION = "python-pali-vi-contextual-v5"
 CHUNKED_PROMPT_VERSION = f"{PROMPT_VERSION}-chunked"
 SUMMARY_PROMPT_VERSION = "python-pali-summary-v3-linked-paragraphs"
+# Để RIÊNG khỏi PROMPT_VERSION: nội dung là định nghĩa tiếng Anh của DPD, không phải Pāli,
+# nên hai loại không được dùng chung ô đệm trong `text_translations`.
+DICTIONARY_PROMPT_VERSION = "python-dpd-gloss-v2-labelled"
 SUMMARY_CHUNK_CHARS = 8000
 SUMMARY_MAX_POINTS = 15
 SUMMARY_MAX_POINTS_PER_CHUNK = 6
@@ -181,6 +184,134 @@ def translate_text_cached(pali_text: str, language: str = DEFAULT_LANGUAGE) -> d
     payload = _translation_payload(translated.translatedText, translated.notes, model, language, False)
     payload["textHash"] = text_hash
     return payload
+
+
+def _dictionary_gloss_prompt(numbered: str, language: str) -> str:
+    target = TRANSLATION_TARGETS.get(normalize_language(language), TRANSLATION_TARGETS[DEFAULT_LANGUAGE])
+    return "\n".join(
+        [
+            f"Bạn là trợ lý dịch mục từ điển Pāḷi - Anh sang {target}.",
+            f"Nhiệm vụ: dịch phần nghĩa của từng mục từ sang {target}, ngắn gọn đúng văn phong từ điển.",
+            "Giữ NGUYÊN VĂN các phần sau, không dịch, không bỏ:",
+            "- cụm cấu tạo từ trong ngoặc vuông, ví dụ [√bhaj + a + vant + ā];",
+            "- chữ Pāḷi và ký hiệu ngữ căn √.",
+            f"LUÔN dịch nhãn từ loại đứng đầu sang {target}, kể cả khi phần nghĩa rất ngắn, "
+            "và giữ dấu chấm sau nhãn: masc. = Giống đực. / fem. = Giống cái. / "
+            "nt. = Giống trung. / adj. = Tính từ. / adv. = Trạng từ. / ind. = Bất biến từ. / "
+            "pr. = Thì hiện tại. / aor. = Thì quá khứ. / pp. = Quá khứ phân từ. / "
+            "abs. = Bất biến quá khứ phân từ. / inf. = Nguyên mẫu. / root. = Ngữ căn.",
+            "Giữ dấu chấm phẩy ngăn giữa các nghĩa như bản gốc. Không thêm giải thích ngoài nội dung đã cho.",
+            "Dùng thuật ngữ Phật học Theravāda quen thuộc.",
+            "",
+            "Ví dụ đúng:",
+            "  vào: 1. masc. by the Buddha; with the Buddha [√bhaj + a + vant + ā]",
+            "  ra:  1. Giống đực. Bởi Đức Phật; cùng với Đức Phật. [√bhaj + a + vant + ā]",
+            "  vào: 2. masc. animal; beast",
+            "  ra:  2. Giống đực. Con thú; loài vật.",
+            "",
+            f"BẮT BUỘC về định dạng: trả về ĐÚNG {numbered.count(chr(10)) + 1} dòng, "
+            "mỗi dòng bắt đầu bằng số thứ tự và dấu chấm giống hệt đầu vào (1. 2. 3. ...).",
+            "Mỗi mục chỉ một dòng, không xuống dòng giữa chừng, không thêm dòng trống, "
+            "không markdown, không giải thích.",
+            "",
+            "Cần dịch:",
+            numbered,
+        ]
+    )
+
+
+def _generate_plain_text(prompt: str) -> str:
+    """Gọi Gemini lấy văn bản thuần, xoay vòng qua danh sách mô hình như các hàm dịch khác."""
+    client = _client()
+    errors: list[str] = []
+    for model in _models_for_call():
+        try:
+            response = client.models.generate_content(model=model, contents=prompt)
+            text = _strip_code_fence(response.text or "")
+            if text:
+                return text
+            errors.append(f"{model}: rỗng")
+        except Exception as exc:
+            errors.append(f"{model}: {type(exc).__name__}: {str(exc)[:180]}")
+    raise RuntimeError("All Gemini text models failed. " + " | ".join(errors))
+
+
+_NUMBERED_LINE = re.compile(r"^\s*(\d+)\s*[.)]\s*(.+)$")
+
+
+def translate_dictionary_glosses(glosses: list[str], language: str = DEFAULT_LANGUAGE) -> list[str] | None:
+    """Dịch phần nghĩa của các mục từ điển DPD, GỘP một lượt gọi cho cả lần tra.
+
+    Tách khỏi `translate_text_cached` vì đây là việc khác hẳn: đầu vào là định nghĩa từ điển
+    TIẾNG ANH, còn prompt dịch kinh điển nói thẳng "dịch văn bản Pali" và kết thúc bằng nhãn
+    "Pali:" - đưa tiếng Anh vào đó thì mô hình hiểu sai việc phải làm. Phiên bản prompt cũng
+    để riêng nên hai loại nội dung không bao giờ đụng nhau trong bảng đệm.
+
+    Đánh số từng dòng và bắt trả về đúng số dòng đó. Cần thiết vì một nghĩa như
+    "masc. by the Buddha; with the Buddha [√bhaj + a + vant + ā]" rất dễ bị mô hình tách
+    thành hai dòng, mà lệch một dòng là lệch nghĩa của mọi mục phía sau.
+
+    Trả `None` khi không khớp được số dòng - giao diện giữ nguyên tiếng Anh. Gán nhầm nghĩa
+    còn tệ hơn không có bản dịch.
+    """
+    lines = [re.sub(r"\s+", " ", gloss).strip() for gloss in glosses]
+    lines = [line for line in lines if line]
+    if not lines:
+        return None
+
+    language = normalize_language(language)
+    numbered = "\n".join(f"{index}. {line}" for index, line in enumerate(lines, start=1))
+    text_hash = _text_hash(numbered)
+    active_models = _models()
+
+    cached = fetch_one(
+        """
+        select translated_text
+        from text_translations
+        where text_hash = %s
+          and language = %s
+          and model = any(%s)
+          and prompt_version = %s
+        order by created_at desc
+        limit 1
+        """,
+        [text_hash, language, active_models, DICTIONARY_PROMPT_VERSION],
+    )
+    if cached:
+        return _parse_numbered_lines(str(cached["translated_text"] or ""), len(lines))
+
+    raw = _generate_plain_text(_dictionary_gloss_prompt(numbered, language))
+    parsed = _parse_numbered_lines(raw, len(lines))
+    if parsed is None:
+        return None
+
+    execute(
+        """
+        insert into text_translations (text_hash, language, model, prompt_version, source_text, translated_text, notes)
+        values (%s, %s, %s, %s, %s, %s, %s)
+        on conflict (text_hash, language, model, prompt_version)
+        do update set translated_text = excluded.translated_text, source_text = excluded.source_text, created_at = now()
+        """,
+        [text_hash, language, active_models[0], DICTIONARY_PROMPT_VERSION, numbered, raw, None],
+    )
+    return parsed
+
+
+def _parse_numbered_lines(raw: str, expected: int) -> list[str] | None:
+    """Đọc lại các dòng đã đánh số. Thiếu hoặc thừa dòng thì trả None."""
+    found: dict[int, str] = {}
+    for line in raw.splitlines():
+        match = _NUMBERED_LINE.match(line)
+        if match:
+            found[int(match.group(1))] = match.group(2).strip()
+    if len(found) == expected and set(found) == set(range(1, expected + 1)):
+        return [found[index] for index in range(1, expected + 1)]
+
+    # Mô hình bỏ đánh số nhưng vẫn đủ dòng thì vẫn dùng được.
+    plain = [line.strip() for line in raw.splitlines() if line.strip()]
+    if len(plain) == expected:
+        return [_NUMBERED_LINE.sub(r"\2", line) for line in plain]
+    return None
 
 
 def _strip_code_fence(text: str) -> str:
