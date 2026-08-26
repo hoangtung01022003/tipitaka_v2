@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ t('dictionary.pageTitle') }}</title>
     <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
-    <link rel="stylesheet" href="/static/dictionary.css?v=20260827-3" />
+    <link rel="stylesheet" href="/static/dictionary.css?v=20260827-5" />
     {% if ga_measurement_id %}
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
     <script src="/static/daily-notice.js?v=20260822-daily"></script>
@@ -33,7 +33,11 @@
         "translationMissing": t("dictionary.translationMissing"),
         "historyEmpty": t("dictionary.historyEmpty"),
         "credit": t("dictionary.credit"),
-        "openInDpd": t("dictionary.openInDpd")
+        "openInDpd": t("dictionary.openInDpd"),
+        "phraseIntro": t("dictionary.phraseIntro"),
+        "phraseNotFound": t("dictionary.phraseNotFound"),
+        "phraseMoreSensesTemplate": t("dictionary.phraseMoreSenses", count="{count}"),
+        "phraseWordError": t("dictionary.phraseWordError")
       } | tojson }}'
     >
       <a class="dictBack" href="/?lang={{ lang }}">{{ t('dictionary.backHome') }}</a>
@@ -76,6 +80,6 @@
       </div>
     </main>
 
-    <script src="/static/dictionary.js?v=20260827-3"></script>
+    <script src="/static/dictionary.js?v=20260827-5"></script>
   </body>
 </html>

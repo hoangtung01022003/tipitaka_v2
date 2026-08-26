@@ -1875,6 +1875,22 @@ def dictionary_lookup_api(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.get("/api/dictionary/lookup-phrase")
+def dictionary_lookup_phrase_api(
+    request: Request,
+    q: str = Query(...),
+    lang: str | None = Query(None),
+    translate: bool = Query(True),
+):
+    """Tra nguyên một câu/dòng kệ Pāḷi - tách từ, tra từng từ, nghĩa ngắn gọn.
+
+    dpdict.net (và API `search_json` của họ) chỉ hiểu một từ khoá mỗi lượt gọi, nên dán cả
+    câu vào `/api/dictionary/lookup` thường xuyên ra rỗng dù các từ trong đó đều tra được.
+    """
+    language = request_language(request, lang)
+    return dictionary.lookup_phrase(q, language, translate=translate)
+
+
 @app.get("/library", response_class=HTMLResponse)
 def library_page(request: Request, parent_id: str | None = Query(None), lang: str | None = Query(None)):
     """Trang người dùng: duyệt Thư viện tài liệu (cây thư mục PDF admin tự dựng)."""

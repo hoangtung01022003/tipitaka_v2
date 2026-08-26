@@ -26,6 +26,10 @@
     historyEmpty: "Chưa tra từ nào.",
     credit: "Nguồn: Digital Pāḷi Dictionary (dpdict.net), giấy phép CC BY-NC-SA.",
     openInDpd: "Xem trên dpdict.net",
+    phraseIntro: "Đã nhập nhiều hơn một từ - đây là nghĩa ngắn gọn của từng từ.",
+    phraseNotFound: "không có trong từ điển",
+    phraseMoreSensesTemplate: "+{count} nghĩa khác",
+    phraseWordError: "Chưa tra được từ này, thử bấm lại.",
   };
   var strings = (function () {
     var parsed = {};
@@ -176,9 +180,17 @@
     results.appendChild(paragraph);
   }
 
+  // dpdict.net chỉ hiểu MỘT từ khoá mỗi lượt tra (đã kiểm chứng: gõ thẳng một câu vào ô
+  // tìm của chính họ cũng ra rỗng). Nên nhiều hơn một từ phải rẽ sang tra theo câu.
+  function isPhrase(value) {
+    return value.trim().split(/\s+/).filter(Boolean).length > 1;
+  }
+
   function submit() {
     var value = input.value.trim();
-    if (value) lookup(value);
+    if (!value) return;
+    if (isPhrase(value)) lookupPhrase(value);
+    else lookup(value);
   }
 
   function lookup(word, skipHistory) {
@@ -248,6 +260,181 @@
     link.textContent = strings.openInDpd;
     credit.appendChild(link);
     results.appendChild(credit);
+  }
+
+  /* -------------------------------------------------- tra nguyên câu/dòng kệ */
+
+  function lookupPhrase(text) {
+    var mine = ++requestId;
+    hideSuggestions();
+    input.value = text;
+    status(strings.searching);
+
+    var url =
+      "/api/dictionary/lookup-phrase?q=" + encodeURIComponent(text) + "&lang=" + encodeURIComponent(lang);
+    fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error("lookup-phrase " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (mine !== requestId) return;
+        renderPhrase(data);
+        // Không ghi vào "Đã tra gần đây": danh sách đó là để tra nhanh lại MỘT từ, còn
+        // đây là cả câu - ghi vào sẽ khiến người dùng bấm nhầm tưởng tra được nguyên câu.
+      })
+      .catch(function () {
+        if (mine !== requestId) return;
+        status(strings.error, true);
+      });
+
+    var target = "/dictionary?q=" + encodeURIComponent(text);
+    if (window.location.pathname + window.location.search !== target) {
+      window.history.pushState({ q: text }, "", target);
+    }
+  }
+
+  function renderPhrase(data) {
+    results.innerHTML = "";
+    if (!data.words || !data.words.length) {
+      status(strings.empty);
+      return;
+    }
+
+    var wrap = document.createElement("section");
+    wrap.className = "dictPanel dictPhrase";
+
+    var intro = document.createElement("p");
+    intro.className = "dictPhraseIntro";
+    intro.textContent = strings.phraseIntro;
+    wrap.appendChild(intro);
+
+    var list = document.createElement("div");
+    list.className = "dictPhraseWords";
+
+    // MỘT khối chi tiết dùng chung cho cả câu, đặt cố định ngay dưới danh sách từ - không
+    // phải mỗi từ một khối riêng chèn ngay sau nó. Chèn riêng từng chỗ sẽ đẩy các từ phía
+    // sau xuống xa (một mục từ như "sabbe" có thể dài cả nghìn pixel vì kèm bảng biến
+    // cách/tần suất), làm đứt mạch đọc của cả câu.
+    var detail = document.createElement("div");
+    detail.className = "dictPhraseDetail hidden";
+    var cache = Object.create(null); // surface -> node đã dựng sẵn, tránh gọi lại API
+
+    data.words.forEach(function (word) {
+      list.appendChild(buildPhraseWord(word, data.bilingual, detail, cache));
+    });
+    wrap.appendChild(list);
+    wrap.appendChild(detail);
+
+    results.appendChild(wrap);
+  }
+
+  function buildPhraseWord(word, bilingual, detail, cache) {
+    var canExpand = word.found || word.hasEntries;
+
+    var wrap = document.createElement("div");
+    wrap.className = "dictPhraseWord" + (canExpand ? "" : " notFound");
+
+    var row = document.createElement("button");
+    row.type = "button";
+    row.className = "dictPhraseWordButton";
+    if (!canExpand) row.disabled = true;
+
+    var surface = document.createElement("span");
+    surface.className = "dictPhraseSurface";
+    surface.textContent = word.surface || "";
+    row.appendChild(surface);
+
+    var gloss = document.createElement("span");
+    gloss.className = "dictPhraseGloss";
+    if (word.found) {
+      gloss.textContent = (bilingual && word.translation) ? word.translation : word.meaningText;
+    } else if (word.error) {
+      gloss.textContent = strings.phraseWordError;
+    } else {
+      gloss.classList.add("dictPhraseMissing");
+      gloss.textContent = strings.phraseNotFound;
+    }
+    row.appendChild(gloss);
+
+    if (word.senseCount > 1) {
+      var more = document.createElement("span");
+      more.className = "dictPhraseMore";
+      more.textContent = strings.phraseMoreSensesTemplate.replace("{count}", word.senseCount - 1);
+      row.appendChild(more);
+    }
+    wrap.appendChild(row);
+
+    if (canExpand) {
+      row.addEventListener("click", function () {
+        var reopening = row.classList.contains("active") && !detail.classList.contains("hidden");
+        // Các nút nằm trong `.dictPhraseWords`, không phải trong `detail` (khối chi tiết
+        // dùng chung nằm riêng, phía dưới danh sách) - phải tìm đúng chỗ.
+        row.closest(".dictPhraseWords").querySelectorAll(".dictPhraseWordButton.active").forEach(function (el) {
+          el.classList.remove("active");
+        });
+        if (reopening) {
+          // Bấm lại đúng từ đang mở: đóng lại, không tải gì thêm.
+          detail.classList.add("hidden");
+          row.classList.remove("active");
+          return;
+        }
+        row.classList.add("active");
+        detail.classList.remove("hidden");
+        showPhraseWordDetail(word.surface, detail, cache);
+        detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    }
+    return wrap;
+  }
+
+  function showPhraseWordDetail(surface, detail, cache) {
+    if (cache[surface]) {
+      detail.innerHTML = "";
+      detail.appendChild(cache[surface]);
+      return;
+    }
+    detail.innerHTML = "";
+    var loading = document.createElement("p");
+    loading.className = "dictStatus";
+    loading.textContent = strings.searching;
+    detail.appendChild(loading);
+
+    var url =
+      "/api/dictionary/lookup?q=" + encodeURIComponent(surface) + "&lang=" + encodeURIComponent(lang);
+    fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error("lookup " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var built = document.createElement("div");
+        if (!data.found || !data.entries.length) {
+          var empty = document.createElement("p");
+          empty.className = "dictStatus";
+          empty.textContent = strings.empty;
+          built.appendChild(empty);
+        } else {
+          data.entries.forEach(function (entry) {
+            built.appendChild(buildEntry(entry, data.bilingual));
+          });
+        }
+        cache[surface] = built;
+        // Người dùng có thể đã bấm sang từ khác trong lúc chờ - chỉ vẽ nếu khối chi tiết
+        // vẫn đang hiện đúng từ này.
+        if (detail.dataset.pending === surface || !detail.dataset.pending) {
+          detail.innerHTML = "";
+          detail.appendChild(built);
+        }
+      })
+      .catch(function () {
+        detail.innerHTML = "";
+        var errorMsg = document.createElement("p");
+        errorMsg.className = "dictStatus error";
+        errorMsg.textContent = strings.error;
+        detail.appendChild(errorMsg);
+      });
+    detail.dataset.pending = surface;
   }
 
   function buildEntry(entry, bilingual) {
@@ -439,17 +626,21 @@
   });
 
   window.addEventListener("popstate", function (event) {
-    var word = (event.state && event.state.q) || "";
-    if (word) lookup(word, true);
-    else {
+    var value = (event.state && event.state.q) || "";
+    if (!value) {
       input.value = "";
       results.innerHTML = "";
+    } else if (isPhrase(value)) {
+      lookupPhrase(value);
+    } else {
+      lookup(value, true);
     }
   });
 
   renderHistory();
   if (root.dataset.initialQuery) {
-    lookup(root.dataset.initialQuery, true);
+    if (isPhrase(root.dataset.initialQuery)) lookupPhrase(root.dataset.initialQuery);
+    else lookup(root.dataset.initialQuery, true);
   } else {
     input.focus();
   }

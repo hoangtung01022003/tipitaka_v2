@@ -216,6 +216,112 @@
   color: var(--accent);
 }
 
+/* ------------------------------------------------------- tra nguyên câu/dòng kệ */
+
+.dictPhraseIntro {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dictPhraseWords {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dictPhraseWord + .dictPhraseWord {
+  border-top: 1px solid var(--line);
+}
+
+.dictPhraseWordButton {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 6px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.dictPhraseWordButton:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.dictPhraseWordButton.active {
+  background: var(--accent-soft);
+}
+
+.dictPhraseWordButton.active .dictPhraseSurface::after {
+  content: " ▾";
+}
+
+.dictPhraseWordButton:disabled {
+  cursor: default;
+}
+
+.dictPhraseSurface {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.dictPhraseWord.notFound .dictPhraseSurface {
+  color: var(--soft);
+  font-weight: 600;
+}
+
+.dictPhraseGloss {
+  flex: 1 1 220px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.dictPhraseGloss.dictPhraseMissing {
+  color: var(--soft);
+  font-style: italic;
+}
+
+.dictPhraseMore {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* MỘT khối chi tiết dùng chung cho cả câu, đặt cố định dưới danh sách từ - xem lý do ở
+   dictionary.js (buildPhraseWord). */
+.dictPhraseDetail {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.dictPhraseDetail.hidden {
+  display: none;
+}
+
+.dictPhraseDetail .dictEntry:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 /* ------------------------------------------------------------- mục từ */
 
 .dictEntry + .dictEntry {

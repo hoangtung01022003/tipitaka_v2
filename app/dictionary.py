@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import time
 from bisect import bisect_left
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from heapq import nsmallest
 from pathlib import Path
@@ -257,6 +258,121 @@ def lookup(query: str, language: str = DEFAULT_LANGUAGE, translate: bool = True)
         "bilingual": bilingual,
         "sourceUrl": f"{DPD_BASE_URL}/?q={query}",
     }
+
+
+# --------------------------------------------------------------------------------------
+# Tra nguyên câu/dòng kệ - tách từng từ, tra song song, chỉ lấy nghĩa ngắn gọn
+# --------------------------------------------------------------------------------------
+#
+# dpdict.net (và API `search_json` của họ) chỉ hiểu MỘT từ khoá mỗi lượt - gõ nguyên câu
+# "Sabbe sankhara anicca" vào thẳng ô tìm của chính họ cũng ra rỗng, đã kiểm tra trực tiếp.
+# Nên câu/dòng kệ phải tự tách ra rồi tra từng từ, không có cách gọi gộp nào từ phía họ.
+
+PHRASE_MAX_WORDS = 40
+PHRASE_MAX_CHARS = 800
+# Tối đa lượt gọi mạng cùng lúc sang dpdict.net cho MỘT câu. Không phải giới hạn tốc độ hệ
+# thống, chỉ là không dội hàng chục kết nối cùng lúc vào dịch vụ miễn phí của người khác.
+PHRASE_FETCH_WORKERS = 8
+
+# Ký tự coi là ranh giới từ khi tách câu - không dùng regex \W vì Pāḷi la-tinh hoá vẫn nằm
+# trong dải chữ cái Unicode bình thường (ā, ī, ū, ṃ, ṅ...), \W sẽ không đụng tới chúng.
+_PHRASE_STRIP = " \t\r\n,.;:!?\"'“”‘’()[]{}–—-"
+
+
+def _split_words(text: str) -> list[str]:
+    words = [word.strip(_PHRASE_STRIP) for word in (text or "").split()]
+    return [word for word in words if word]
+
+
+def _safe_fetch(query: str) -> dict | None:
+    """Như `_cached_fetch`, nhưng một từ lỗi không được kéo sập cả câu.
+
+    Khác với tra một từ (nơi lỗi mạng nghĩa là phải báo cho người dùng ngay), ở đây một
+    câu có thể có 10-15 từ - một lượt trong số đó timeout không nên xoá mất kết quả của
+    chín từ còn lại.
+    """
+    try:
+        return _cached_fetch(query)
+    except DictionaryError:
+        return None
+
+
+def lookup_phrase(text: str, language: str = DEFAULT_LANGUAGE, translate: bool = True) -> dict:
+    """Tra từng từ của một câu/dòng kệ, trả về nghĩa NGẮN GỌN cho mỗi từ.
+
+    Chủ ý chỉ lấy nghĩa của mục đầu tiên (không kèm bảng ngữ pháp/biến cách) - đây là bản
+    xem nhanh cho cả câu; xem đầy đủ một từ thì bấm vào nó, giao diện gọi lại `lookup()`
+    bình thường cho đúng từ đó.
+    """
+    language = normalize_language(language)
+    words = _split_words((text or "")[:PHRASE_MAX_CHARS])[:PHRASE_MAX_WORDS]
+    bilingual = translate and language != SOURCE_LANGUAGE
+
+    if not words:
+        return {"query": text or "", "words": [], "bilingual": bilingual}
+
+    # Mỗi từ là một lượt gọi mạng ~1-2 giây; chạy song song để một dòng kệ 8-10 từ không
+    # mất cả chục giây đợi tuần tự.
+    with ThreadPoolExecutor(max_workers=PHRASE_FETCH_WORKERS) as pool:
+        raws = list(pool.map(_safe_fetch, words))
+
+    results: list[dict] = []
+    for surface, raw in zip(words, raws):
+        if raw is None:
+            results.append(
+                {
+                    "surface": surface,
+                    "found": False,
+                    "hasEntries": False,
+                    "error": True,
+                    "senseCount": 0,
+                    "meaningText": "",
+                }
+            )
+            continue
+        entries = _split_entries(raw["dpdHtml"])
+        senses = [entry for entry in entries if entry["meaningText"]]
+        first = senses[0] if senses else None
+        results.append(
+            {
+                "surface": surface,
+                # `bool(senses)`, không phải `bool(entries)`: một từ không dấu thường chỉ
+                # trả về mục "deconstructor" (tách từ), có tiêu đề nhưng không có nghĩa -
+                # `entries` khác rỗng trong khi không có gì để hiện làm nghĩa ngắn gọn.
+                "found": bool(senses),
+                # Vẫn có gì đó để bấm xem (ít nhất là phần tách từ), dù không có nghĩa
+                # ngắn gọn để hiện ngay. Giao diện dùng cờ này để không khoá nút bấm.
+                "hasEntries": bool(entries),
+                "error": False,
+                "senseCount": len(senses),
+                "meaningText": first["meaningText"] if first else "",
+                "translation": None,
+            }
+        )
+
+    if bilingual:
+        _attach_phrase_translations(results, language)
+
+    return {"query": text, "words": results, "bilingual": bilingual}
+
+
+def _attach_phrase_translations(words: list[dict], language: str) -> None:
+    """Dịch nghĩa ngắn của cả câu trong MỘT lượt gọi AI, không phải một lượt mỗi từ.
+
+    Một dòng kệ 10 từ mà dịch riêng từng từ là 10 lượt gọi Gemini cho một lần bấm; gộp lại
+    còn một lượt, đúng nguyên tắc đã áp dụng cho `_attach_translations`.
+    """
+    targets = [word for word in words if word["meaningText"]]
+    if not targets:
+        return
+    try:
+        translated = translate_dictionary_glosses([word["meaningText"] for word in targets], language)
+    except Exception:
+        return
+    if not translated:
+        return
+    for word, text in zip(targets, translated):
+        word["translation"] = text
 
 
 def _attach_translations(entries: list[dict], language: str) -> None:
