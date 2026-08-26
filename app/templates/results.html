@@ -140,7 +140,7 @@
          nội dung đã lưu. #}
       {% if current_user %}
         <div class="resultSaveBar sourceAction">
-          <span class="resultSaveStatus" data-save-status></span>
+          <button class="button secondary" type="button" data-save-status onclick="manualSaveResultCard(this, this.closest('article'))">{{ t('results.saveFavorite') }}</button>
         </div>
       {% endif %}
     </article>

@@ -7,7 +7,7 @@ văn bản người dùng tự gõ, nên hiển thị lại được thẳng b�
 
 from app.db import execute, fetch_all, fetch_one
 
-SAVED_ITEM_KINDS = ("result", "section")
+SAVED_ITEM_KINDS = ("result", "section", "favorite_result", "favorite_section")
 # Rộng rãi có chủ đích: cắt ngang chừng sẽ để lại HTML dở dang (thẻ không đóng) - trang
 # "Bài đã lưu" hiển thị hỏng còn tệ hơn từ chối lưu. Mốc này cao hơn hẳn trang đọc dài
 # nhất từng đo (~700k ký tự Pali + bản dịch, xem CLAUDE.md phần "trang đọc khổng lồ"),
@@ -35,7 +35,7 @@ def save_item(user_id: str, kind: str, title: str, excerpt: str, content_html: s
 def list_saved_items(user_id: str) -> list[dict]:
     return fetch_all(
         "select id, kind, title, excerpt, created_at from saved_items "
-        "where user_id = %s order by created_at desc",
+        "where user_id = %s and kind in ('favorite_result', 'favorite_section') order by created_at desc",
         [user_id],
     )
 

@@ -56,7 +56,7 @@
         <article class="result savedCard" data-saved-card data-item-id="{{ item.id }}">
           <div class="savedCardHead">
             <div>
-              <div class="resultTitle">{{ item.title or ('Toàn bộ bài kinh' if item.kind == 'section' else 'Kết quả tìm kiếm') }}</div>
+              <div class="resultTitle">{{ item.title or ('Toàn bộ bài kinh' if item.kind == 'favorite_section' else 'Kết quả tìm kiếm') }}</div>
               <p class="source">{{ item.excerpt }}</p>
               <p class="meta">{{ item.created_at.strftime('%H:%M %d/%m/%Y') if item.created_at else '' }}</p>
             </div>

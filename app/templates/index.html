@@ -143,7 +143,7 @@
           </div>
           <div class="modalTopbarActions">
             {% if current_user %}
-              <span class="resultSaveStatus" id="sectionSaveStatus"></span>
+              <button class="button secondary compact" type="button" id="sectionSaveBtn" onclick="manualSaveSection(this)">{{ t('results.saveFavorite') }}</button>
             {% endif %}
             <button class="modalClose" type="button" id="sectionModalClose" aria-label="{{ t('notice.close') }}">×</button>
           </div>
@@ -177,11 +177,11 @@
       const sectionModal = document.getElementById("sectionModal");
       const sectionModalBody = document.getElementById("sectionModalBody");
       const sectionModalClose = document.getElementById("sectionModalClose");
-      const sectionSaveStatus = document.getElementById("sectionSaveStatus");
+      const sectionSaveBtn = document.getElementById("sectionSaveBtn");
       const noticeModal = document.getElementById("noticeModal");
       const sectionHtmlCache = new Map();
       const sectionLoadingSet = new Set();
-      const sectionAutoSavedKeys = new Set();
+      const sectionSavedKeys = new Set();
       let activeSectionId = null;
 
       function checkedValues(name) {
@@ -248,8 +248,10 @@
       // tự động lưu chỉ chạy MỘT LẦN cho mỗi key trong phiên trình duyệt này (tránh mở đi
       // mở lại cùng một bài lại tạo thêm bản ghi lịch sử trùng lặp) - xem `autoSaveSection`.
       function updateSectionSaveStatus(key) {
-        if (!sectionSaveStatus) return;
-        sectionSaveStatus.textContent = sectionAutoSavedKeys.has(key) ? tr("results.saved") : "";
+        if (!sectionSaveBtn) return;
+        const isSaved = sectionSavedKeys.has(key);
+        sectionSaveBtn.textContent = isSaved ? tr("results.saved") : tr("results.saveFavorite");
+        sectionSaveBtn.disabled = isSaved;
       }
 
       function openModal(content) {
@@ -366,20 +368,22 @@
         return res.json();
       }
 
-      async function autoSaveResultCard(article) {
-        if (!IS_LOGGED_IN || article.dataset.autoSaved) return;
-        article.dataset.autoSaved = "pending";
-        const statusEl = article.querySelector("[data-save-status]");
+      async function manualSaveResultCard(btn, article) {
+        if (!IS_LOGGED_IN || btn.disabled) return;
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = "⏳...";
         try {
           const clone = article.cloneNode(true);
           clone.querySelectorAll(".resultSaveBar").forEach((el) => el.remove());
           const title = (clone.querySelector(".source")?.textContent || "").trim();
           const excerpt = (clone.querySelector(".pali")?.textContent || "").trim();
-          await postSavedItem("result", title, excerpt, clone.outerHTML);
-          article.dataset.autoSaved = "true";
-          if (statusEl) statusEl.textContent = tr("results.saved");
+          await postSavedItem("favorite_result", title, excerpt, clone.outerHTML);
+          btn.textContent = tr("results.saved");
         } catch (error) {
-          article.dataset.autoSaved = ""; // cho phép thử lại nếu lần này lỗi
+          btn.disabled = false;
+          btn.textContent = originalText;
+          alert(tr("feedback.sentFail") || "Failed");
         }
       }
 
@@ -390,7 +394,6 @@
           mount ? translateCard(mount) : Promise.resolve(),
           summaryCard ? summarizeExcerptCard(summaryCard) : Promise.resolve(),
         ]);
-        await autoSaveResultCard(article);
       }
 
       async function hydrateResults(root = document) {
@@ -589,29 +592,32 @@
       // Tự động lưu popup "Xem toàn bộ bài kinh" - đợi bản dịch AI (đợt đầu) + tóm tắt AI
       // tải xong rồi mới chụp, để không lưu lúc màn hình còn spinner. Mỗi `sectionId::source`
       // chỉ tự lưu MỘT LẦN trong phiên trình duyệt này dù khách đóng/mở lại nhiều lần.
-      async function autoSaveSection(sectionId, source) {
-        if (!IS_LOGGED_IN) return;
-        const key = `${sectionId}::${source}`;
-        if (sectionAutoSavedKeys.has(key)) return;
-        // Khách có thể đã đóng modal hoặc chuyển sang bài khác trong lúc chờ tải xong -
-        // chỉ lưu khi modal vẫn đang mở ĐÚNG bài này, tránh lưu nhầm nội dung.
-        if (activeSectionId !== key) return;
+      async function manualSaveSection(btn) {
+        if (!IS_LOGGED_IN || btn.disabled || !activeSectionId) return;
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = "⏳...";
         const viewer = sectionModalBody.querySelector("[data-section-viewer]");
-        if (!viewer) return;
+        if (!viewer) {
+          btn.disabled = false;
+          btn.textContent = originalText;
+          return;
+        }
         try {
           const title = (viewer.querySelector("h2")?.textContent || "").trim();
           const excerpt = (viewer.querySelector(".pali")?.textContent || "").trim();
-          await postSavedItem("section", title, excerpt, viewer.outerHTML);
-          sectionAutoSavedKeys.add(key);
-          updateSectionSaveStatus(key);
+          await postSavedItem("favorite_section", title, excerpt, viewer.outerHTML);
+          sectionSavedKeys.add(activeSectionId);
+          updateSectionSaveStatus(activeSectionId);
         } catch (error) {
-          // im lặng bỏ qua - tự động lưu không nên làm phiền người đọc bằng lỗi
+          btn.disabled = false;
+          btn.textContent = originalText;
+          alert(tr("feedback.sentFail") || "Failed");
         }
       }
 
       async function hydrateSectionExtras(sectionId, source) {
         await Promise.all([hydrateSectionTranslation(sectionModalBody), loadAiSummary(sectionId, sectionModalBody)]);
-        await autoSaveSection(sectionId, source);
       }
 
       async function openSection(sectionId, button, source = "ai", focusPassageId = null) {
