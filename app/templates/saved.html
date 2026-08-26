@@ -32,17 +32,25 @@
       .savedEmpty {
         color: var(--muted);
       }
+      .libraryBack {
+        display: inline-block;
+        margin-bottom: 1rem;
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .libraryBack:hover {
+        color: var(--accent-hover);
+        text-decoration: underline;
+      }
     </style>
   </head>
   <body>
     <main class="page">
       <header class="hero">
-        <div class="heroTop">
-          <div>
-            <p class="eyebrow">{{ t('nav.saved') }}</p>
-            <h1>{{ t('nav.greeting', username=user.username) }}</h1>
-          </div>
-          <a class="helpLink" href="/">← {{ t('site.title') }}</a>
+        <a class="libraryBack" href="/?lang={{ lang }}">{{ t('library.backHome') }}</a>
+        <div>
+          <h1>{{ t('nav.greeting', username=user.username) }}</h1>
         </div>
       </header>
 
