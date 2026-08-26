@@ -965,20 +965,16 @@
       setupNotice();
 
       // Hiển thị bong bóng hướng dẫn menu chức năng trên mobile
-      if (!localStorage.getItem('mobileMenuHintClosedV2')) {
-        const hint = document.getElementById('mobileMenuHint');
-        if (hint) {
-          hint.classList.add('show');
-          document.getElementById('closeMobileMenuHint').addEventListener('click', () => {
-            hint.classList.remove('show');
-            localStorage.setItem('mobileMenuHintClosedV2', 'true');
-          });
-          // Tự động ẩn sau 10 giây
-          setTimeout(() => {
-            hint.classList.remove('show');
-            localStorage.setItem('mobileMenuHintClosedV2', 'true');
-          }, 10000);
-        }
+      const hint = document.getElementById('mobileMenuHint');
+      if (hint) {
+        hint.classList.add('show');
+        document.getElementById('closeMobileMenuHint').addEventListener('click', () => {
+          hint.classList.remove('show');
+        });
+        // Tự động ẩn sau 10 giây
+        setTimeout(() => {
+          hint.classList.remove('show');
+        }, 10000);
       }
 
     </script>
