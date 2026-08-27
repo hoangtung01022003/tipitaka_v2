@@ -36,6 +36,7 @@ from .i18n import (
     ui_strings,
 )
 from .notice import get_notice, get_notice_config, save_notice
+from .search_tips import get_search_tips, get_search_tips_config, save_search_tips
 from .normalize import normalize_pali
 from .search_engine import resolve_corpus_types, resolve_pitaka_types, search_passages, _display_source
 from .translation_sources import (
@@ -1815,6 +1816,7 @@ def help_page_route(request: Request, lang: str | None = Query(None)):
             help_page=get_help_page(language, 1, HELP_GUIDE_BATCH),
             help_batch=HELP_GUIDE_BATCH,
             notice=get_notice(language),
+            search_tips=get_search_tips(language),
             ga_measurement_id=settings().get("ga_measurement_id", ""),
         ),
     )
@@ -2453,6 +2455,7 @@ def admin_help_feedback_page(
         {
             "request": request,
             "help": get_help_config(),
+            "search_tips": get_search_tips_config(),
             "languages": LANGUAGES,
             "language_options": language_options(),
             "feedback_batch": FEEDBACK_BATCH,
@@ -2460,6 +2463,21 @@ def admin_help_feedback_page(
             "ga_measurement_id": settings().get("ga_measurement_id", ""),
         },
     )
+
+
+@app.post("/admin/help-feedback/search-tips")
+async def admin_help_feedback_save_search_tips(request: Request, _: str = Depends(get_current_admin)):
+    """Lưu nội dung nút "Cách tìm kiếm cho kết quả chuẩn xác" trên trang /help."""
+    form = await request.form()
+    content = {
+        code: {
+            "label": str(form.get(f"tips_label_{code}") or ""),
+            "body": str(form.get(f"tips_body_{code}") or ""),
+        }
+        for code in LANGUAGES
+    }
+    save_search_tips(content)
+    return RedirectResponse(url="/admin/help-feedback?saved=1", status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/admin/help-feedback/help")

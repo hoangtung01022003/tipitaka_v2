@@ -9,7 +9,7 @@ env/
 .env
 .env.*
 !.env.example
-
+vps.txt
 # Python
 __pycache__/
 *.py[cod]
@@ -58,6 +58,10 @@ app/data/notice.json
 # Tên nút "Thư viện tài liệu" do admin đổi lúc chạy - cùng lý do như notice.json ở trên.
 # `app/library.py` có DEFAULT_BUTTON_LABEL nên thiếu file vẫn chạy đúng.
 app/data/library_settings.json
+
+# Nội dung nút "Cách tìm kiếm cho kết quả chuẩn xác" trên trang /help - cùng lý do như
+# notice.json ở trên. `app/search_tips.py` có DEFAULT_SEARCH_TIPS nên thiếu file vẫn chạy đúng.
+app/data/search_tips.json
 
 # Cây file PDF do admin tải lên qua /admin/library. Sống trên đĩa VPS, không qua git -
 # *.pdf ở trên đã chặn từng file, dòng này chỉ để ghi lại chủ đích cho thư mục.

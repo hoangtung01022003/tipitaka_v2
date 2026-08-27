@@ -5,9 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ t('help.title') }}</title>
     <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
+    <!-- daily-notice.js nạp ĐỘC LẬP với việc có cấu hình Google Analytics hay không - trước
+         đây nằm chung điều kiện với đoạn gtag phía dưới, nên môi trường chưa cấu hình GA (như
+         local dev) bị thiếu window.setupDailyNotice; setupNotice() ở cuối trang ném lỗi
+         và làm hỏng luôn phần script phía sau nó (kể cả nút "Cách tìm kiếm cho kết quả chuẩn
+         xác"). index.html đã nạp đúng theo cách này từ trước, ba trang còn lại thì chưa. -->
+    <script src="/static/daily-notice.js?v=20260822-daily"></script>
     {% if ga_measurement_id %}
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
-    <script src="/static/daily-notice.js?v=20260822-daily"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -20,7 +25,8 @@
       .helpBack { display: inline-block; margin-bottom: 1rem; color: var(--accent); text-decoration: none; font-weight: 500; }
       .helpBack:hover { color: var(--accent-hover); text-decoration: underline; }
       .helpPage h1 { font-size: 1.75rem; color: #111827; margin: 0 0 0.5rem; }
-      .helpIntro { color: #4b5563; margin: 0 0 2rem; line-height: 1.6; }
+      .helpIntro { color: #4b5563; margin: 0 0 1.25rem; line-height: 1.6; }
+      .searchTipsButton { margin: 0 0 1.75rem; }
       .helpCard {
         background: #ffffff;
         border: 1px solid #e5e7eb;
@@ -52,6 +58,12 @@
         <a class="helpBack" href="/?lang={{ lang }}">{{ t('help.backHome') }}</a>
         <h1>{{ help_page.heading or t('help.title') }}</h1>
         <p class="helpIntro">{{ t('help.intro') }}</p>
+
+        {% if search_tips %}
+          <button class="button secondary searchTipsButton" type="button" id="searchTipsButton">
+            {{ search_tips.label }}
+          </button>
+        {% endif %}
 
         <section class="helpCard">
           <div>
@@ -90,6 +102,20 @@
           <div class="modalBody noticeBody">{{ notice.body }}</div>
           <div class="noticeActions">
             <button class="button" type="button" id="noticeClose">{{ t('notice.close') }}</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if search_tips %}
+      <div class="modalOverlay hidden" id="searchTipsModal" role="dialog" aria-modal="true" aria-labelledby="searchTipsModalTitle">
+        <div class="modalPanel">
+          <div class="modalTopbar">
+            <h2 id="searchTipsModalTitle">{{ search_tips.label }}</h2>
+          </div>
+          <div class="modalBody noticeBody">{{ search_tips.body }}</div>
+          <div class="noticeActions">
+            <button class="button" type="button" id="searchTipsClose">{{ t('searchTips.close') }}</button>
           </div>
         </div>
       </div>
@@ -158,9 +184,40 @@
       }
 
       function setupNotice() {
-        window.setupDailyNotice(document.getElementById("noticeModal"));
+        // Rào chắn: nếu `daily-notice.js` lỡ không nạp được, ném lỗi ở đây sẽ chặn đứng
+        // mọi script phía sau trong CÙNG khối `<script>` này - kể cả nút tra cứu bên dưới.
+        if (typeof window.setupDailyNotice === "function") {
+          window.setupDailyNotice(document.getElementById("noticeModal"));
+        }
       }
       setupNotice();
+
+      // Nút "Cách tìm kiếm cho kết quả chuẩn xác": KHÔNG dùng setupDailyNotice - đó là
+      // logic "chỉ hiện một lần mỗi ngày" cho bảng thông báo, còn nút này phải mở lại
+      // được mỗi lần người đọc bấm.
+      (function setupSearchTips() {
+        const button = document.getElementById("searchTipsButton");
+        const modal = document.getElementById("searchTipsModal");
+        if (!button || !modal) return;
+
+        const open = () => {
+          modal.classList.remove("hidden");
+          document.body.classList.add("modalOpen");
+        };
+        const close = () => {
+          modal.classList.add("hidden");
+          document.body.classList.remove("modalOpen");
+        };
+
+        button.addEventListener("click", open);
+        modal.querySelector("#searchTipsClose")?.addEventListener("click", close);
+        modal.addEventListener("click", (event) => {
+          if (event.target === modal) close();
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && !modal.classList.contains("hidden")) close();
+        });
+      })();
     </script>
   </body>
 </html>

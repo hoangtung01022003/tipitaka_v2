@@ -90,6 +90,7 @@
 
       <div class="tabs" id="adminTabs">
         <button class="tabButton active" type="button" data-tab="help">Soạn hướng dẫn</button>
+        <button class="tabButton" type="button" data-tab="search-tips">Nút tìm kiếm chuẩn xác</button>
         <button class="tabButton" type="button" data-tab="feedback">Đọc góp ý</button>
       </div>
 
@@ -142,6 +143,44 @@
         </form>
       </div>
 
+      <!-- Tab: Nút "Cách tìm kiếm cho kết quả chuẩn xác" - tách riêng khỏi tab Soạn hướng
+           dẫn ở trên vì khối đó đã dài (bộ soạn từng mục hướng dẫn theo ngôn ngữ), gộp
+           chung sẽ khiến trang admin cuộn rất dài. -->
+      <div id="tab-search-tips" style="display:none;">
+        <form method="post" action="/admin/help-feedback/search-tips">
+          <div class="card">
+            <h2>Nút "Cách tìm kiếm cho kết quả chuẩn xác"</h2>
+            <p class="hint">
+              Nút này hiện ngay dưới phần giới thiệu trên trang Hướng dẫn. Bấm vào sẽ hiện đúng nội dung
+              bạn soạn ở đây trong một hộp thoại. Để trống phần nội dung ở ngôn ngữ nào thì nút sẽ không
+              hiện cho người đọc chọn ngôn ngữ đó.
+            </p>
+          </div>
+          {% for item in language_options %}
+            <div class="card">
+              <h2>{{ item.label }}</h2>
+              <div class="field">
+                <label for="tips_label_{{ item.value }}">Tên nút</label>
+                <input
+                  type="text"
+                  id="tips_label_{{ item.value }}"
+                  name="tips_label_{{ item.value }}"
+                  value="{{ search_tips.content[item.value].label }}"
+                />
+              </div>
+              <div class="field">
+                <label for="tips_body_{{ item.value }}">Nội dung khi bấm vào nút</label>
+                <textarea id="tips_body_{{ item.value }}" name="tips_body_{{ item.value }}">{{ search_tips.content[item.value].body }}</textarea>
+              </div>
+            </div>
+          {% endfor %}
+          <div class="saveBar">
+            <button class="primaryButton" type="submit">Lưu nội dung nút</button>
+            <a href="/help" target="_blank" style="color:#2563eb;">Xem trang Hướng dẫn</a>
+          </div>
+        </form>
+      </div>
+
       <!-- Tab: Đọc góp ý -->
       <div id="tab-feedback" style="display:none;">
         <div class="card">
@@ -163,14 +202,17 @@
     <script>
       const feedbackBatch = {{ feedback_batch }};
 
-      // Chuyển tab
+      // Chuyển tab - đọc trực tiếp từ các nút `data-tab`, để thêm tab mới sau này chỉ cần
+      // thêm một nút + một div `id="tab-<tên>"`, không phải sửa lại đoạn JS này nữa.
       const tabButtons = document.querySelectorAll(".tabButton");
-      tabButtons.forEach((btn) => {
+      const tabPanels = Array.from(tabButtons).map((btn) => document.getElementById("tab-" + btn.dataset.tab));
+      tabButtons.forEach((btn, index) => {
         btn.addEventListener("click", () => {
           tabButtons.forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
-          document.getElementById("tab-help").style.display = btn.dataset.tab === "help" ? "block" : "none";
-          document.getElementById("tab-feedback").style.display = btn.dataset.tab === "feedback" ? "block" : "none";
+          tabPanels.forEach((panel, panelIndex) => {
+            if (panel) panel.style.display = panelIndex === index ? "block" : "none";
+          });
           if (btn.dataset.tab === "feedback") loadFeedback(true);
         });
       });

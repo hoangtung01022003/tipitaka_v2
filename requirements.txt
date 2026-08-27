@@ -6,6 +6,11 @@ psycopg[binary]==3.2.3
 psycopg_pool==3.3.1
 google-genai==1.17.0
 pydantic==2.10.4
+
+# app/dictionary.py goi thang dpdict.net bang httpx. Truoc day thu vien nay chi co mat vi
+# di theo google-genai nhu mot phu thuoc gian tiep (khong ghi ten o day) - ghim thang de
+# tinh nang tra tu dien khong vo neu ban google-genai sau nay doi thu vien HTTP khac.
+httpx==0.28.1
 python-multipart==0.0.20
 itsdangerous==2.2.0
 # Chi `import_indacanda.py` can, khong phai phu thuoc luc chay web. Van de o day vi
