@@ -31,7 +31,7 @@
             <span></span><span></span><span></span>
           </button>
           <div class="mobileMenuHint" id="mobileMenuHint">
-            Menu chức năng ở đây nhé!
+            {{ t('menu.hint') }}
             <button type="button" id="closeMobileMenuHint">×</button>
           </div>
 
@@ -64,10 +64,16 @@
             </div>
             <div class="libraryActions">
               <div class="libraryEntryRow">
-                <a class="libraryEntryLink" href="/dictionary?lang={{ lang }}">{{ t('dictionary.navLabel') }}</a>
+                <a class="libraryEntryLink libraryEntryLink--dictionary" href="/dictionary?lang={{ lang }}">📖 {{ t('dictionary.navLabel') }}</a>
               </div>
               <div class="libraryEntryRow">
-                <a class="libraryEntryLink" href="/library?lang={{ lang }}">{{ libraryButtonLabel }}</a>
+                <a class="libraryEntryLink" href="/library?lang={{ lang }}">
+                  {% if libraryButtonLabel == 'Tổng hợp các bản dịch tam tạng, chú giải, phụ chú giải' %}
+                    {{ t('menu.library') }}
+                  {% else %}
+                    {{ libraryButtonLabel }}
+                  {% endif %}
+                </a>
               </div>
               {% if current_user %}
                 <div class="libraryEntryRow">

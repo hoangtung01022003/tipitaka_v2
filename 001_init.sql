@@ -77,6 +77,7 @@ create table if not exists text_translations (
 
 create table if not exists search_logs (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id),
   query text not null,
   filters jsonb not null default '{}',
   expanded_query jsonb not null default '{}',
@@ -96,3 +97,5 @@ create index if not exists passages_text_hash_idx on passages (text_hash);
 create index if not exists text_translations_text_hash_idx on text_translations (text_hash);
 create index if not exists passages_normalized_pali_trgm_idx on passages using gin (normalized_pali gin_trgm_ops);
 create index if not exists passages_normalized_pali_fts_idx on passages using gin (to_tsvector('simple', normalized_pali));
+
+alter table search_logs add column if not exists user_id uuid;

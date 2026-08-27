@@ -690,17 +690,18 @@ def _candidate(row: dict, score: float, keyword: float, concept: float, corpus_t
     }
 
 
-def _insert_log(query: str, corpus_types: list[str], pitaka_types: list[str], analysis: dict, result_ids: list[str]) -> None:
+def _insert_log(query: str, corpus_types: list[str], pitaka_types: list[str], analysis: dict, result_ids: list[str], user_id: str | None = None) -> None:
     execute(
         """
-        insert into search_logs (query, filters, expanded_query, result_passage_ids)
-        values (%s, %s::jsonb, %s::jsonb, %s::uuid[])
+        insert into search_logs (query, filters, expanded_query, result_passage_ids, user_id)
+        values (%s, %s::jsonb, %s::jsonb, %s::uuid[], %s)
         """,
         [
             query,
             Jsonb({"corpusType": corpus_types, "pitakaType": pitaka_types}),
             Jsonb(analysis),
             result_ids,
+            user_id
         ],
     )
 
@@ -1330,6 +1331,7 @@ def search_passages(
     allow_fallback: bool = True,
     log_search: bool = True,
     language: str = DEFAULT_LANGUAGE,
+    user_id: str | None = None,
 ) -> dict:
     language = normalize_language(language)
     corpus_types = resolve_corpus_types(corpus_types)
@@ -1356,7 +1358,7 @@ def search_passages(
         fallback = _run_query_shortening_fallback(query, corpus_types, pitaka_types, page_size, include_translations, language)
         if fallback:
             fallback_result = fallback["result"]
-            _insert_log(query, corpus_types, pitaka_types, analysis, [item["id"] for item in fallback_result["results"]])
+            _insert_log(query, corpus_types, pitaka_types, analysis, [item["id"] for item in fallback_result["results"]], user_id)
             fallback_result["query"] = query
             fallback_result["fallback"] = {
                 "used": True,
@@ -1367,7 +1369,7 @@ def search_passages(
             return fallback_result
 
     if log_search:
-        _insert_log(query, corpus_types, pitaka_types, analysis, [item["id"] for item in results])
+        _insert_log(query, corpus_types, pitaka_types, analysis, [item["id"] for item in results], user_id)
 
     start = (page - 1) * page_size
     return {

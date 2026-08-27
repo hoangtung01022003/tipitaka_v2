@@ -234,17 +234,18 @@
       return;
     }
 
-    if (data.summaryHtml) {
-      var summary = document.createElement("section");
-      summary.className = "dictPanel dictSummary";
-      var heading = document.createElement("h2");
-      heading.textContent = strings.summaryTitle;
-      summary.appendChild(heading);
-      var body = document.createElement("div");
-      body.innerHTML = data.summaryHtml;
-      summary.appendChild(body);
-      results.appendChild(summary);
-    }
+    // Ẩn mục "Tóm tắt" theo yêu cầu: nội dung trùng lặp với phần chi tiết bên dưới.
+    // if (data.summaryHtml) {
+    //   var summary = document.createElement("section");
+    //   summary.className = "dictPanel dictSummary";
+    //   var heading = document.createElement("h2");
+    //   heading.textContent = strings.summaryTitle;
+    //   summary.appendChild(heading);
+    //   var body = document.createElement("div");
+    //   body.innerHTML = data.summaryHtml;
+    //   summary.appendChild(body);
+    //   results.appendChild(summary);
+    // }
 
     data.entries.forEach(function (entry) {
       results.appendChild(buildEntry(entry, data.bilingual));
@@ -348,7 +349,7 @@
     var gloss = document.createElement("span");
     gloss.className = "dictPhraseGloss";
     if (word.found) {
-      gloss.textContent = (bilingual && word.translation) ? word.translation : word.meaningText;
+      gloss.textContent = formatGrammar((bilingual && word.translation) ? word.translation : word.meaningText);
     } else if (word.error) {
       gloss.textContent = strings.phraseWordError;
     } else {
@@ -466,7 +467,7 @@
         viCard.className = "dpd summary";
         var viText = document.createElement("p");
         // textContent: bản dịch là văn bản do AI sinh ra, không phải HTML để chèn thẳng.
-        viText.textContent = entry.translation;
+        viText.textContent = formatGrammar(entry.translation);
         viCard.appendChild(viText);
         viBox.appendChild(viCard);
       } else {
@@ -499,6 +500,19 @@
     element.className = "dictBoxLabel";
     element.textContent = text;
     return element;
+  }
+
+  function formatGrammar(text) {
+    if (!text) return text;
+    // Chuyển định dạng viết tắt ngữ pháp/giới tính ở đầu (vd: masc., giống đực., danh từ.) vào ngoặc đơn
+    return text.replace(/^([\p{L}\s/-]{2,30})[.:]\s+/iu, function(match, p1) {
+      var lower = p1.toLowerCase();
+      var isGrammar = /masc|fem|nt|adj|pron|adv|verb|part|conj|interj|prep|prefix|suffix|idiom|sandhi|ptp|ppr|aor|pass|grd|caus|denom|desid|giống|từ|ngữ|tố/i.test(lower);
+      if (isGrammar || p1.trim().length <= 8) {
+        return '(' + p1.trim() + ') ';
+      }
+      return match;
+    });
   }
 
   /* ------------------------------------------- nút của DPD và liên kết tóm tắt */

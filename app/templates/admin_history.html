@@ -389,6 +389,7 @@
               <tr>
                 <th>#</th>
                 <th>Thời gian</th>
+                <th>Tên người dùng</th>
                 <th>Từ khóa tìm kiếm</th>
                 <th>Tùy chọn tìm kiếm</th>
                 <th>Số kết quả</th>
@@ -400,6 +401,7 @@
                 <tr>
                   <td>{{ loop.index }}</td>
                   <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
+                  <td>{{ log.username or '' }}</td>
                   <td class="queryTag">{{ log.query }}</td>
                   <td>
                     {% if log.filters and log.filters.corpusType %}
@@ -431,7 +433,7 @@
                 </tr>
               {% else %}
                 <tr id="historyEmptyRow">
-                  <td colspan="6" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
+                  <td colspan="7" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tìm kiếm nào.</td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -484,6 +486,7 @@
               const tr = document.createElement('tr');
               tr.appendChild(cell(String(index)));
               tr.appendChild(cell(row.time));
+              tr.appendChild(cell(row.username || ''));
               const q = cell(row.query);
               q.className = 'queryTag';
               tr.appendChild(q);

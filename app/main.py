@@ -938,6 +938,7 @@ def search_api(payload: dict, request: Request):
         raise HTTPException(status_code=400, detail="Missing query.")
     include_translations = bool(payload.get("includeTranslations", True))
     language = request_language(request, payload.get("language"))
+    current_user = auth.get_current_user(request)
     return search_passages(
         query,
         corpus_types,
@@ -946,27 +947,32 @@ def search_api(payload: dict, request: Request):
         page_size,
         include_translations=include_translations,
         language=language,
+        user_id=str(current_user["id"]) if current_user else None,
     )
 
 @app.post("/log-timeout")
 def log_timeout(
+    request: Request,
     query: str = Form(...),
     corpus_type: list[str] = Form(...),
     pitaka_type: list[str] = Form([]),
 ):
     from .db import execute
     from psycopg.types.json import Jsonb
+    current_user = auth.get_current_user(request)
+    user_id = str(current_user["id"]) if current_user else None
     try:
         execute(
             """
-            insert into search_logs (query, filters, expanded_query, result_passage_ids, status)
-            values (%s, %s::jsonb, %s::jsonb, %s::uuid[], 'timeout')
+            insert into search_logs (query, filters, expanded_query, result_passage_ids, status, user_id)
+            values (%s, %s::jsonb, %s::jsonb, %s::uuid[], 'timeout', %s)
             """,
             [
                 query,
                 Jsonb({"corpusType": resolve_corpus_types(corpus_type), "pitakaType": resolve_pitaka_types(pitaka_type)}),
                 Jsonb({}),
                 [],
+                user_id
             ],
         )
     except Exception as e:
@@ -984,6 +990,7 @@ def search_page(
     lang: str | None = Form(None),
 ):
     language = request_language(request, lang)
+    current_user = auth.get_current_user(request)
     result = search_passages(
         query,
         resolve_corpus_types(corpus_type),
@@ -992,6 +999,7 @@ def search_page(
         5,
         include_translations=False,
         language=language,
+        user_id=str(current_user["id"]) if current_user else None,
     )
     # Bản dịch của dịch giả đọc thẳng từ DB nên hiển thị được ngay cùng kết quả,
     # không phải chờ tải sau như bản dịch AI.
@@ -2063,13 +2071,13 @@ def _admin_history_where(keyword: str, only_empty: bool, only_timeout: bool) -> 
     conditions: list[str] = []
     params: list[object] = []
     if keyword:
-        conditions.append("query ilike %s")
+        conditions.append("s.query ilike %s")
         params.append(f"%{keyword}%")
     if only_timeout:
-        conditions.append("status = 'timeout'")
+        conditions.append("s.status = 'timeout'")
     elif only_empty:
         # Đúng các lượt tìm không ra kết quả nào - chính là nhóm khách muốn soi.
-        conditions.append("coalesce(array_length(result_passage_ids, 1), 0) = 0 and (status is null or status != 'timeout')")
+        conditions.append("coalesce(array_length(s.result_passage_ids, 1), 0) = 0 and (s.status is null or s.status != 'timeout')")
     return (("where " + " and ".join(conditions)) if conditions else ""), params
 
 
@@ -2083,18 +2091,20 @@ def _admin_history_rows(keyword: str, only_empty: bool, only_timeout: bool, limi
     """
     where_sql, params = _admin_history_where(keyword, only_empty, only_timeout)
     if before_time and before_id:
-        cursor_sql = "(created_at, id) < (%s::timestamptz, %s::uuid)"
+        cursor_sql = "(s.created_at, s.id) < (%s::timestamptz, %s::uuid)"
         where_sql = f"{where_sql} and {cursor_sql}" if where_sql else f"where {cursor_sql}"
         params = [*params, before_time, before_id]
     return fetch_all(
         f"""
-        select id, query, filters,
-               coalesce(array_length(result_passage_ids, 1), 0) as result_count,
-               status,
-               created_at
-        from search_logs
+        select s.id, s.query, s.filters,
+               coalesce(array_length(s.result_passage_ids, 1), 0) as result_count,
+               s.status,
+               s.created_at,
+               u.username
+        from search_logs s
+        left join users u on s.user_id = u.id
         {where_sql}
-        order by created_at desc, id desc
+        order by s.created_at desc, s.id desc
         limit %s
         """,
         [*params, limit],
@@ -2124,7 +2134,7 @@ def admin_history(
     # Chỉ mẻ đầu; phần còn lại do trình duyệt xin thêm khi cuộn tới đáy.
     logs = _admin_history_rows(keyword, only_empty, only_timeout, ADMIN_HISTORY_BATCH, None, None)
 
-    total_row = fetch_one(f"select count(*) as cnt from search_logs {where_sql}", params)
+    total_row = fetch_one(f"select count(*) as cnt from search_logs s left join users u on s.user_id = u.id {where_sql}", params)
     total_logs = total_row["cnt"] if total_row else 0
 
     all_row = fetch_one("select count(*) as cnt from search_logs")
@@ -2209,6 +2219,7 @@ def api_admin_history_rows(
                 "time": created.strftime("%H:%M:%S %d/%m/%Y") if created else "N/A",
                 "createdAt": created.isoformat() if created else None,
                 "query": row.get("query") or "",
+                "username": row.get("username") or "",
                 "badges": badges,
                 "resultCount": int(row.get("result_count") or 0),
                 "status": row.get("status") or "success",

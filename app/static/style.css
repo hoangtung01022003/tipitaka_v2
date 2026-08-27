@@ -817,6 +817,28 @@ body.modalOpen {
   border-color: #fb923c;
 }
 
+/* Mục "Tra cứu từ điển Pāḷi" nổi bật hơn vì là chức năng lớn riêng biệt. */
+.libraryEntryLink--dictionary {
+  background: linear-gradient(135deg, #fff1f0 0%, #ffe4e1 100%);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.5rem 1.1rem;
+  white-space: pre-line;
+  text-align: center;
+  line-height: 1.3;
+  box-shadow: 0 2px 8px rgba(159, 50, 50, 0.15);
+  transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.libraryEntryLink--dictionary:hover {
+  background: linear-gradient(135deg, #ffe4e1 0%, #ffd4cf 100%);
+  border-color: var(--accent-hover);
+  box-shadow: 0 4px 14px rgba(159, 50, 50, 0.25);
+  transform: translateY(-1px);
+}
+
 .officialTranslation {
   border-left: 3px solid #b45309;
   padding-left: 0.9rem;
