@@ -310,6 +310,119 @@ def expand_query_with_ai(query: str, clean_query: str = "", language: str = DEFA
     return None
 
 
+class SearchKeyword(BaseModel):
+    keyword: str = ""
+
+
+_KEYWORD_CACHE: dict[tuple[str, str], str] = {}
+
+# Thứ tự model RIÊNG cho việc trích cụm từ khóa: mạnh trước, nhanh sau - ngược hẳn với
+# `_models()` (dùng chung cho mở rộng/xếp hạng, ưu tiên bản *lite* cho nhanh).
+#
+# Đo thật trên câu "đức Phật nói với người cầu cúng là vô ích", cùng một prompt:
+#   gemini-3.5-flash-lite  1,1s  -> 'yaññaṁ nānusiṭṭha'              (kém, không dùng được)
+#   gemini-3.5-flash       6,3s  -> 'na āyācanahetu'                 (khá)
+#   gemini-3.6-flash       9,7s  -> 'āyācanahetu vā patthanāhetu vā' (đúng cụm Gemini web
+#                                    của khách; tra cụm này ra Tevijjasuttaṃ + Patthanāsutta)
+# Việc này cần suy luận văn phạm Pāḷi chứ không phải liệt kê thuật ngữ, nên bản lite hụt
+# hẳn. Chậm hơn chấp nhận được vì kết quả được nhớ cả trong tiến trình lẫn dưới DB
+# (`query_ai_cache`), chỉ người hỏi ĐẦU TIÊN của mỗi câu mới phải chờ.
+_KEYWORD_MODEL_PREFERENCE = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+]
+
+
+def _keyword_models() -> list[str]:
+    """Model đã cấu hình, xếp lại theo `_KEYWORD_MODEL_PREFERENCE`.
+
+    Chỉ SẮP LẠI thứ tự trong danh sách đang có, không tự thêm model lạ: `.env` là nơi duy
+    nhất quyết định được phép gọi model nào (đã có lần model bị Google khai tử nằm lại
+    trong danh sách và làm hỏng cả chuỗi dự phòng).
+    """
+    available = _models()
+    preferred = [model for model in _KEYWORD_MODEL_PREFERENCE if model in available]
+    return [*preferred, *[model for model in available if model not in preferred]]
+
+
+def _keyword_extraction_prompt(query: str) -> str:
+    # Phỏng theo đúng cách khách tự dùng trên Gemini web - đo thật cho thấy CÁCH này ra
+    # kết quả tốt hơn hẳn để AI tự quyết nhiều thuật ngữ rời rạc: hỏi "cầu cúng vô ích" ra
+    # top-1 lệch hẳn chủ đề, còn dán thẳng cụm AI-web đưa ra thì top-3 ra ngay
+    # `Patthanāsutta` - trùng tên bài kinh. Khác `expand_query_with_ai` ở chỗ hàm đó sinh
+    # NHIỀU thuật ngữ rời cho các nhánh khớp lỏng (to_tsquery theo từng từ); hàm này sinh
+    # MỘT cụm liền mạch, chuẩn văn phạm, để chạy như thể chính người dùng gõ cụm đó vào ô
+    # tìm kiếm - mở khóa nhánh khớp nguyên văn/khớp cụm liên tiếp mà nhánh khớp lỏng không
+    # chạm tới được.
+    return "\n".join(
+        [
+            "Hãy đóng vai chuyên gia Pāḷi kinh điển Tam Tạng.",
+            f'Tôi muốn tìm bài kinh về chủ đề: "{query}"',
+            "Cung cấp cho tôi từ khóa NGẮN GỌN bằng tiếng Pāḷi đã được chia cách, chia thì, "
+            "chia ngôi chuẩn xác như trong Tam Tạng kinh điển, để tôi dùng làm từ khóa tìm "
+            "kiếm trực tiếp trong một công cụ tìm kiếm kinh điển Pāḷi.",
+            "Chỉ đưa ra MỘT cụm từ khóa duy nhất - không liệt kê nhiều lựa chọn, không giải "
+            "thích, không dịch nghĩa.",
+            "Nếu không chắc chắn dạng chia chính xác, hãy chọn cụm gần đúng nhất, có khả "
+            "năng xuất hiện nguyên văn trong kinh điển hơn là một cụm an toàn nhưng chung "
+            "chung.",
+            'Trả JSON thuần, đúng một object: {"keyword": "..."}',
+        ]
+    )
+
+
+def extract_search_keyword_with_ai(query: str, clean_query: str = "", language: str = DEFAULT_LANGUAGE) -> str | None:
+    """Xin AI MỘT cụm Pāḷi để dùng thẳng làm câu tìm kiếm - xem `_keyword_extraction_prompt`.
+
+    Tách hẳn khỏi `expand_query_with_ai`: hai hàm phục vụ hai nhánh retrieval khác nhau
+    (`_retrieve_candidates` gọi cả hai, xem `search_engine._rank_candidates`), nên không
+    dùng chung khoá đệm - đổi cách trích một cụm không được phép làm hỏng đệm của việc mở
+    rộng nhiều thuật ngữ, và ngược lại.
+    """
+    if settings()["search_ai_mode"] not in {"query", "full"}:
+        return None
+    if not settings()["gemini_api_key"]:
+        return None
+
+    memory_key = (query.strip(), normalize_language(language))
+    cached = _KEYWORD_CACHE.get(memory_key)
+    if cached is not None:
+        return cached or None
+
+    key = _cache_key(query.strip(), normalize_language(language))
+    stored = _cache_get(key, "keyword")
+    if stored is not None:
+        keyword = str(stored.get("keyword") or "")
+        _KEYWORD_CACHE[memory_key] = keyword
+        return keyword or None
+
+    prompt = _keyword_extraction_prompt(query)
+    client = _client()
+    for model in _keyword_models():
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            parsed = SearchKeyword.model_validate_json(response.text or "{}")
+            raw_keyword = parsed.keyword.strip()
+            # Rỗng hoặc không có chữ Pāḷi nào ra hồn thì coi model này không trả được gì
+            # dùng được - thử model kế, KHÔNG cache thất bại (khác `stored is not None`
+            # ở trên chỉ đọc cache thành công, một lượt rỗng không được phép khoá cứng
+            # mọi lượt tìm kiếm sau của đúng câu này về "không có cụm nào").
+            if not raw_keyword or not normalize_pali(raw_keyword):
+                continue
+            _KEYWORD_CACHE[memory_key] = raw_keyword
+            _cache_put(key, "keyword", {"keyword": raw_keyword})
+            return raw_keyword
+        except Exception as exc:
+            if not _is_retryable_error(exc):
+                break
+
+    return None
+
+
 # Ngon ngu de model viet `reason` - chuoi nay nam trong cau tieng Viet cua prompt.
 _REASON_LANGUAGE = {"vi": "tiếng Việt", "en": "tiếng Anh", "my": "tiếng Myanmar (Miến Điện)"}
 

@@ -14,7 +14,12 @@ from .db import execute, fetch_all
 from .glossary import analyze_query
 from .i18n import DEFAULT_LANGUAGE, normalize_language, t
 from .normalize import normalize_pali
-from .query_expander import expand_query_with_ai, merge_expansion, rerank_candidates_with_ai
+from .query_expander import (
+    expand_query_with_ai,
+    extract_search_keyword_with_ai,
+    merge_expansion,
+    rerank_candidates_with_ai,
+)
 from .translator import public_translation_error, translate_passage, translate_text
 
 
@@ -731,6 +736,19 @@ def _candidate_columns() -> str:
 # Sáu từ đủ phân biệt thao tác trích dẫn với câu hỏi khái niệm ngắn; các truy vấn ngắn vẫn
 # đi qua cả nhánh dịch lẫn pipeline ngữ nghĩa hiện có.
 TRANSLATION_QUOTE_MIN_WORDS = 6
+# Chỉ riêng số từ nội dung KHÔNG phân biệt được "dán nguyên đoạn dịch" với "câu hỏi dài
+# tình cờ trùng vài chữ" - cả hai đều dễ dàng đạt 10 từ. Độ giống (`word_similarity` của
+# Postgres, tính giữa chuỗi người dùng gõ và `translated_text`) mới là tín hiệu tách bạch,
+# đo thật trên dữ liệu hiện có:
+#   dán nguyên đoạn dịch thật : 0,994 - 1,000  (3/3 mẫu ngẫu nhiên)
+#   câu hỏi thường            : 0,32  - 0,48   ("cầu cúng vô ích" 0,35; "từ bi" 0,48)
+# Khoảng trống giữa hai nhóm rất rộng nên 0,75 nằm giữa, không sát mép bên nào.
+#
+# Cần ngưỡng này vì lối tắt phía sau nó gán thẳng `candidates = direct_candidates` rồi bỏ
+# qua toàn bộ pipeline AI. Với câu "cầu cúng vô ích" lối tắt vẫn bật (10 từ nội dung thật,
+# không phải ca 3-từ-rác đã vá trước đó) mà trả về toàn kết quả lệch chủ đề, vì nó khớp rời
+# rạc từng từ chứ không theo ý nghĩa.
+TRANSLATION_QUOTE_MIN_SIMILARITY = 0.75
 TRANSLATION_SEARCH_MAX_TERMS = 10
 TRANSLATION_SEARCH_ROW_LIMIT = 80
 _TRANSLATION_WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
@@ -777,6 +795,39 @@ def _translation_query_words(query: str, language: str) -> tuple[list[str], int]
             ]
         ]
     return picked, len(words)
+
+
+@lru_cache(maxsize=2048)
+def _pali_term_exists(term: str) -> bool:
+    """Từ Pāḷi này có thật sự xuất hiện trong kho văn bản không.
+
+    Nhớ kết quả (`lru_cache`) vì AI hay lặp lại cùng một nhóm thuật ngữ giữa các câu hỏi,
+    và câu trả lời chỉ đổi khi kho văn bản đổi - tức là gần như không bao giờ trong một
+    phiên chạy.
+    """
+    if not term:
+        return False
+    rows = fetch_all(
+        "select 1 as ok from passages where normalized_pali like %s limit 1",
+        [f"%{term}%"],
+    )
+    return bool(rows)
+
+
+def _existing_pali_terms(terms: list[str]) -> list[str]:
+    """Lọc bỏ những từ không có mặt trong kho - xem chỗ gọi để biết vì sao cần."""
+    return [term for term in terms if _pali_term_exists(term)]
+
+
+def _best_translation_similarity(candidates: list[dict]) -> float:
+    """Độ giống cao nhất giữa chuỗi người dùng gõ và bản dịch khớp được.
+
+    Xem `TRANSLATION_QUOTE_MIN_SIMILARITY` để biết vì sao cần và ngưỡng lấy từ đâu.
+    """
+    return max(
+        (float(item["row"].get("translation_similarity") or 0) for item in candidates),
+        default=0.0,
+    )
 
 
 def _retrieve_translation_candidates_for_docs(
@@ -1429,7 +1480,9 @@ def _rank_candidates(
             query, doc_ids, local_analysis, limit, language
         )
         direct_translation_quote = bool(
-            direct_candidates and translation_term_count >= TRANSLATION_QUOTE_MIN_WORDS
+            direct_candidates
+            and translation_term_count >= TRANSLATION_QUOTE_MIN_WORDS
+            and _best_translation_similarity(direct_candidates) >= TRANSLATION_QUOTE_MIN_SIMILARITY
         )
         if direct_translation_quote:
             candidates = direct_candidates
@@ -1439,6 +1492,72 @@ def _rank_candidates(
         analysis["paliStems"] = []
         analysis["matchedHumanTranslation"] = True
     else:
+        # Xin AI MỘT cụm Pāḷi rồi ĐƯA VÀO PHÂN TÍCH như thể chính người dùng đã gõ cụm đó.
+        #
+        # Vì sao cần, dù `expand_query_with_ai` ngay dưới cũng sinh thuật ngữ Pāḷi: hai
+        # nhánh truy hồi mạnh nhất (khớp nguyên văn `querySegmentTexts`, khớp cụm liên tiếp
+        # `querySegmentTerms`) và điểm thưởng trích dẫn `_apply_exact_quote_bonus` đều chỉ
+        # đọc các trường `query*`, mà `analyze_query` chỉ điền chúng khi CHÍNH câu truy vấn
+        # trông giống Pāḷi (gate `pali_ratio`). Thuật ngữ AI nằm ở `mustHavePali` không chạm
+        # tới các nhánh đó, nên câu hỏi tiếng Việt vĩnh viễn không dùng được chúng - đúng
+        # cái khách làm tay: hỏi Gemini lấy cụm Pāḷi rồi DÁN LẠI vào ô tìm kiếm.
+        #
+        # Tiêm vào phân tích chứ KHÔNG chạy một lượt `_retrieve_candidates` riêng: đã thử
+        # cách riêng và đo được là sai - ứng viên lượt riêng chỉ đạt điểm ~0,6 (thiếu lớp mở
+        # rộng AI và các điểm thưởng của lượt chính) nên bị chôn dưới điểm ~1,5 của nhánh
+        # khớp bản dịch, thêm vào mà không đổi được gì. Tiêm vào thì cụm được chấm điểm và
+        # cộng thưởng trong CÙNG một lượt xếp hạng nên so sánh được với nhau.
+        #
+        # `queryIsPaliLike` giữ nguyên False: cờ đó còn quyết định có dò bản dịch tiếng Việt
+        # hay không, mà câu người dùng vẫn là tiếng Việt nên nhánh ấy phải tiếp tục chạy.
+        #
+        # CHỈ chạy khi câu hỏi KHÔNG phải Pāḷi. Người dùng đã gõ Pāḷi thì chính chữ họ gõ là
+        # bằng chứng mạnh nhất, không được thay bằng phỏng đoán của AI: đo thật, bỏ điều kiện
+        # này thì "Mettā Sutta" bị AI đổi thành `mettaṃ bhāvaye` và kết quả trượt sang
+        # `Cetanākaraṇīyasuttaṃ` thay vì các bài Mettasutta. Bỏ qua ở đây cũng tiết kiệm một
+        # lượt gọi Gemini cho mọi truy vấn Pāḷi.
+        ai_keyword = (
+            None
+            if local_analysis.get("queryIsPaliLike")
+            else extract_search_keyword_with_ai(query, clean_query, language)
+        )
+        keyword_terms: list[str] = []
+        keyword_analysis: dict = {}
+        if ai_keyword:
+            keyword_analysis = analyze_query(ai_keyword, corpus_types)
+            # Bỏ những từ AI bịa ra. AI được yêu cầu chia đúng văn phạm Pāḷi "như trong Tam
+            # Tạng", nhưng nó không tra kinh điển - nó đoán, và đoán sai thì ra từ không hề
+            # tồn tại. Đo thật với câu khách hỏi: AI trả `āyācanahetu vā pariyācanahetu vā`,
+            # trong đó `pariyācana` có mặt trong ĐÚNG 0 đoạn của toàn bộ kho, còn dạng đúng
+            # `patthana` có 4.495 đoạn. Đưa từ ma vào tìm kiếm là kéo cả cụm đi chệch hướng.
+            keyword_terms = _existing_pali_terms(keyword_analysis.get("queryTerms") or [])
+        if ai_keyword and keyword_terms:
+            local_analysis = {
+                **local_analysis,
+                "aiKeyword": ai_keyword,
+                "queryTerms": keyword_terms,
+                "querySegmentTerms": keyword_analysis.get("querySegmentTerms") or [],
+                "querySegmentTexts": keyword_analysis.get("querySegmentTexts") or [],
+                # Phải đưa TỪNG TỪ vào danh sách thuật ngữ, không chỉ để nguyên cụm ở các
+                # trường `query*`: các nhánh cụm chỉ khớp khi nguyên cụm xuất hiện đúng
+                # nguyên văn, mà cụm AI ghép ra thường không tồn tại nguyên văn trong kinh.
+                # Đo thật với cụm `bahuputtaka nigantha yaggha`: nguyên cụm khớp 0 đoạn,
+                # trong khi `nigantha` có 307 đoạn và `yaggha` có 414 - bỏ qua các từ rời là
+                # vứt đi toàn bộ tín hiệu dùng được của cụm.
+                #
+                # Vào `shouldHavePali` chứ không phải `mustHavePali`: cụm là phỏng đoán của
+                # AI, bắt buộc phải có thì một từ AI đoán sai sẽ chặn sạch kết quả - đúng
+                # kiểu hỏng mà `mustHavePali` quá hẹp từng gây ra trước đây.
+                "shouldHavePali": [
+                    *(local_analysis.get("shouldHavePali") or []),
+                    *keyword_terms,
+                ],
+                "paliHints": [
+                    *(local_analysis.get("paliHints") or []),
+                    *keyword_terms,
+                ],
+            }
+
         # Truy vấn ngắn vẫn dùng ngữ nghĩa Pāli hiện có; `_retrieve_candidates` đồng thời
         # trộn thêm các hit trực tiếp từ bản dịch để exact text không bị AI làm loãng.
         analysis = merge_expansion(

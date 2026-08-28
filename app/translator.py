@@ -23,15 +23,17 @@ SUMMARY_MAX_POINTS = 15
 SUMMARY_MAX_POINTS_PER_CHUNK = 6
 TRANSLATION_FALLBACK_CHUNK_CHARS = 3200
 TRANSLATION_RESCUE_CHUNK_CHARS = 900
-BAD_TEXT_MODELS = {"gemini-2.5-flash"}
+# Model Google đã ngừng phục vụ - gọi vào là 404, chỉ tổ đốt một vòng lặp dự phòng rồi mới
+# sang được model sống. Kiểm chứng ngày 2026-08-28 bằng cách gọi thật từng model:
+#   gemini-2.5-flash       404 "no longer available to new users"
+#   gemini-2.5-flash-lite  404 "no longer available"
+#   gemini-3-flash         404 "not found for API version v1beta"
+BAD_TEXT_MODELS = {"gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"}
 FALLBACK_TEXT_MODELS = [
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-3.5-flash",
     "gemini-3.6-flash",
-    "gemini-3-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
 ]
 PUBLIC_TRANSLATION_ERROR = "Chưa dịch được đoạn này. Vui lòng kiểm tra GEMINI_API_KEY hoặc thử lại sau."
 PUBLIC_SUMMARY_ERROR = "Không thể tạo tóm tắt lúc này. Vui lòng thử lại sau."
