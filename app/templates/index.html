@@ -565,6 +565,13 @@
 
       async function submitSearch(event) {
         event.preventDefault();
+
+        // Phiên tìm mới thì đóng gợi ý từ khoá Pāḷi của câu hỏi CŨ lại - kể cả khi
+        // chính "Tìm ngay" trong bảng gợi ý là thứ gọi hàm này. Không đóng thì sau khi
+        // đổi câu hỏi/bấm Tìm kiếm, người đọc vẫn thấy cụm Pāḷi của câu hỏi trước đó
+        // nằm lơ lửng phía trên kết quả MỚI, chẳng còn liên quan gì đến nhau nữa.
+        closeKeywordPanel();
+
         const data = new FormData(form);
         const corpusValues = data.getAll("corpus_type");
         const pitakaValues = data.getAll("pitaka_type");

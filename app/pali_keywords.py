@@ -33,13 +33,14 @@ from .query_expander import expand_query_with_ai, extract_search_keyword_with_ai
 # vào chức năng.
 from .search_engine import _existing_pali_terms
 
-# Số thuật ngữ hiện ra cho khách. Nhiều hơn thì không ai thử hết, mà mỗi từ lại là một
-# lượt kiểm tra trong kho.
-MAX_TERMS = 12
+# Số thuật ngữ hiện ra cho khách, KHÔNG TÍNH cụm chính - khách yêu cầu "khoảng 5 kết quả
+# (bao gồm cả key chính)", nên 4 + 1 cụm chính = 5.
+MAX_TERMS = 4
 
 # Số ứng viên tối đa đem đi kiểm tra sự tồn tại. `_existing_pali_terms` chạy một truy vấn
-# cho mỗi từ (có `lru_cache`), nên phải chặn trần trước khi lọc.
-MAX_TERM_CANDIDATES = 24
+# cho mỗi từ (có `lru_cache`), nên phải chặn trần trước khi lọc - dư ra so với `MAX_TERMS`
+# vì vài ứng viên đầu bảng có thể là từ AI bịa, không tồn tại trong kho.
+MAX_TERM_CANDIDATES = 10
 
 # Bỏ hư từ Pāḷi. Cụm AI trả về hay kèm `vā`, `ca`, `hi`, `pi`, `na` - có mặt khắp nơi
 # trong kho nên qua được cửa kiểm tra tồn tại, nhưng làm từ khoá thì vô dụng.
@@ -68,18 +69,45 @@ def _pick_terms(values: list[str], avoid: set[str]) -> list[str]:
     return output
 
 
+def _interleave(short_terms: list[str], long_terms: list[str]) -> list[str]:
+    """Xen kẽ hai danh sách để kết quả có ĐỦ CẢ từ đơn ngắn lẫn cụm dài, theo đúng yêu
+    cầu khách "đủ loại key ngắn dài tuỳ vào câu hỏi" - không phải danh sách toàn từ đơn
+    (như trước) hay toàn cụm dài. Bắt đầu bằng một cụm dài vì `mainKeyword` hiển thị
+    riêng đã "dùng" vị trí cụm dài đầu tiên, nên 4 gợi ý còn lại nên có phương án dài
+    khác sớm chứ không dồn hết xuống cuối bảng.
+
+    Nguồn nào cạn trước thì lấy tiếp nguồn còn lại, không dừng giữa chừng - một câu hỏi
+    mà AI không ghép được cụm dài nào vẫn phải trả đủ số từ đơn, và ngược lại.
+    """
+    merged: list[str] = []
+    seen: set[str] = set()
+    i = j = 0
+    want_long = True
+    while i < len(short_terms) or j < len(long_terms):
+        if want_long and j < len(long_terms):
+            term = long_terms[j]
+            j += 1
+        elif i < len(short_terms):
+            term = short_terms[i]
+            i += 1
+        elif j < len(long_terms):
+            term = long_terms[j]
+            j += 1
+        else:
+            break
+        want_long = not want_long
+        if term not in seen:
+            seen.add(term)
+            merged.append(term)
+    return merged
+
+
 def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
-    """Trả cụm Pāḷi chính cho một câu hỏi.
+    """Trả cụm Pāḷi chính + tối đa `MAX_TERMS` gợi ý khác cho một câu hỏi - tổng khoảng 5
+    kết quả (kể cả cụm chính), đủ cả từ đơn ngắn lẫn cụm dài chứ không chỉ một loại.
 
     Không ghi `search_logs`: đây không phải một lượt tìm kiếm, và lượt tìm thật sau đó
     (khi khách bấm "Tìm ngay" hoặc tự dán) mới là thứ đáng vào lịch sử.
-
-    TẠM THỜI chỉ trả `mainKeyword`, theo yêu cầu khách "chỉ cần lấy 1 kết quả thôi, Cụm
-    từ khoá chính là được". Phần dựng danh sách "thuật ngữ liên quan" (gọi thêm
-    `expand_query_with_ai`, lọc qua `_existing_pali_terms`) COMMENT lại chứ không xoá -
-    xem khối bên dưới - để bật lại chỉ bằng cách bỏ comment khi khách đổi ý. Giao diện
-    ([index.html] `renderKeywordPanel`) đã tự bỏ qua khối "Thuật ngữ liên quan" khi
-    `terms` rỗng, nên không cần sửa gì ở template/JS.
     """
     query = str(query or "").strip()
     language = normalize_language(language)
@@ -88,32 +116,43 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
 
     clean_query = canonicalize_query(query) or query
     main_keyword = extract_search_keyword_with_ai(query, clean_query, language)
-    terms: list[str] = []
+    expansion = expand_query_with_ai(query, clean_query, language) or {}
+    local = analyze_query(query, ["all"])
 
-    # expansion = expand_query_with_ai(query, clean_query, language) or {}
-    # local = analyze_query(query, ["all"])
-    #
-    # avoid = _normalized_set(
-    #     [*(expansion.get("avoidPali") or []), *(local.get("avoidPali") or [])]
-    # )
-    #
-    # # Thứ tự = độ tin cậy giảm dần, và `_pick_terms` giữ nguyên thứ tự này:
-    # # từng chữ của cụm chính (sát câu hỏi nhất - cụm ghép có thể không tồn tại nguyên văn
-    # # trong kinh nhưng từng chữ thì có) > thuật ngữ trọng tâm của AI > thuật ngữ của bảng
-    # # khái niệm tự soạn > thuật ngữ mở rộng.
-    # candidates = _pick_terms(
-    #     [
-    #         *str(main_keyword or "").split(),
-    #         *(expansion.get("paliExactTerms") or []),
-    #         *(local.get("mustHavePali") or []),
-    #         *(expansion.get("paliRelatedTerms") or []),
-    #         *(local.get("shouldHavePali") or []),
-    #         *(expansion.get("paliHints") or []),
-    #     ],
-    #     avoid,
-    # )[:MAX_TERM_CANDIDATES]
-    #
-    # terms = _existing_pali_terms(candidates)[:MAX_TERMS]
+    avoid = _normalized_set(
+        [*(expansion.get("avoidPali") or []), *(local.get("avoidPali") or [])]
+    )
+
+    # Nguồn NGẮN: thuật ngữ đơn lẻ - thứ tự trong `_pick_terms` là độ tin cậy giảm dần:
+    # thuật ngữ trọng tâm của AI > thuật ngữ của bảng khái niệm tự soạn > thuật ngữ mở
+    # rộng. KHÔNG lấy từng chữ tách rời của `main_keyword` như trước nữa: giờ mainKeyword
+    # đã ở NGUYÊN CỤM trong kết quả, tách rời nó ra làm từ đơn chỉ tạo thêm hàng trùng ý.
+    short_pool = [
+        term
+        for term in _pick_terms(
+            [
+                *(expansion.get("paliExactTerms") or []),
+                *(local.get("mustHavePali") or []),
+                *(expansion.get("paliRelatedTerms") or []),
+                *(local.get("shouldHavePali") or []),
+                *(expansion.get("paliHints") or []),
+            ],
+            avoid,
+        )
+        if " " not in term
+    ]
+
+    # Nguồn DÀI: cụm nhiều từ AI đã ghép sẵn (`expandedQueries`) - cùng loại với cụm
+    # chính nhưng là phương án khác, hợp khi cụm chính không khớp đúng cách chia trong
+    # kinh. Lọc `" " not in term` phía trên / `" " in term` ở đây để hai nguồn không lẫn
+    # vào nhau: một mục một-từ lọt vào `expandedQueries` (AI vẫn hay trả lẫn) thì bỏ qua
+    # ở đây - nó đã có cơ hội xuất hiện qua `short_pool` rồi.
+    long_pool = [
+        term for term in _pick_terms(expansion.get("expandedQueries") or [], avoid) if " " in term
+    ]
+
+    candidates = _interleave(short_pool, long_pool)[:MAX_TERM_CANDIDATES]
+    terms = _existing_pali_terms(candidates)[:MAX_TERMS]
 
     return {
         "ok": bool(main_keyword or terms),
