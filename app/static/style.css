@@ -1635,3 +1635,172 @@ body.modalOpen {
     display: none !important;
   }
 }
+
+/* ===== Từ khoá Pāḷi cho câu hỏi khó (lối tìm thứ hai) ===== */
+
+/* `.controls` giờ có hai nút thay vì một. Chỉ thêm `flex-wrap`, KHÔNG đổi `.controls`
+   thành cột: có chỗ thì bố cục cũ giữ nguyên y như trước, chật quá thì cụm nút tự
+   xuống dòng riêng thay vì bóp chữ dòng thông báo bên trái. */
+.controls {
+  flex-wrap: wrap;
+}
+
+.controlButtons {
+  display: flex;
+  flex-wrap: wrap;
+  /* `stretch` chứ không phải `center`: `.button.secondary` có viền 1px còn `.button`
+     thì không, nên để mặc định hai nút cạnh nhau lệch nhau đúng 2px. */
+  align-items: stretch;
+  gap: 10px;
+}
+
+.paliKeywords {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 254, 250, 0.92);
+}
+
+.paliKeywords.hidden {
+  display: none;
+}
+
+.keywordHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.keywordHead strong {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.keywordClose {
+  border: 0;
+  background: transparent;
+  color: var(--soft);
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.keywordClose:hover {
+  background: #f5ede3;
+  color: var(--text);
+}
+
+.keywordLabel {
+  margin: 16px 0 8px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+/* Nhiều cột khi màn hình đủ rộng: 12 thuật ngữ xếp một cột thì khối gợi ý cao gần trọn
+   màn hình, đẩy hẳn ô tìm kiếm ra khỏi tầm nhìn. 420px là bề ngang tối thiểu để một
+   thuật ngữ dài (`alagaddupamasutta`) và hai nút vẫn nằm gọn trên một dòng.
+   `min(420px, 100%)` là BẮT BUỘC, không được viết trần `minmax(420px, 1fr)`: khi khối
+   hẹp hơn 420px thì lưới vẫn giữ nguyên cột 420px và tràn ngang ra ngoài màn hình - đo
+   thật trên khung 390px, nút "Tìm luôn" bị cắt mất quá nửa. */
+.keywordList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 8px;
+}
+
+.keywordRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: white;
+}
+
+/* Cụm chính là thứ đáng dán vào ô tìm kiếm nhất nên phải nổi hẳn khỏi danh sách
+   thuật ngữ rời bên dưới. */
+.keywordRow.main {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.keywordText {
+  /* Cùng bộ chữ với `.pali`: dấu Pāḷi (ā ḷ ṃ ṭ) hiện rõ hơn hẳn so với font giao diện. */
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  line-height: 1.4;
+  color: #211b15;
+  overflow-wrap: anywhere;
+  /* Bấm một cái là chọn trọn cụm - lối sao chép tay khi trình duyệt chặn clipboard. */
+  user-select: all;
+}
+
+.keywordActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.keywordEmpty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.paliKeywords .loading {
+  margin-top: 0;
+  padding: 12px 14px;
+}
+
+/* Mốc 768px cho khớp với khối mobile sẵn có của trang: từ mốc đó trở xuống trang đã đặt
+   `.button.compact { width: 100% }`, nên nếu để `.keywordRow` còn nằm ngang thì hai nút
+   đòi trọn bề ngang và ép chữ từ khoá gần như biến mất. Trước đây tôi để 700px, và dải
+   701-768px rơi đúng vào kẽ hở đó. */
+@media (max-width: 768px) {
+  /* KHÔNG đặt luật riêng cho hai nút trong `.controlButtons`: khối mobile sẵn có của
+     trang đã quy định `.controls .button { width: 100%; min-height: 46px }` - nút mới cứ
+     theo đúng nếp đó thì nó giống hệt mọi nút khác của trang trên điện thoại. Đè thêm
+     luật của riêng mình chỉ tổ làm nút mới cao 44px lệch với 46px của nút Tìm kiếm. */
+  .controlButtons {
+    width: 100%;
+  }
+
+  .paliKeywords {
+    padding: 14px;
+  }
+
+  /* Trung hoà `.button.compact { width: 100% }` của khối mobile sẵn có. Từ khoá là chữ
+     ngắn nên ở khổ máy tính bảng hai nút vẫn thừa chỗ đứng cạnh nó trên cùng một dòng;
+     để nguyên `width: 100%` thì mỗi nút chiếm trọn một dòng và khối gợi ý dài gấp ba. */
+  .keywordActions .button {
+    width: auto;
+  }
+}
+
+/* Điện thoại: chữ từ khoá một dòng, hai nút một dòng bên dưới và chia đôi bề ngang, đủ
+   rộng cho ngón tay. Mốc 560px chứ không phải 768px - đo thật ở 700-768px thì chữ và hai
+   nút vẫn nằm gọn một dòng, xếp dọc ở đó chỉ làm khối cao lên vô ích. */
+@media (max-width: 560px) {
+  .keywordRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .keywordActions .button {
+    /* `flex-basis: 0` thắng `width` trên trục chính nên hai nút chia đôi dòng;
+       `min-width: 0` cho phép chữ co lại thay vì đẩy nhau tràn ra ngoài. */
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}

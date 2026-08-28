@@ -129,9 +129,23 @@
 
           <div class="controls">
             <span class="notice" id="selectedNotice">{{ t('search.noticeReady') }}</span>
-            <button class="button" type="submit" id="searchSubmitBtn">{{ t('search.submit') }}</button>
+            <div class="controlButtons">
+              {# Lối tìm THỨ HAI cho câu hỏi khó: lấy từ khoá Pāḷi rồi mới tìm.
+                 `type="button"` là bắt buộc - để mặc định thì nút nằm trong form sẽ submit
+                 và chạy luôn lượt tìm kiếm thường. #}
+              <button
+                class="button secondary"
+                type="button"
+                id="paliKeywordBtn"
+                title="{{ t('keywords.buttonHint') }}"
+              >{{ t('keywords.button') }}</button>
+              <button class="button" type="submit" id="searchSubmitBtn">{{ t('search.submit') }}</button>
+            </div>
           </div>
         </form>
+
+        {# Để NGOÀI form: khối này chỉ hiện từ khoá, không đóng góp dữ liệu cho lượt tìm. #}
+        <div class="paliKeywords hidden" id="paliKeywordPanel" aria-live="polite"></div>
       </section>
 
       <section id="resultsWrap"></section>
@@ -604,6 +618,159 @@
         }
       }
 
+      // ===== Từ khoá Pāḷi cho câu hỏi khó =====
+      //
+      // Lối tìm THỨ HAI, đứng cạnh lối nhập tiếng Việt chứ không thay thế nó. Toàn bộ
+      // phần này chỉ ĐỌC ô tìm kiếm rồi ĐIỀN lại vào chính ô đó và gọi `submitSearch`
+      // như cũ - không tự gọi `/search-page`, không đụng vào bất kỳ tham số tìm kiếm nào.
+      // Nhờ vậy phần này hỏng hay bị gỡ đi thì cách tìm hiện tại vẫn nguyên vẹn.
+      const queryInput = document.getElementById("query");
+      const paliKeywordBtn = document.getElementById("paliKeywordBtn");
+      const paliKeywordPanel = document.getElementById("paliKeywordPanel");
+
+      function showKeywordPanel(html) {
+        if (!paliKeywordPanel) return;
+        paliKeywordPanel.innerHTML = html;
+        paliKeywordPanel.classList.remove("hidden");
+      }
+
+      function closeKeywordPanel() {
+        if (!paliKeywordPanel) return;
+        paliKeywordPanel.classList.add("hidden");
+        paliKeywordPanel.innerHTML = "";
+      }
+
+      // `escapeHtml` thoát cả dấu nháy kép nên chuỗi dùng lại được làm giá trị thuộc tính;
+      // đọc ngược ra bằng `dataset` thì trình duyệt tự trả về chuỗi gốc chưa thoát.
+      function keywordRowHtml(keyword, isMain) {
+        const safe = escapeHtml(keyword);
+        return `
+          <div class="keywordRow${isMain ? " main" : ""}">
+            <code class="keywordText">${safe}</code>
+            <span class="keywordActions">
+              <button class="button secondary compact" type="button" data-keyword-copy="${safe}">${escapeHtml(tr("keywords.copy"))}</button>
+              <button class="button compact" type="button" data-keyword-search="${safe}">${escapeHtml(tr("keywords.searchWith"))}</button>
+            </span>
+          </div>
+        `;
+      }
+
+      function renderKeywordPanel(payload) {
+        if (!payload || !payload.ok) {
+          showKeywordPanel(
+            `<p class="keywordEmpty">${escapeHtml((payload && payload.error) || tr("keywords.empty"))}</p>`
+          );
+          return;
+        }
+
+        const parts = [
+          `<div class="keywordHead">
+            <strong>${escapeHtml(tr("keywords.title"))}</strong>
+            <button class="keywordClose" type="button" id="paliKeywordClose" aria-label="${escapeHtml(tr("keywords.close"))}">✕</button>
+          </div>
+          <p class="meta">${escapeHtml(tr("keywords.hint"))}</p>`,
+        ];
+
+        if (payload.mainKeyword) {
+          parts.push(`<p class="keywordLabel">${escapeHtml(tr("keywords.mainLabel"))}</p>`);
+          parts.push(keywordRowHtml(payload.mainKeyword, true));
+        }
+
+        const terms = Array.isArray(payload.terms) ? payload.terms : [];
+        if (terms.length) {
+          parts.push(`<p class="keywordLabel">${escapeHtml(tr("keywords.termsLabel"))}</p>`);
+          parts.push(
+            `<div class="keywordList">${terms.map((term) => keywordRowHtml(term, false)).join("")}</div>`
+          );
+        }
+
+        showKeywordPanel(parts.join(""));
+      }
+
+      async function copyKeyword(button) {
+        const value = button.dataset.keywordCopy || "";
+        let copied = false;
+
+        try {
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        } catch (_error) {
+          // `navigator.clipboard` chỉ chạy trên HTTPS (hoặc localhost). Trang mở qua http
+          // hay trình duyệt cũ vẫn phải sao chép được, nếu không thì cả chức năng vô nghĩa.
+          const helper = document.createElement("textarea");
+          helper.value = value;
+          helper.setAttribute("readonly", "");
+          helper.style.position = "fixed";
+          helper.style.opacity = "0";
+          document.body.appendChild(helper);
+          helper.select();
+          try {
+            copied = document.execCommand("copy");
+          } catch (_ignored) {
+            copied = false;
+          }
+          helper.remove();
+        }
+
+        if (!copied) return;
+        const original = button.textContent;
+        button.textContent = tr("keywords.copied");
+        setTimeout(() => {
+          button.textContent = original;
+        }, 1500);
+      }
+
+      // Điền từ khoá vào ô tìm kiếm rồi chạy ĐÚNG luồng tìm kiếm cũ, giữ nguyên phần
+      // Tạng/bộ kinh khách đã chọn - hệt như khách tự dán vào ô rồi bấm Tìm kiếm.
+      function searchWithKeyword(keyword) {
+        if (!keyword || !queryInput) return;
+        queryInput.value = keyword;
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+        } else {
+          form.dispatchEvent(new Event("submit", { cancelable: true }));
+        }
+        resultsWrap.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      async function loadPaliKeywords() {
+        const query = (queryInput?.value || "").trim();
+        if (!query) {
+          showKeywordPanel(`<p class="keywordEmpty">${escapeHtml(tr("keywords.needQuery"))}</p>`);
+          queryInput?.focus();
+          return;
+        }
+
+        const originalLabel = paliKeywordBtn.textContent;
+        paliKeywordBtn.disabled = true;
+        paliKeywordBtn.textContent = tr("keywords.loading");
+        showKeywordPanel(`
+          <div class="loading searchLoading" role="status" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="loadingText">${escapeHtml(tr("keywords.loading"))}</div>
+          </div>
+        `);
+
+        try {
+          const res = await fetch("/api/pali-keywords", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, language: LANG }),
+          });
+          // Phải xét `res.ok`: bộ xử lý lỗi của app vẫn trả JSON hợp lệ, nên `res.json()`
+          // chạy trót lọt cũng không có nghĩa là request đã thành công.
+          if (!res.ok) throw new Error(tr("keywords.failed"));
+          renderKeywordPanel(await res.json());
+        } catch (error) {
+          showKeywordPanel(
+            `<p class="keywordEmpty">${escapeHtml(error.message || tr("keywords.failed"))}</p>`
+          );
+        } finally {
+          paliKeywordBtn.disabled = false;
+          paliKeywordBtn.textContent = originalLabel;
+        }
+      }
+
       async function loadMoreResults(loadMoreForm) {
         const button = loadMoreForm.querySelector("button");
         if (button) {
@@ -860,6 +1027,29 @@
 
       form.addEventListener("change", updateNotice);
       form.addEventListener("submit", submitSearch);
+
+      if (paliKeywordBtn) {
+        paliKeywordBtn.addEventListener("click", loadPaliKeywords);
+      }
+      // Uỷ quyền sự kiện cho cả khối: nội dung khối được dựng lại sau mỗi lượt gọi API
+      // nên gắn trực tiếp vào từng nút sẽ mất tác dụng ngay lượt sau.
+      if (paliKeywordPanel) {
+        paliKeywordPanel.addEventListener("click", (event) => {
+          const copyBtn = event.target.closest("[data-keyword-copy]");
+          if (copyBtn) {
+            copyKeyword(copyBtn);
+            return;
+          }
+          const searchBtn = event.target.closest("[data-keyword-search]");
+          if (searchBtn) {
+            searchWithKeyword(searchBtn.dataset.keywordSearch);
+            return;
+          }
+          if (event.target.closest("#paliKeywordClose")) {
+            closeKeywordPanel();
+          }
+        });
+      }
       sectionModalClose.addEventListener("click", closeModal);
       sectionModal.addEventListener("click", (event) => {
         if (event.target === sectionModal) closeModal();

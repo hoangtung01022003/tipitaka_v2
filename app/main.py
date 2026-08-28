@@ -36,6 +36,7 @@ from .i18n import (
     ui_strings,
 )
 from .notice import get_notice, get_notice_config, save_notice
+from .pali_keywords import suggest_pali_keywords
 from .search_tips import get_search_tips, get_search_tips_config, save_search_tips
 from .normalize import normalize_pali
 from .search_engine import resolve_corpus_types, resolve_pitaka_types, search_passages, _display_source
@@ -1165,6 +1166,33 @@ def summarize_excerpt_api(payload: dict, request: Request):
         return summarize_excerpt_text(pali_text, language)
     except Exception:
         return {"summary": "", "fromCache": False, "error": "summary_failed"}
+
+
+@app.post("/api/pali-keywords")
+def pali_keywords_api(payload: dict, request: Request):
+    """Gợi ý từ khoá Pāḷi cho câu hỏi khó - xem `pali_keywords.suggest_pali_keywords`.
+
+    Tách hẳn khỏi `/search`: đây chỉ là bước LẤY TỪ KHOÁ, khách xem xong mới tự quyết
+    định tìm gì. Vì vậy route này không đụng `search_passages` và không ghi `search_logs`
+    - lượt tìm thật sau đó mới là thứ đáng vào lịch sử tìm kiếm.
+
+    Lỗi trả về `ok: False` kèm câu báo cho người đọc chứ không phải HTTP 5xx: phía trình
+    duyệt chỉ cần hiện một dòng nhắn, còn cả trang tìm kiếm vẫn phải dùng được bình thường.
+    """
+    query = str(payload.get("query") or "").strip()
+    language = request_language(request, payload.get("language"))
+    if not query:
+        raise HTTPException(status_code=400, detail="Missing query.")
+    try:
+        return suggest_pali_keywords(query, language)
+    except Exception:
+        return {
+            "ok": False,
+            "query": query,
+            "mainKeyword": None,
+            "terms": [],
+            "error": t(language, "keywords.failed"),
+        }
 
 
 def _split_long_paragraph_safely(paragraph: str, max_chars: int) -> list[str]:

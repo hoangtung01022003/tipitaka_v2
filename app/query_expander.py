@@ -288,7 +288,16 @@ def expand_query_with_ai(query: str, clean_query: str = "", language: str = DEFA
             )
             expansion = QueryExpansion.model_validate_json(response.text or "{}")
             data = json.loads(expansion.model_dump_json())
-            for key in [
+            # Biến chạy phải tên khác `key`: `key` phía trên LÀ khoá đệm, và vòng lặp này
+            # từng dùng chính tên đó nên sau vòng lặp `key` mang giá trị "expandedQueries".
+            # Hậu quả là mọi truy vấn đều ghi đệm dưới cùng một khoá rác "expandedQueries",
+            # mà `on conflict do nothing` nên chỉ câu ĐẦU TIÊN được ghi và mọi câu sau bị
+            # bỏ lặng lẽ; chiều đọc thì tra bằng khoá băm thật nên không bao giờ khớp. Đo
+            # trên DB thật: cả bảng chỉ có 1 dòng `expansion` (so với 7 `keyword`, 359
+            # `rerank`) - tức đệm DB của phần mở rộng chưa từng chạy, mỗi lượt tìm kiếm đều
+            # tốn thêm một lượt gọi Gemini và khởi động lại server là cùng câu hỏi ra bộ
+            # thuật ngữ khác, đúng cái đệm này sinh ra để chặn.
+            for field in [
                 "paliHints",
                 "paliExactTerms",
                 "paliRelatedTerms",
@@ -297,7 +306,7 @@ def expand_query_with_ai(query: str, clean_query: str = "", language: str = DEFA
                 "avoidPali",
                 "expandedQueries",
             ]:
-                data[key] = _normalize_list(data.get(key) or [])
+                data[field] = _normalize_list(data.get(field) or [])
             if not _has_pali_search_terms(data):
                 continue
             _EXPANSION_CACHE[memory_key] = dict(data)
