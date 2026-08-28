@@ -792,10 +792,20 @@ def _retrieve_translation_candidates_for_docs(
     `indacanda_full`: đây là các chương song ngữ đã qua cổng tiêu đề đầu/cuối, phủ đúng
     một section/range liên tục. Kết quả range mở ở passage neo đầu chương, không giả vờ
     đoán câu Pāli nào bên trong chương tương ứng với câu Việt được dán.
+
+    Giá trị số thứ hai trả về là SỐ TỪ NỘI DUNG CÒN LẠI sau khi lọc (`len(terms)`), không
+    phải tổng số từ trong câu gốc - `_rank_candidates` dùng nó làm ngưỡng tin cậy để quyết
+    định có bỏ qua hẳn AI mở rộng truy vấn hay không (xem `TRANSLATION_QUOTE_MIN_WORDS`).
+    Đếm theo câu gốc từng cho "Tìm cho tôi bài kinh về từ bi" (8 từ) qua được ngưỡng 6, dù
+    "từ" và "bi" - hai chữ mang nghĩa duy nhất trong câu - đều bị lọc bỏ (xem
+    `_translation_query_words`), chỉ còn 3 từ chung chung `kinh/tìm/bài` là căn cứ. Cụm rác
+    đó vẫn khớp được vài dòng dịch bất kỳ trong DB, và vì ngưỡng chỉ nhìn số từ CÂU GỐC nên
+    bị coi là "khớp chắc chắn", bỏ qua luôn cả pipeline AI vốn ra đúng `metta`/`karuna` cho
+    câu này. Đếm theo số từ CÒN LẠI thì 3 < 6, không đạt ngưỡng, tự động rơi về pipeline AI.
     """
-    terms, word_count = _translation_query_words(query, language)
+    terms, _ = _translation_query_words(query, language)
     if not doc_ids or not terms:
-        return [], word_count
+        return [], len(terms)
     probe = " ".join(terms)
     rows = fetch_all(
         f"""
@@ -859,7 +869,7 @@ def _retrieve_translation_candidates_for_docs(
                 "concept": concept,
             }
         )
-    return candidates, word_count
+    return candidates, len(terms)
 
 
 @lru_cache(maxsize=1)
@@ -1407,13 +1417,19 @@ def _rank_candidates(
     # Một đoạn dịch dài đã được căn chỉnh là bằng chứng trực tiếp mạnh hơn suy luận của
     # Gemini. Dò nó trước; có kết quả thì bỏ hẳn hai lượt AI mở rộng/rerank, vừa chính xác
     # hơn vừa tránh timeout cho thao tác paste nguyên văn.
+    #
+    # Ngưỡng phải đếm theo SỐ TỪ NỘI DUNG CÒN LẠI sau lọc (`translation_term_count`), không
+    # phải tổng số từ câu gốc - xem lời giải thích đầy đủ trong docstring của
+    # `_retrieve_translation_candidates_for_docs`. Đo bằng câu gốc từng khiến câu hỏi thường
+    # "Tìm cho tôi bài kinh về từ bi" (8 từ, còn 3 từ chung chung sau lọc) bị coi là một đoạn
+    # dịch dán nguyên văn đáng tin cậy, bỏ qua toàn bộ pipeline AI đang chạy đúng.
     if not local_analysis.get("queryIsPaliLike"):
         doc_ids = _document_ids(corpus_types, pitaka_types)
-        direct_candidates, translation_word_count = _retrieve_translation_candidates_for_docs(
+        direct_candidates, translation_term_count = _retrieve_translation_candidates_for_docs(
             query, doc_ids, local_analysis, limit, language
         )
         direct_translation_quote = bool(
-            direct_candidates and translation_word_count >= TRANSLATION_QUOTE_MIN_WORDS
+            direct_candidates and translation_term_count >= TRANSLATION_QUOTE_MIN_WORDS
         )
         if direct_translation_quote:
             candidates = direct_candidates

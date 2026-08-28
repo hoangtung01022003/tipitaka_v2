@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lịch Sử Tra Cứu Từ Điển - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader {
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        border-bottom: 1px solid #374151;
+        text-align: center;
+      }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem {
+        display: block;
+        padding: 0.75rem 1.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: #ef4444;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: background 0.2s;
+      }
+      .logoutBtn:hover { background-color: #dc2626; }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+      }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .statsGrid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+      .statCard {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .statCard h3 {
+        font-size: 0.9rem;
+        color: #6b7280;
+        margin: 0 0 0.5rem 0;
+        text-transform: uppercase;
+      }
+      .statCard .statNum { font-size: 2rem; font-weight: 700; color: #111827; margin: 0; }
+      .topQueriesList { margin: 0; padding-left: 1.2rem; color: #374151; }
+      .topQueriesList li { margin-bottom: 0.4rem; }
+      .historyTableWrap {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      table.adminTable { width: 100%; border-collapse: collapse; text-align: left; }
+      table.adminTable th, table.adminTable td {
+        padding: 1rem 1.2rem;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      table.adminTable th {
+        background: #f9fafb;
+        color: #374151;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+      }
+      table.adminTable tr:hover { background: #f9fafb; }
+      .queryTag { font-weight: 600; color: #1e40af; }
+      .langBadge {
+        display: inline-block;
+        background: #eff6ff;
+        color: #1d4ed8;
+        padding: 0.2rem 0.55rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .dangerButton {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .dangerButton:hover { background: #dc2626; }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        margin-bottom: 1rem;
+      }
+      .toolbar input[type="text"] {
+        padding: 0.5rem 0.7rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-family: inherit;
+        min-width: 240px;
+      }
+      .toolbar label {
+        font-size: 0.9rem;
+        color: #374151;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .toolbarButton {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .toolbarButton.ghost { background: #e5e7eb; color: #374151; }
+      .pagination {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.2rem;
+        border-top: 1px solid #f3f4f6;
+        color: #6b7280;
+        font-size: 0.9rem;
+      }
+      .emptyBadge {
+        display: inline-block;
+        background: #fee2e2;
+        color: #b91c1c;
+        padding: 0.2rem 0.55rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .viewLink {
+        background: #2563eb;
+        color: #fff;
+        padding: 0.4rem 0.8rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        display: inline-block;
+      }
+      .viewLink:hover { background: #1d4ed8; }
+
+      /* Popup "Xem đầy đủ" - nhúng lại chính trang /dictionary bằng iframe thay vì dựng
+         lại phần hiển thị mục từ (bảng ngữ pháp, nút grammar/examples...) một lần nữa ở
+         đây - tránh trùng lặp và chắc chắn khớp y hệt những gì người dùng đã thấy. */
+      .modalOverlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 50;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+      }
+      .modalOverlay.active { opacity: 1; pointer-events: auto; }
+      .modalPanel {
+        background: white;
+        border-radius: 12px;
+        width: 92%;
+        max-width: 1000px;
+        height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+      }
+      .modalHeader {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+      }
+      .modalHeader h2 { margin: 0; font-size: 1.1rem; color: #111827; }
+      .closeModalBtn {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #6b7280;
+        line-height: 1;
+      }
+      .closeModalBtn:hover { color: #111827; }
+      .modalFrame { flex: 1; border: none; width: 100%; }
+    </style>
+    <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
+  </head>
+  <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+    {% set active_page = 'dictionary_history' %}
+    {% include '_admin_sidebar.html' %}
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <div>
+          <h1>Lịch Sử Tra Cứu Từ Điển</h1>
+          <p style="color: #6b7280; margin-top: 0.25rem;">Nhật ký các lượt tra từ điển Pāḷi (trang /dictionary) của mọi khách, kể cả chưa đăng nhập.</p>
+        </div>
+        <button class="dangerButton" id="clearLogsBtn" type="button">🗑 Xóa toàn bộ lịch sử</button>
+      </header>
+
+      <div class="statsGrid">
+        <div class="statCard">
+          <h3>Tổng số lượt tra cứu</h3>
+          <p class="statNum">{{ all_logs }}</p>
+        </div>
+        <div class="statCard">
+          <h3>Lượt tra không ra kết quả</h3>
+          <p class="statNum" style="color:#b91c1c;">{{ empty_logs }}</p>
+          <p style="color:#6b7280; font-size:0.85rem; margin:0.4rem 0 0;">Từ chưa có trong DPD, hoặc gõ sai chính tả - dấu hiệu để bổ sung hướng dẫn.</p>
+        </div>
+        <div class="statCard">
+          <h3>Từ/câu tra nhiều nhất</h3>
+          <ol class="topQueriesList">
+            {% for item in top_queries %}
+              <li><strong>{{ item.query }}</strong> <span style="color:#9ca3af; font-size:0.85em;">({{ item.count }} lần)</span></li>
+            {% else %}
+              <li>Chưa có dữ liệu</li>
+            {% endfor %}
+          </ol>
+        </div>
+      </div>
+
+      <form class="toolbar" method="get" action="/admin/dictionary-history">
+        <input type="text" name="q" value="{{ q }}" placeholder="Lọc theo từ/câu đã tra..." />
+        <label>
+          <input type="checkbox" name="only_empty" value="true" {% if only_empty %}checked{% endif %} />
+          Chỉ hiện không kết quả
+        </label>
+        <button class="toolbarButton" type="submit">Áp dụng</button>
+        <a class="toolbarButton ghost" href="/admin/dictionary-history" style="text-decoration:none;">Xóa bộ lọc</a>
+      </form>
+
+      <div class="historyTableWrap">
+        <table class="adminTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Thời gian</th>
+              <th>Tên người dùng</th>
+              <th>Từ/câu đã tra</th>
+              <th>Ngôn ngữ</th>
+              <th>Kết quả</th>
+              <th>Hành động</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            {% for log in logs %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
+                <td>{{ log.username or '' }}</td>
+                <td class="queryTag">{{ log.query }}</td>
+                <td><span class="langBadge">{{ log.language }}</span></td>
+                <td>
+                  {% if log.found %}
+                    Có kết quả
+                  {% else %}
+                    <span class="emptyBadge">0 kết quả</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <button class="viewLink" type="button" data-view-query="{{ log.query }}" data-view-language="{{ log.language }}">Xem đầy đủ</button>
+                </td>
+              </tr>
+            {% else %}
+              <tr id="historyEmptyRow">
+                <td colspan="7" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lịch sử tra cứu nào.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {# Mốc cuộn: khi nó lọt vào khung nhìn thì xin thêm một mẻ - cùng cơ chế với
+           /admin/history. #}
+        <div id="historySentinel" style="height: 1px;"></div>
+        <div class="pagination">
+          <span id="historyStatus">
+            Đang hiện <b id="historyShown">{{ logs | length }}</b> / {{ total_logs }} dòng khớp bộ lọc
+          </span>
+          <span id="historyLoading" style="display:none; color:#6b7280;">Đang tải thêm…</span>
+        </div>
+      </div>
+
+      <script>
+        (function () {
+          const body = document.getElementById('historyBody');
+          const sentinel = document.getElementById('historySentinel');
+          const shownEl = document.getElementById('historyShown');
+          const loadingEl = document.getElementById('historyLoading');
+          if (!body || !sentinel) return;
+
+          const BATCH = {{ batch }};
+          const params = new URLSearchParams({
+            q: {{ (q or '') | tojson }},
+            only_empty: {{ 'true' if only_empty else 'false' }},
+            limit: String(BATCH),
+          });
+
+          let shown = {{ logs | length }};
+          let hasMore = {{ 'true' if logs | length >= batch else 'false' }};
+          let busy = false;
+          let cursorTime = {{ (logs[-1].created_at.isoformat() if logs else '') | tojson }};
+          let cursorId = {{ (logs[-1].id | string if logs else '') | tojson }};
+
+          function cell(text) {
+            const td = document.createElement('td');
+            // textContent chứ không phải innerHTML: từ/câu đã tra là dữ liệu người dùng
+            // nhập, dựng bằng chuỗi HTML là mở đường cho script chèn vào trang admin.
+            td.textContent = text;
+            return td;
+          }
+
+          function addRow(row, index) {
+            const tr = document.createElement('tr');
+            tr.appendChild(cell(String(index)));
+            tr.appendChild(cell(row.time));
+            tr.appendChild(cell(row.username || ''));
+            const q = cell(row.query);
+            q.className = 'queryTag';
+            tr.appendChild(q);
+
+            const lang = document.createElement('td');
+            const langSpan = document.createElement('span');
+            langSpan.className = 'langBadge';
+            langSpan.textContent = row.language;
+            lang.appendChild(langSpan);
+            tr.appendChild(lang);
+
+            const found = document.createElement('td');
+            if (row.found) {
+              found.textContent = 'Có kết quả';
+            } else {
+              const badge = document.createElement('span');
+              badge.className = 'emptyBadge';
+              badge.textContent = '0 kết quả';
+              found.appendChild(badge);
+            }
+            tr.appendChild(found);
+
+            const action = document.createElement('td');
+            const button = document.createElement('button');
+            button.className = 'viewLink';
+            button.type = 'button';
+            // data-* thay vì gắn href/onclick dựng sẵn: `row.query` là dữ liệu người dùng
+            // đã gõ, đi qua thuộc tính DOM (setAttribute) là an toàn, không phải nối chuỗi
+            // vào HTML/JS. Bộ lắng nghe click chung ở #historyBody đọc lại đúng thuộc tính
+            // này, dùng chung với các dòng do Jinja dựng sẵn lúc tải trang.
+            button.setAttribute('data-view-query', row.query);
+            button.setAttribute('data-view-language', row.language);
+            button.textContent = 'Xem đầy đủ';
+            action.appendChild(button);
+            tr.appendChild(action);
+
+            body.appendChild(tr);
+          }
+
+          async function loadMore() {
+            if (busy || !hasMore) return;
+            busy = true;
+            loadingEl.style.display = '';
+            try {
+              params.set('before_time', cursorTime || '');
+              params.set('before_id', cursorId || '');
+              const res = await fetch('/api/admin/dictionary-history/rows?' + params.toString());
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const data = await res.json();
+              data.rows.forEach(function (row) {
+                shown += 1;
+                addRow(row, shown);
+                cursorTime = row.createdAt;
+                cursorId = row.id;
+              });
+              shownEl.textContent = String(shown);
+              hasMore = data.hasMore;
+              if (!hasMore) {
+                loadingEl.textContent = 'Đã hiện hết lịch sử.';
+                loadingEl.style.display = '';
+                observer.disconnect();
+                return;
+              }
+            } catch (err) {
+              loadingEl.textContent = 'Không tải thêm được. Cuộn lại để thử tiếp.';
+              hasMore = true;
+            } finally {
+              busy = false;
+              if (hasMore) loadingEl.style.display = 'none';
+            }
+          }
+
+          const observer = new IntersectionObserver(function (entries) {
+            if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
+          }, { rootMargin: '300px' });
+          observer.observe(sentinel);
+        })();
+      </script>
+
+      <div class="modalOverlay" id="detailModal">
+        <div class="modalPanel">
+          <div class="modalHeader">
+            <h2 id="modalTitle">Xem đầy đủ</h2>
+            <button class="closeModalBtn" type="button" id="closeModalBtn">&times;</button>
+          </div>
+          <iframe class="modalFrame" id="modalFrame" title="Kết quả tra cứu"></iframe>
+        </div>
+      </div>
+
+      <script>
+        // Một bộ lắng nghe chung cho MỌI nút "Xem đầy đủ" - cả những dòng Jinja dựng lúc
+        // tải trang lẫn những dòng JS thêm khi cuộn - thay vì gắn riêng từng nút.
+        document.getElementById('historyBody').addEventListener('click', function (event) {
+          const button = event.target.closest('[data-view-query]');
+          if (!button) return;
+          openModal(button.getAttribute('data-view-query'), button.getAttribute('data-view-language'));
+        });
+
+        function openModal(query, language) {
+          document.getElementById('modalTitle').textContent = 'Xem đầy đủ: "' + query + '"';
+          // Nhúng lại chính /dictionary bằng iframe - admin xem đúng những gì người dùng đã
+          // thấy (chạy lại lượt tra thật), mà không phải rời khỏi trang lịch sử.
+          document.getElementById('modalFrame').src =
+            '/dictionary?q=' + encodeURIComponent(query) + '&lang=' + encodeURIComponent(language) + '&embed=1';
+          document.getElementById('detailModal').classList.add('active');
+        }
+
+        function closeModal() {
+          document.getElementById('detailModal').classList.remove('active');
+          // Xoá src khi đóng: lần mở sau luôn tra lại từ đầu, không giữ nội dung cũ của
+          // lượt xem trước còn treo trong iframe.
+          document.getElementById('modalFrame').src = 'about:blank';
+        }
+
+        document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+        document.getElementById('detailModal').addEventListener('click', function (event) {
+          if (event.target.id === 'detailModal') closeModal();
+        });
+      </script>
+
+      <script>
+        document.getElementById("clearLogsBtn")?.addEventListener("click", async () => {
+          if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử tra cứu từ điển không?")) return;
+          try {
+            const res = await fetch("/api/admin/dictionary-history/clear", { method: "POST" });
+            const data = await res.json();
+            if (data.ok) {
+              alert("Đã xóa toàn bộ lịch sử thành công!");
+              window.location.reload();
+            } else {
+              alert("Lỗi: " + (data.message || "Không thể xóa lịch sử."));
+            }
+          } catch (err) {
+            alert("Lỗi kết nối: " + err.message);
+          }
+        });
+      </script>
+    </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+  </body>
+</html>

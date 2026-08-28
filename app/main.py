@@ -1839,13 +1839,22 @@ def feedback_page_route(request: Request, lang: str | None = Query(None)):
 
 
 @app.get("/dictionary", response_class=HTMLResponse)
-def dictionary_page(request: Request, q: str | None = Query(None), lang: str | None = Query(None)):
+def dictionary_page(
+    request: Request,
+    q: str | None = Query(None),
+    lang: str | None = Query(None),
+    embed: bool = Query(False),
+):
     """Trang người dùng: tra cứu từ điển Pāḷi (nguồn dpdict.net).
 
     `?q=` để mở thẳng một từ - cần cho việc gửi link và cho nút quay lại của trình duyệt.
     Nội dung mục từ KHÔNG dựng ở đây mà do client gọi `/api/dictionary/lookup`: một lượt tra
     mất ~2 giây lấy dữ liệu cộng với thời gian dịch, chờ đủ chừng đó rồi mới trả trang thì
     người dùng chỉ thấy trình duyệt đứng im.
+
+    `?embed=1` ẩn phần đầu trang/ô tìm kiếm/"Đã tra gần đây" bằng CSS, chỉ còn khối kết quả
+    - dùng khi nhúng trang này vào popup "Xem đầy đủ" ở `/admin/dictionary-history`, nơi
+    khung đó đã có sẵn tiêu đề và nút đóng riêng của popup.
     """
     language = request_language(request, lang)
     return templates.TemplateResponse(
@@ -1854,6 +1863,7 @@ def dictionary_page(request: Request, q: str | None = Query(None), lang: str | N
             request,
             language,
             initial_query=(q or "").strip(),
+            embed=embed,
             notice=get_notice(language),
             ga_measurement_id=settings().get("ga_measurement_id", ""),
         ),
@@ -1880,9 +1890,14 @@ def dictionary_lookup_api(
     """
     language = request_language(request, lang)
     try:
-        return dictionary.lookup(q, language, translate=translate)
+        result = dictionary.lookup(q, language, translate=translate)
     except dictionary.DictionaryError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    current_user = auth.get_current_user(request)
+    dictionary.log_lookup(
+        q, language, str(current_user["id"]) if current_user else None, bool(result.get("found"))
+    )
+    return result
 
 
 @app.get("/api/dictionary/lookup-phrase")
@@ -1898,7 +1913,11 @@ def dictionary_lookup_phrase_api(
     câu vào `/api/dictionary/lookup` thường xuyên ra rỗng dù các từ trong đó đều tra được.
     """
     language = request_language(request, lang)
-    return dictionary.lookup_phrase(q, language, translate=translate)
+    result = dictionary.lookup_phrase(q, language, translate=translate)
+    current_user = auth.get_current_user(request)
+    found = any(word.get("found") for word in result.get("words") or [])
+    dictionary.log_lookup(q, language, str(current_user["id"]) if current_user else None, found)
+    return result
 
 
 @app.get("/library", response_class=HTMLResponse)
@@ -2441,6 +2460,73 @@ def api_admin_history_detail(log_id: str, _: str = Depends(get_current_admin)):
 def clear_admin_history(_: str = Depends(get_current_admin)):
     execute("truncate table search_logs restart identity;")
     return {"ok": True, "message": "Đã xóa toàn bộ lịch sử tìm kiếm."}
+
+
+@app.get("/admin/dictionary-history", response_class=HTMLResponse)
+def admin_dictionary_history(
+    request: Request,
+    q: str = Query(""),
+    only_empty: bool = Query(False),
+    _: str = Depends(get_current_admin),
+):
+    keyword = q.strip()
+    logs = dictionary.history_rows(keyword, ADMIN_HISTORY_BATCH, only_empty=only_empty)
+    counts = dictionary.history_counts(keyword, only_empty)
+    return templates.TemplateResponse(
+        "admin_dictionary_history.html",
+        {
+            "request": request,
+            "logs": logs,
+            "total_logs": counts["filtered"],
+            "all_logs": counts["total"],
+            "empty_logs": counts["empty"],
+            "top_queries": dictionary.history_top_queries(),
+            "batch": ADMIN_HISTORY_BATCH,
+            "q": keyword,
+            "only_empty": only_empty,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
+@app.get("/api/admin/dictionary-history/rows")
+def api_admin_dictionary_history_rows(
+    q: str = Query(""),
+    only_empty: bool = Query(False),
+    limit: int = Query(ADMIN_HISTORY_BATCH, ge=1, le=ADMIN_HISTORY_MAX_BATCH),
+    before_time: str = Query(""),
+    before_id: str = Query(""),
+    _: str = Depends(get_current_admin),
+):
+    """Mẻ lịch sử tiếp theo cho cuộn vô hạn ở `/admin/dictionary-history`.
+
+    Xin dư MỘT dòng rồi cắt bỏ, để biết còn dữ liệu phía sau hay không mà không phải chạy
+    thêm một câu `count(*)` cho mỗi lần cuộn - giống hệt `/api/admin/history/rows`.
+    """
+    rows = dictionary.history_rows(
+        q.strip(), limit + 1, before_time or None, before_id or None, only_empty
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    payload = [
+        {
+            "id": str(row["id"]),
+            "time": row["created_at"].strftime("%H:%M:%S %d/%m/%Y") if row.get("created_at") else "N/A",
+            "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
+            "username": row.get("username") or "",
+            "query": row["query"],
+            "language": row.get("language") or "",
+            "found": bool(row.get("found")),
+        }
+        for row in rows
+    ]
+    return {"rows": payload, "hasMore": has_more}
+
+
+@app.post("/api/admin/dictionary-history/clear")
+def clear_admin_dictionary_history(_: str = Depends(get_current_admin)):
+    dictionary.clear_history()
+    return {"ok": True, "message": "Đã xóa toàn bộ lịch sử tra cứu từ điển."}
 
 
 @app.get("/admin/help-feedback", response_class=HTMLResponse)

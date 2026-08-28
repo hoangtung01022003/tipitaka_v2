@@ -162,8 +162,22 @@ def merge_expansion(local: dict, ai: dict | None) -> dict:
 
 
 def _is_retryable_error(exc: Exception) -> bool:
+    """Model này lỗi thì có nên thử model tiếp theo trong danh sách hay dừng hẳn.
+
+    Trước đây timeout (504/DEADLINE_EXCEEDED) KHÔNG nằm trong danh sách, nên một model bị
+    treo là dừng cả vòng lặp, kể cả khi các model phía sau vẫn khoẻ mạnh - đo thật với
+    "Sắc ý vật": model đầu 404 (đã ngừng phục vụ), model hai timeout, vòng lặp dừng ở đó và
+    trả về None dù model thứ ba trả lời tốt trong 1 giây. Server error 5xx nói chung cũng
+    là lỗi phía Google, không phải lỗi của prompt/model cụ thể, nên cũng nên thử tiếp.
+    """
     message = str(exc).lower()
-    return any(part in message for part in ["429", "quota", "rate", "resource_exhausted", "404", "not found", "unsupported"])
+    return any(
+        part in message
+        for part in [
+            "429", "quota", "rate", "resource_exhausted", "404", "not found", "unsupported",
+            "500", "502", "503", "504", "deadline", "timeout", "unavailable", "internal",
+        ]
+    )
 
 
 # Phần prompt PHỤ THUỘC ngôn ngữ của người hỏi. Đầu ra thì luôn là Pali cho mọi ngôn ngữ -

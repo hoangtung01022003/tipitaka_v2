@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ t('dictionary.pageTitle') }}</title>
     <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
-    <link rel="stylesheet" href="/static/dictionary.css?v=20260827-5" />
+    <link rel="stylesheet" href="/static/dictionary.css?v=20260828-1" />
     {% if ga_measurement_id %}
     <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
     <script src="/static/daily-notice.js?v=20260822-daily"></script>
@@ -19,7 +19,7 @@
   </head>
   <body>
     <main
-      class="dictPage"
+      class="dictPage{% if embed %} dictPage--embed{% endif %}"
       id="dictPage"
       data-lang="{{ lang }}"
       data-initial-query="{{ initial_query }}"
@@ -80,6 +80,6 @@
       </div>
     </main>
 
-    <script src="/static/dictionary.js?v=20260827-5"></script>
+    <script src="/static/dictionary.js?v=20260828-1"></script>
   </body>
 </html>

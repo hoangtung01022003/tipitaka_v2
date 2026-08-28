@@ -62,6 +62,21 @@
   // yêu cầu cũ về SAU yêu cầu mới thì sẽ đè kết quả đúng bằng kết quả cũ.
   var requestId = 0;
 
+  // Chặn gửi trùng: bấm đúp hoặc chuột bị "click chatter" (lỗi phần cứng khá phổ biến,
+  // một cú bấm sinh hai sự kiện click) gửi hai yêu cầu giống hệt nhau cách nhau vài chục
+  // mili-giây - đo thật bằng cách mô phỏng 2 click liên tiếp: 86ms. Server vẫn xử lý đúng
+  // cả hai (không có gì hỏng), chỉ là lịch sử tra cứu bị ghi trùng dòng. Không phân biệt
+  // được với "muốn tra lại đúng từ đó ngay lập tức", nhưng tình huống đó cực hiếm trong
+  // chưa đầy 1 giây.
+  var DUPLICATE_GUARD_MS = 700;
+  var lastSubmitted = { key: null, time: 0 };
+  function isDuplicateSubmit(key) {
+    var now = Date.now();
+    if (lastSubmitted.key === key && now - lastSubmitted.time < DUPLICATE_GUARD_MS) return true;
+    lastSubmitted = { key: key, time: now };
+    return false;
+  }
+
   /* ------------------------------------------------------------ gợi ý khi gõ */
 
   function hideSuggestions() {
@@ -198,6 +213,7 @@
     // không phải chuỗi sẽ biến thành từ khoá "undefined"/"null" và đem đi tra thật.
     if (typeof word !== "string" || !word.trim()) return;
     word = word.trim();
+    if (isDuplicateSubmit("word:" + word)) return;
 
     var mine = ++requestId;
     hideSuggestions();
@@ -266,6 +282,8 @@
   /* -------------------------------------------------- tra nguyên câu/dòng kệ */
 
   function lookupPhrase(text) {
+    if (isDuplicateSubmit("phrase:" + text)) return;
+
     var mine = ++requestId;
     hideSuggestions();
     input.value = text;

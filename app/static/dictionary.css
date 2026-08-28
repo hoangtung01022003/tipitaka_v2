@@ -141,6 +141,29 @@
   color: var(--accent);
 }
 
+/* ------------------------------------------------------- chế độ nhúng (popup admin) */
+
+/* `?embed=1` (xem `main.py`, dùng cho popup "Xem đầy đủ" ở /admin/dictionary-history):
+   ẩn phần đầu trang/ô tìm kiếm/"Đã tra gần đây" bằng CSS chứ KHÔNG bỏ khỏi HTML - bỏ khỏi
+   HTML thì các `document.getElementById(...)` trong dictionary.js sẽ trả về null và ném
+   lỗi ngay dòng đầu dùng tới, hỏng luôn cả phần tra cứu. Ẩn bằng CSS thì mọi phần tử vẫn
+   tồn tại, JS chạy y hệt bình thường, chỉ là không ai nhìn thấy khung ngoài. */
+.dictPage--embed {
+  padding-top: 20px;
+}
+
+.dictPage--embed .dictBack,
+.dictPage--embed > h1,
+.dictPage--embed .dictIntro,
+.dictPage--embed .dictSearchBar,
+.dictPage--embed .dictHistory {
+  display: none;
+}
+
+.dictPage--embed .dictLayout {
+  grid-template-columns: 1fr;
+}
+
 /* ---------------------------------------------------------- bố cục hai cột */
 
 .dictLayout {

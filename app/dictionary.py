@@ -30,6 +30,7 @@ from threading import Lock
 
 import httpx
 
+from .db import execute, fetch_all, fetch_one
 from .i18n import DEFAULT_LANGUAGE, normalize_language
 from .normalize import normalize_pali
 from .translator import translate_dictionary_glosses
@@ -395,3 +396,100 @@ def _attach_translations(entries: list[dict], language: str) -> None:
         return
     for entry, text in zip(targets, translated):
         entry["translation"] = text
+
+
+# --------------------------------------------------------------------------------------
+# Lịch sử tra cứu (admin xem ở /admin/dictionary-history)
+# --------------------------------------------------------------------------------------
+#
+# Ghi MỌI lượt tra, không đợi người dùng bấm lưu gì - cùng triết lý với `search_logs` của
+# tìm kiếm kinh điển ("There is no way to search without logging", xem CLAUDE.md). Khác
+# hẳn "Đã tra gần đây" trong `localStorage` phía trình duyệt (riêng của từng máy, admin
+# không xem được) - đây là nhật ký chung, dùng để admin biết khách tra gì, từ nào chưa ra
+# nghĩa, và mở lại đúng kết quả khi cần.
+
+HISTORY_MAX_QUERY_CHARS = 500
+
+
+def log_lookup(query: str, language: str, user_id: str | None, found: bool) -> None:
+    query = (query or "").strip()[:HISTORY_MAX_QUERY_CHARS]
+    if not query:
+        return
+    execute(
+        "insert into dictionary_search_logs (user_id, query, language, found) values (%s, %s, %s, %s)",
+        [user_id, query, normalize_language(language), bool(found)],
+    )
+
+
+def history_rows(
+    keyword: str,
+    limit: int,
+    before_time: str | None = None,
+    before_id: str | None = None,
+    only_empty: bool = False,
+) -> list[dict]:
+    """Một mẻ lịch sử, cũ dần kể từ mốc `before`.
+
+    Phân trang theo CON TRỎ `(created_at, id)`, không theo `offset` - bảng được ghi thêm
+    liên tục trong lúc admin đang cuộn nên offset sẽ lệch, y hệt lý do `_admin_history_rows`
+    (search_logs) đã áp dụng cách này.
+    """
+    conditions: list[str] = []
+    params: list[object] = []
+    if keyword:
+        conditions.append("d.query ilike %s")
+        params.append(f"%{keyword}%")
+    if only_empty:
+        conditions.append("d.found = false")
+    if before_time and before_id:
+        conditions.append("(d.created_at, d.id) < (%s::timestamptz, %s::uuid)")
+        params.extend([before_time, before_id])
+    where_sql = ("where " + " and ".join(conditions)) if conditions else ""
+    return fetch_all(
+        f"""
+        select d.id, d.query, d.language, d.found, d.created_at, u.username
+        from dictionary_search_logs d
+        left join users u on d.user_id = u.id
+        {where_sql}
+        order by d.created_at desc, d.id desc
+        limit %s
+        """,
+        [*params, limit],
+    )
+
+
+def history_counts(keyword: str, only_empty: bool) -> dict:
+    """Số dòng khớp bộ lọc hiện tại, cộng vài số liệu tổng quan cho đầu trang admin."""
+    conditions: list[str] = []
+    params: list[object] = []
+    if keyword:
+        conditions.append("query ilike %s")
+        params.append(f"%{keyword}%")
+    if only_empty:
+        conditions.append("found = false")
+    where_sql = ("where " + " and ".join(conditions)) if conditions else ""
+    filtered = fetch_one(f"select count(*) as cnt from dictionary_search_logs {where_sql}", params)
+    total = fetch_one("select count(*) as cnt from dictionary_search_logs")
+    empty = fetch_one("select count(*) as cnt from dictionary_search_logs where found = false")
+    return {
+        "filtered": int(filtered["cnt"]) if filtered else 0,
+        "total": int(total["cnt"]) if total else 0,
+        "empty": int(empty["cnt"]) if empty else 0,
+    }
+
+
+def history_top_queries(limit: int = 10) -> list[dict]:
+    return fetch_all(
+        """
+        select query, count(*) as count
+        from dictionary_search_logs
+        group by query
+        order by count desc
+        limit %s
+        """,
+        [limit],
+    )
+
+
+def clear_history() -> None:
+    execute("delete from dictionary_search_logs")
