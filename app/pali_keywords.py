@@ -39,7 +39,7 @@ from threading import Lock
 from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
 
-from .db import execute, fetch_all
+from .db import execute, fetch_all, fetch_one
 from .glossary import analyze_query, canonicalize_query
 from .i18n import DEFAULT_LANGUAGE, normalize_language
 from .normalize import normalize_pali
@@ -63,6 +63,11 @@ MAX_TERM_CANDIDATES = 10
 # Bỏ hư từ Pāḷi. Cụm AI trả về hay kèm `vā`, `ca`, `hi`, `pi`, `na` - có mặt khắp nơi
 # trong kho nên qua được cửa kiểm tra tồn tại, nhưng làm từ khoá thì vô dụng.
 MIN_TERM_LENGTH = 4
+
+# Ngưỡng cho CÂU PĀḶI TRỌN VẸN - xem `_resolve_full_sentence` để biết vì sao để lỏng.
+# Dưới 4 chữ nội dung thì không còn là một câu, chỉ là cụm - đã có mục riêng cho cụm rồi.
+FULL_SENTENCE_MIN_WORDS = 4
+FULL_SENTENCE_MIN_REAL_RATIO = 0.6
 
 # Số cụm ứng viên xin AI đưa ra cho "cụm chính". Xin NHIỀU (6) chứ không ít, vì bộ lọc
 # nguyên văn bên dưới loại rất mạnh tay: đo thật thì 2/3 ứng viên của prompt cũ không hề
@@ -149,6 +154,9 @@ _VARIANT_LOCK = Lock()
 class _DeepKeywordResult(BaseModel):
     identified: str = ""
     reasoning: str = ""
+    # MỘT câu / bài kệ Pāḷi trọn vẹn. Đo thật, đây là loại từ khoá cho kết quả tốt NHẤT -
+    # xem `_resolve_full_sentence`.
+    fullSentence: str = ""
     # Tên bài kinh viết bằng Pāḷi, XIN NHIỀU CÁCH VIẾT. Đây là trường cho từ khoá tốt nhất
     # (xem `_resolve_sutta_name`), nhưng mỗi ấn bản đặt tên một khác nên phải xin vài cách:
     # câu "người mù sờ voi" được AI gọi là "Tittha Sutta" (tên bên SuttaCentral) trong khi
@@ -345,7 +353,17 @@ def _deep_keyword_prompt(query: str) -> str:
             "   câu chuyện hoặc đoạn giáo lý CỤ THỂ mà bạn nhận ra không - dù người hỏi không",
             "   nhớ tên bài kinh? Đừng chỉ tóm tắt lại câu hỏi.",
             "",
-            "2. `suttaNames` - PHẦN QUAN TRỌNG NHẤT. Nếu nhận ra, hãy cho 2-4 CÁCH VIẾT PĀḶI",
+            "2. `fullSentence` - MỘT CÂU PĀḶI TRỌN VẸN, chép nguyên văn từ chính đoạn kinh đó.",
+            "   Phải là một câu hoàn chỉnh hoặc một bài kệ trọn vẹn (khoảng 6-20 chữ), không",
+            "   phải mẩu cụt. Đây là câu đặc trưng nhất, đáng nhớ nhất của đoạn kinh - câu mà",
+            "   người đọc kinh sẽ nhận ra ngay.",
+            "   Ví dụ dạng mong muốn:",
+            "     \"kullūpamaṁ vo, bhikkhave, dhammaṁ desessāmi nittharaṇatthāya no gahaṇatthāya\"",
+            "     \"tena hi, bhaṇe, jaccandhānaṁ hatthiṁ dassehīti\"",
+            "   Không nhớ chắc cả câu thì cứ đưa phần bạn nhớ chắc nhất, miễn còn đọc ra một",
+            "   câu; để trống chỉ khi hoàn toàn không nhớ được câu nào.",
+            "",
+            "3. `suttaNames` - Nếu nhận ra, hãy cho 2-4 CÁCH VIẾT PĀḶI",
             "   khác nhau của TÊN bài kinh đó, chỉ tên thôi, KHÔNG kèm tên bộ/tạng/số hiệu.",
             "   Mỗi ấn bản đặt tên một khác, nên hãy liệt kê cả tên ngắn lẫn tên dài đầy đủ,",
             "   cả cách viết của ấn bản Miến (CST/Chaṭṭha Saṅgāyana) lẫn cách viết phổ biến.",
@@ -353,11 +371,11 @@ def _deep_keyword_prompt(query: str) -> str:
             "   [\"Cūḷamālukyasutta\", \"Cūḷamālunkyovādasutta\"].",
             "   Không chắc thì cứ đưa phỏng đoán tốt nhất; để trống chỉ khi hoàn toàn mù tịt.",
             "",
-            f"3. `candidates` - {DEEP_CANDIDATE_COUNT} CỤM TỪ KHOÁ PĀḶI trích từ THÂN bài kinh,",
+            f"4. `candidates` - {DEEP_CANDIDATE_COUNT} CỤM TỪ KHOÁ PĀḶI trích từ THÂN bài kinh,",
             "   khác nhau thật sự (không phải biến thể chính tả của cùng một cụm), xếp theo độ",
             "   tin cậy giảm dần.",
             "",
-            "BA YÊU CẦU BẮT BUỘC cho mỗi cụm ở mục 3, quan trọng hơn mọi thứ khác:",
+            "BA YÊU CẦU BẮT BUỘC cho mỗi cụm ở mục 4, quan trọng hơn mọi thứ khác:",
             "a. PHẢI TỪ 2 ĐẾN 4 CHỮ. TUYỆT ĐỐI KHÔNG đưa từ đơn lẻ. Một chữ đứng một mình mang",
             "   nghĩa quá rộng, khớp hàng trăm bài không liên quan; hai chữ đi cùng nhau mới đủ",
             "   thu hẹp về đúng đoạn kinh cần tìm.",
@@ -373,9 +391,10 @@ def _deep_keyword_prompt(query: str) -> str:
             "   vật, đồ vật, hình ảnh ẩn dụ cụ thể). TRÁNH thuật ngữ giáo lý phổ thông xuất hiện",
             "   khắp Tam Tạng - chúng khớp hàng trăm bài không liên quan và làm chìm mất bài đúng.",
             "",
-            "Không trả lời nội dung kinh, không dịch, không giải thích ngoài JSON.",
+            "Không dịch, không giải thích ngoài JSON.",
             "Trả JSON thuần:",
-            '{"identified":"","reasoning":"","suttaNames":["",""],"candidates":["",""]}',
+            '{"identified":"","reasoning":"","fullSentence":"",'
+            '"suttaNames":["",""],"candidates":["",""]}',
         ]
     )
 
@@ -476,14 +495,17 @@ def _deep_keyword_payload(query: str, language: str) -> dict:
     return variants[index % len(variants)]
 
 
-def extract_main_keyword_deep(query: str, language: str) -> tuple[str | None, list[str]]:
+def extract_main_keyword_deep(
+    query: str, language: str
+) -> tuple[str | None, list[str], str | None]:
     """Suy luận sâu để tìm "cụm từ khoá chính" - HOÀN TOÀN ĐỘC LẬP với pipeline tìm kiếm
     chính (không gọi, không lùi về `extract_search_keyword_with_ai`), xem docstring đầu
     file để biết vì sao cần tách riêng.
 
-    Trả `(cụm_tốt_nhất_đã_kiểm_chứng, các_cụm_khác_còn_dùng_được)` - vế thứ hai được
+    Trả `(cụm_tốt_nhất, các_cụm_khác, câu_trọn_vẹn)`. Vế thứ hai được
     `suggest_pali_keywords` gộp vào nhóm "cụm dài" của danh sách gợi ý phụ, tận dụng luôn
-    những ứng viên đã trả tiền cho một lượt gọi AI thay vì bỏ phí.
+    những ứng viên đã trả tiền cho một lượt gọi AI thay vì bỏ phí. Vế thứ ba là loại từ
+    khoá cho kết quả tốt nhất - xem `_resolve_full_sentence`.
 
     Trả `(None, [])` khi AI không đưa ra được cụm nào tồn tại thật trong kho - KHÔNG có
     lưới an toàn nào khác. `suggest_pali_keywords` khi đó chỉ đơn giản không hiện "Cụm từ
@@ -494,6 +516,7 @@ def extract_main_keyword_deep(query: str, language: str) -> tuple[str | None, li
     hỏi lại AI mỗi lần - xem `_deep_keyword_payload` và khối hằng số đầu file.
     """
     cached = _deep_keyword_payload(query, language)
+    full_sentence = _resolve_full_sentence(str(cached.get("fullSentence") or ""))
 
     # `_resolve_*` trả về DẠNG DÙNG ĐƯỢC của ứng viên, có thể chỉ là một phần của thứ AI
     # đưa ra - nên phải bỏ trùng SAU khi rút gọn: hai ứng viên khác nhau của AI hoàn toàn
@@ -535,13 +558,14 @@ def extract_main_keyword_deep(query: str, language: str) -> tuple[str | None, li
 
     if not resolved:
         # Không ứng viên nào lấy một chữ có thật trong kho. AI bịa hoàn toàn cho câu hỏi
-        # này, không phải một cụm gần đúng còn cứu được.
-        return None, []
+        # này, không phải một cụm gần đúng còn cứu được. Câu trọn vẹn vẫn trả về nếu qua
+        # được cửa của nó - hai thứ được xác thực độc lập với nhau.
+        return None, [], full_sentence
 
     resolved.sort(key=lambda item: item[0], reverse=True)
     best = resolved[0][1]
     others = [phrase for _, phrase in resolved[1:]]
-    return best, others
+    return best, others, full_sentence
 
 
 def _normalized_set(values: list[str]) -> set[str]:
@@ -564,6 +588,40 @@ def _pick_terms(values: list[str], avoid: set[str]) -> list[str]:
         seen.add(term)
         output.append(term)
     return output
+
+
+def _resolve_full_sentence(raw_sentence: str) -> str | None:
+    """Xác thực CÂU PĀḶI TRỌN VẸN do AI chép ra, trả về nguyên văn để khách copy.
+
+    Đây là loại từ khoá cho kết quả TỐT NHẤT trong mọi loại đã thử. Đo thật bằng cách tìm
+    kiếm bằng chính câu đó, so với dùng tên bài kinh của cùng câu hỏi:
+
+        kullūpamaṁ vo, bhikkhave, dhammaṁ desessāmi...  3,315  (tên bài kinh: 2,576)
+        na tāvāhaṁ imaṁ sallaṁ āharissāmi...            3,283  (tên bài kinh: 2,259)
+        tena hi, bhaṇe, jaccandhānaṁ hatthiṁ dassehīti  2,765  (đúng bài ở CẢ top 3)
+
+    **Ngưỡng để lỏng là có cơ sở, không phải dễ dãi.** Cả câu chỉ cần phần lớn chữ có thật
+    là đủ, vì pipeline tìm kiếm chịu lỗi rất tốt với chuỗi dài: đo thật, câu trên khi bị
+    nhét thêm một chữ bịa hoàn toàn (`xyzabca`) VẪN trả về đúng `Alagaddūpamasuttaṃ` ở
+    hạng 1, và khi chia sai một vĩ tố (`desessāmi` -> `desemi`) cũng vậy. Bắt câu phải
+    đúng 100% thì loại oan gần hết, trong khi hại của một chữ sai gần như bằng không.
+
+    Giữ NGUYÊN dấu Pāḷi và dấu câu của AI, không chuẩn hoá: đây là thứ khách đọc và copy
+    như một dòng kinh, `kullūpamaṁ vo, bhikkhave` dễ đọc hơn hẳn `kullupamam vo bhikkhave`.
+    Tìm kiếm tự chuẩn hoá đầu vào nên không ảnh hưởng gì.
+    """
+    sentence = " ".join(str(raw_sentence or "").split())
+    if not sentence:
+        return None
+
+    words = [word for word in normalize_pali(sentence).split() if len(word) >= MIN_TERM_LENGTH]
+    if len(words) < FULL_SENTENCE_MIN_WORDS:
+        return None
+
+    existing = sum(1 for word in words if _phrase_frequency(word) > 0)
+    if existing / len(words) < FULL_SENTENCE_MIN_REAL_RATIO:
+        return None
+    return sentence
 
 
 def _is_usable_term(term: str) -> bool:
@@ -624,7 +682,13 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
     query = str(query or "").strip()
     language = normalize_language(language)
     if not query:
-        return {"ok": False, "query": "", "mainKeyword": None, "terms": []}
+        return {
+            "ok": False,
+            "query": "",
+            "fullSentence": None,
+            "mainKeyword": None,
+            "terms": [],
+        }
 
     clean_query = canonicalize_query(query) or query
 
@@ -632,7 +696,7 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
     # AI suy luận sâu không ra được cụm nào tồn tại thật trong kho thì `main_keyword` là
     # `None`, và kết quả trả về đơn giản không có "Cụm từ khoá chính" - xem docstring của
     # `extract_main_keyword_deep`.
-    main_keyword, deep_alt_candidates = extract_main_keyword_deep(query, language)
+    main_keyword, deep_alt_candidates, full_sentence = extract_main_keyword_deep(query, language)
 
     expansion = expand_query_with_ai(query, clean_query, language) or {}
     local = analyze_query(query, ["all"])
@@ -684,8 +748,103 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
     terms = [term for term in candidates if _is_usable_term(term)][:MAX_TERMS]
 
     return {
-        "ok": bool(main_keyword or terms),
+        "ok": bool(main_keyword or terms or full_sentence),
+        "fullSentence": full_sentence,
         "query": query,
         "mainKeyword": main_keyword or None,
         "terms": terms,
     }
+
+
+# ---------------------------------------------------------------------------
+# Nhật ký "Lấy Từ khoá Pāḷi" - xem `db/migrations/013_pali_keyword_logs.sql`
+#
+# Ghi MỌI lượt bấm, không đợi ai bấm lưu gì - cùng triết lý với `search_logs` và
+# `dictionary_search_logs`. Khách hỏi thẳng: "em muốn xem câu hỏi gốc của mn là gì", nên
+# thứ phải lưu là CÂU HỎI NGUYÊN VĂN cộng bộ từ khoá đã trả về, chứ không phải chỉ thống kê.
+# ---------------------------------------------------------------------------
+
+# Câu hỏi ở đây có thể là cả một đoạn kinh dán vào (đo thật: khách đã dán một đoạn chú
+# giải ~2.000 ký tự), nên trần rộng hơn hẳn `dictionary.HISTORY_MAX_QUERY_CHARS` (500) -
+# cắt ở 500 là mất luôn phần đuôi mà admin cần đọc để hiểu người ta đang hỏi gì.
+LOG_MAX_QUERY_CHARS = 4000
+
+
+def log_keyword_request(query: str, language: str, user_id: str | None, result: dict) -> None:
+    """Ghi lại một lượt lấy từ khoá. Không bao giờ làm hỏng request của khách."""
+    query = str(query or "").strip()[:LOG_MAX_QUERY_CHARS]
+    if not query:
+        return
+    payload = {
+        "fullSentence": result.get("fullSentence"),
+        "mainKeyword": result.get("mainKeyword"),
+        "terms": result.get("terms") or [],
+    }
+    has_result = bool(payload["fullSentence"] or payload["mainKeyword"] or payload["terms"])
+    try:
+        execute(
+            "insert into pali_keyword_logs (user_id, query, language, keywords, has_result) "
+            "values (%s, %s, %s, %s, %s)",
+            [user_id, query, normalize_language(language), Jsonb(payload), has_result],
+        )
+    except Exception:  # noqa: BLE001 - chua chay migration thi van phai tra tu khoa cho khach
+        pass
+
+
+def history_rows(
+    keyword: str,
+    limit: int,
+    before_time: str | None = None,
+    before_id: str | None = None,
+    only_empty: bool = False,
+) -> list[dict]:
+    """Một mẻ lịch sử, cũ dần kể từ mốc `before`.
+
+    Phân trang theo CON TRỎ `(created_at, id)` chứ không theo `offset`, vì bảng vẫn được
+    ghi thêm trong lúc admin đang cuộn - cùng lý do đã áp dụng ở `dictionary.history_rows`.
+    """
+    conditions: list[str] = []
+    params: list[object] = []
+    if keyword:
+        conditions.append("k.query ilike %s")
+        params.append(f"%{keyword}%")
+    if only_empty:
+        conditions.append("k.has_result = false")
+    if before_time and before_id:
+        conditions.append("(k.created_at, k.id) < (%s::timestamptz, %s::uuid)")
+        params.extend([before_time, before_id])
+    where_sql = ("where " + " and ".join(conditions)) if conditions else ""
+    return fetch_all(
+        f"""
+        select k.id, k.query, k.language, k.keywords, k.has_result, k.created_at, u.username
+        from pali_keyword_logs k
+        left join users u on k.user_id = u.id
+        {where_sql}
+        order by k.created_at desc, k.id desc
+        limit %s
+        """,
+        [*params, limit],
+    )
+
+
+def history_counts(keyword: str, only_empty: bool) -> dict:
+    conditions: list[str] = []
+    params: list[object] = []
+    if keyword:
+        conditions.append("query ilike %s")
+        params.append(f"%{keyword}%")
+    if only_empty:
+        conditions.append("has_result = false")
+    where_sql = ("where " + " and ".join(conditions)) if conditions else ""
+    filtered = fetch_one(f"select count(*) as cnt from pali_keyword_logs {where_sql}", params)
+    total = fetch_one("select count(*) as cnt from pali_keyword_logs")
+    empty = fetch_one("select count(*) as cnt from pali_keyword_logs where has_result = false")
+    return {
+        "filtered": int(filtered["cnt"]) if filtered else 0,
+        "total": int(total["cnt"]) if total else 0,
+        "empty": int(empty["cnt"]) if empty else 0,
+    }
+
+
+def clear_history() -> None:
+    execute("delete from pali_keyword_logs")

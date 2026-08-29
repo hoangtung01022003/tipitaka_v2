@@ -36,6 +36,7 @@ from .i18n import (
     ui_strings,
 )
 from .notice import get_notice, get_notice_config, save_notice
+from . import pali_keywords
 from .pali_keywords import suggest_pali_keywords
 from .search_tips import get_search_tips, get_search_tips_config, save_search_tips
 from .normalize import normalize_pali
@@ -1184,11 +1185,17 @@ def pali_keywords_api(payload: dict, request: Request):
     if not query:
         raise HTTPException(status_code=400, detail="Missing query.")
     try:
-        return suggest_pali_keywords(query, language)
+        result = suggest_pali_keywords(query, language)
+        current_user = auth.get_current_user(request)
+        pali_keywords.log_keyword_request(
+            query, language, str(current_user["id"]) if current_user else None, result
+        )
+        return result
     except Exception:
         return {
             "ok": False,
             "query": query,
+            "fullSentence": None,
             "mainKeyword": None,
             "terms": [],
             "error": t(language, "keywords.failed"),
@@ -2555,6 +2562,76 @@ def api_admin_dictionary_history_rows(
 def clear_admin_dictionary_history(_: str = Depends(get_current_admin)):
     dictionary.clear_history()
     return {"ok": True, "message": "Đã xóa toàn bộ lịch sử tra cứu từ điển."}
+
+
+@app.get("/admin/keyword-history", response_class=HTMLResponse)
+def admin_keyword_history(
+    request: Request,
+    q: str = Query(""),
+    only_empty: bool = Query(False),
+    _: str = Depends(get_current_admin),
+):
+    """Nhật ký nút "Lấy Từ khoá Pāḷi" - câu hỏi gốc của khách và bộ từ khoá đã trả về.
+
+    Trang RIÊNG, không gộp vào `/admin/history`: đó là lịch sử TÌM KIẾM (có bộ lọc Tạng,
+    có danh sách passage trả về), còn đây là một thao tác khác hẳn - xem đầu
+    `013_pali_keyword_logs.sql`.
+    """
+    keyword = q.strip()
+    logs = pali_keywords.history_rows(keyword, ADMIN_HISTORY_BATCH, only_empty=only_empty)
+    counts = pali_keywords.history_counts(keyword, only_empty)
+    return templates.TemplateResponse(
+        "admin_keyword_history.html",
+        {
+            "request": request,
+            "logs": logs,
+            "total_logs": counts["filtered"],
+            "all_logs": counts["total"],
+            "empty_logs": counts["empty"],
+            "batch": ADMIN_HISTORY_BATCH,
+            "q": keyword,
+            "only_empty": only_empty,
+            "ga_measurement_id": settings().get("ga_measurement_id", ""),
+        },
+    )
+
+
+@app.get("/api/admin/keyword-history/rows")
+def api_admin_keyword_history_rows(
+    q: str = Query(""),
+    only_empty: bool = Query(False),
+    limit: int = Query(ADMIN_HISTORY_BATCH, ge=1, le=ADMIN_HISTORY_MAX_BATCH),
+    before_time: str = Query(""),
+    before_id: str = Query(""),
+    _: str = Depends(get_current_admin),
+):
+    """Mẻ tiếp theo cho cuộn vô hạn. Xin dư MỘT dòng rồi cắt bỏ để biết còn dữ liệu phía
+    sau hay không mà không phải chạy thêm `count(*)` mỗi lần cuộn - giống hai trang kia."""
+    rows = pali_keywords.history_rows(
+        q.strip(), limit + 1, before_time or None, before_id or None, only_empty
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    payload = [
+        {
+            "id": str(row["id"]),
+            "time": row["created_at"].strftime("%H:%M:%S %d/%m/%Y") if row.get("created_at") else "N/A",
+            "createdAt": row["created_at"].isoformat() if row.get("created_at") else "",
+            "username": row.get("username") or "",
+            "query": row["query"],
+            "language": row.get("language") or "",
+            "hasResult": bool(row.get("has_result")),
+            "keywords": row.get("keywords") or {},
+        }
+        for row in rows
+    ]
+    return {"rows": payload, "hasMore": has_more}
+
+
+@app.post("/api/admin/keyword-history/clear")
+def clear_admin_keyword_history(_: str = Depends(get_current_admin)):
+    pali_keywords.clear_history()
+    return {"ok": True, "message": "Đã xóa toàn bộ lịch sử lấy từ khoá Pāḷi."}
 
 
 @app.get("/admin/help-feedback", response_class=HTMLResponse)

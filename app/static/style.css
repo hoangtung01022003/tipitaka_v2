@@ -1733,6 +1733,23 @@ body.modalOpen {
   background: var(--accent-soft);
 }
 
+/* Câu Pāḷi trọn vẹn: dài gấp nhiều lần một từ khoá, nên cho chữ chiếm trọn một dòng và
+   đẩy hai nút xuống dưới, thay vì bóp chữ lại để nhường chỗ cho nút. */
+.keywordRow.sentence {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.keywordRow.sentence .keywordText {
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+.keywordRow.sentence .keywordActions {
+  justify-content: flex-end;
+}
+
 /* Từ khoá vừa bấm "Tìm ngay". Bảng giờ ở lại sau khi tìm để còn thử tiếp từ khoá khác,
    nên phải chỉ rõ kết quả bên dưới đang thuộc về dòng nào. Dùng viền trái đậm chứ không
    đổi nền, để dấu này không đè lên dấu riêng của `.keywordRow.main`. */

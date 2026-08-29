@@ -665,10 +665,15 @@
 
       // `escapeHtml` thoát cả dấu nháy kép nên chuỗi dùng lại được làm giá trị thuộc tính;
       // đọc ngược ra bằng `dataset` thì trình duyệt tự trả về chuỗi gốc chưa thoát.
-      function keywordRowHtml(keyword, isMain) {
+      // `variant`: "sentence" cho câu Pāḷi trọn vẹn - nó dài hơn hẳn một từ khoá nên cần
+      // xuống dòng riêng thay vì chen cùng hàng với hai nút.
+      function keywordRowHtml(keyword, isMain, variant) {
         const safe = escapeHtml(keyword);
+        const classes = ["keywordRow"];
+        if (isMain) classes.push("main");
+        if (variant === "sentence") classes.push("sentence");
         return `
-          <div class="keywordRow${isMain ? " main" : ""}">
+          <div class="${classes.join(" ")}">
             <code class="keywordText">${safe}</code>
             <span class="keywordActions">
               <button class="button secondary compact" type="button" data-keyword-copy="${safe}">${escapeHtml(tr("keywords.copy"))}</button>
@@ -694,9 +699,16 @@
           <p class="meta">${escapeHtml(tr("keywords.hint"))}</p>`,
         ];
 
+        // Câu Pāḷi trọn vẹn đứng ĐẦU: đo thật, đây là loại từ khoá cho điểm cao nhất
+        // (3,315 so với 2,576 của tên bài kinh trên cùng một câu hỏi).
+        if (payload.fullSentence) {
+          parts.push(`<p class="keywordLabel">${escapeHtml(tr("keywords.sentenceLabel"))}</p>`);
+          parts.push(keywordRowHtml(payload.fullSentence, true, "sentence"));
+        }
+
         if (payload.mainKeyword) {
           parts.push(`<p class="keywordLabel">${escapeHtml(tr("keywords.mainLabel"))}</p>`);
-          parts.push(keywordRowHtml(payload.mainKeyword, true));
+          parts.push(keywordRowHtml(payload.mainKeyword, !payload.fullSentence));
         }
 
         const terms = Array.isArray(payload.terms) ? payload.terms : [];

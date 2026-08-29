@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lịch Sử Lấy Từ Khoá Pāḷi - Admin Tipiṭaka</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260826-1" />
+    {% if ga_measurement_id %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ ga_measurement_id }}');
+    </script>
+    {% endif %}
+    <style>
+      body {
+        margin: 0;
+        background-color: #f3f4f6;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 250px;
+        background-color: #1f2937;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+      }
+      .sidebarHeader {
+        padding: 1.5rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        border-bottom: 1px solid #374151;
+        text-align: center;
+      }
+      .sidebarMenu { flex: 1; padding: 1rem 0; }
+      .menuItem {
+        display: block;
+        padding: 0.75rem 1.5rem;
+        color: #d1d5db;
+        text-decoration: none;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+      .menuItem:hover, .menuItem.active { background-color: #374151; color: white; }
+      .sidebarFooter { padding: 1rem; border-top: 1px solid #374151; }
+      .logoutBtn {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        text-align: center;
+        background-color: #ef4444;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: background 0.2s;
+      }
+      .logoutBtn:hover { background-color: #dc2626; }
+      .mainContent { flex: 1; padding: 2rem; overflow-y: auto; }
+      .adminHeader {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+      }
+      .adminHeader h1 { margin: 0; font-size: 1.8rem; color: #111827; }
+      .statsGrid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+      .statCard {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .statCard h3 {
+        font-size: 0.9rem;
+        color: #6b7280;
+        margin: 0 0 0.5rem 0;
+        text-transform: uppercase;
+      }
+      .statCard .statNum { font-size: 2rem; font-weight: 700; color: #111827; margin: 0; }
+      .historyTableWrap {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      table.adminTable { width: 100%; border-collapse: collapse; text-align: left; }
+      table.adminTable th, table.adminTable td {
+        padding: 1rem 1.2rem;
+        border-bottom: 1px solid #f3f4f6;
+        vertical-align: top;
+      }
+      table.adminTable th {
+        background: #f9fafb;
+        color: #374151;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+      }
+      table.adminTable tr:hover { background: #f9fafb; }
+
+      /* Câu hỏi gốc là thứ khách muốn xem nhất ("em muốn xem câu hỏi gốc của mn là gì"),
+         nhưng có thể dài cả nghìn chữ khi người ta dán nguyên đoạn kinh. Cắt còn ~4 dòng
+         và cho bấm để bung ra, thay vì để một dòng đẩy cả bảng cao vống lên. */
+      .queryCell { max-width: 460px; color: #111827; line-height: 1.5; }
+      .queryText {
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .queryCell.expanded .queryText { -webkit-line-clamp: unset; }
+      .queryToggle {
+        background: none;
+        border: none;
+        color: #2563eb;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0.25rem 0;
+      }
+
+      .kwBlock { display: grid; gap: 0.35rem; max-width: 420px; }
+      .kwLine { font-size: 0.88rem; line-height: 1.45; overflow-wrap: anywhere; }
+      .kwLabel { color: #6b7280; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; }
+      .kwSentence { color: #7c2d12; font-family: Georgia, "Times New Roman", serif; }
+      .kwMain { color: #1e40af; font-weight: 600; }
+      .kwTerm {
+        display: inline-block;
+        background: #f3f4f6;
+        border-radius: 9999px;
+        padding: 0.12rem 0.5rem;
+        margin: 0 0.25rem 0.25rem 0;
+        font-size: 0.8rem;
+        color: #374151;
+      }
+      .langBadge {
+        display: inline-block;
+        background: #eff6ff;
+        color: #1d4ed8;
+        padding: 0.2rem 0.55rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .emptyBadge {
+        display: inline-block;
+        background: #fee2e2;
+        color: #b91c1c;
+        padding: 0.2rem 0.55rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .dangerButton {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .dangerButton:hover { background: #dc2626; }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        margin-bottom: 1rem;
+      }
+      .toolbar input[type="text"] {
+        padding: 0.5rem 0.7rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-family: inherit;
+        min-width: 240px;
+      }
+      .toolbar label {
+        font-size: 0.9rem;
+        color: #374151;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .toolbarButton {
+        background: #2563eb;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .toolbarButton.ghost { background: #e5e7eb; color: #374151; }
+      .pagination {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.2rem;
+        border-top: 1px solid #f3f4f6;
+        color: #6b7280;
+        font-size: 0.9rem;
+      }
+    </style>
+    <link rel="stylesheet" href="/static/admin-mobile.css?v=20260813-responsive" />
+  </head>
+  <body>
+    <header class="adminMobileTopbar">
+      <button class="adminMenuToggle" type="button" data-admin-menu-toggle aria-controls="adminSidebar" aria-expanded="false" aria-label="Mở menu quản trị">
+        <span></span><span></span><span></span>
+      </button>
+      <span class="adminMobileBrand">Tipiṭaka Admin</span>
+    </header>
+    {% set active_page = 'keyword_history' %}
+    {% include '_admin_sidebar.html' %}
+
+    <main class="mainContent">
+      <header class="adminHeader">
+        <div>
+          <h1>Lịch Sử Lấy Từ Khoá Pāḷi</h1>
+          <p style="color: #6b7280; margin-top: 0.25rem;">Câu hỏi gốc khách đã nhập và bộ từ khoá Pāḷi trả về, mỗi lần bấm nút "Lấy Từ khoá Pāḷi (Tìm kiếm nâng cao)".</p>
+        </div>
+        <button class="dangerButton" id="clearLogsBtn" type="button">🗑 Xóa toàn bộ lịch sử</button>
+      </header>
+
+      <div class="statsGrid">
+        <div class="statCard">
+          <h3>Tổng số lượt lấy từ khoá</h3>
+          <p class="statNum">{{ all_logs }}</p>
+        </div>
+        <div class="statCard">
+          <h3>Lượt không ra từ khoá nào</h3>
+          <p class="statNum" style="color:#b91c1c;">{{ empty_logs }}</p>
+          <p style="color:#6b7280; font-size:0.85rem; margin:0.4rem 0 0;">Đây là loại câu hỏi đáng xem nhất - chỗ chức năng đang hụt.</p>
+        </div>
+      </div>
+
+      <form class="toolbar" method="get" action="/admin/keyword-history">
+        <input type="text" name="q" value="{{ q }}" placeholder="Lọc theo câu hỏi gốc..." />
+        <label>
+          <input type="checkbox" name="only_empty" value="true" {% if only_empty %}checked{% endif %} />
+          Chỉ hiện lượt không ra từ khoá
+        </label>
+        <button class="toolbarButton" type="submit">Áp dụng</button>
+        <a class="toolbarButton ghost" href="/admin/keyword-history" style="text-decoration:none;">Xóa bộ lọc</a>
+      </form>
+
+      <div class="historyTableWrap">
+        <table class="adminTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Thời gian</th>
+              <th>Người dùng</th>
+              <th>Câu hỏi gốc</th>
+              <th>Từ khoá trả về</th>
+              <th>Ngôn ngữ</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            {% for log in logs %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ log.created_at.strftime('%H:%M:%S %d/%m/%Y') if log.created_at else 'N/A' }}</td>
+                <td>{{ log.username or '' }}</td>
+                <td class="queryCell">
+                  <div class="queryText">{{ log.query }}</div>
+                  <button class="queryToggle" type="button" data-query-toggle>Xem đầy đủ</button>
+                </td>
+                <td>
+                  {% if log.has_result %}
+                    <div class="kwBlock">
+                      {% if log.keywords and log.keywords.fullSentence %}
+                        <div class="kwLine"><span class="kwLabel">Câu trọn vẹn</span><br /><span class="kwSentence">{{ log.keywords.fullSentence }}</span></div>
+                      {% endif %}
+                      {% if log.keywords and log.keywords.mainKeyword %}
+                        <div class="kwLine"><span class="kwLabel">Cụm chính</span><br /><span class="kwMain">{{ log.keywords.mainKeyword }}</span></div>
+                      {% endif %}
+                      {% if log.keywords and log.keywords.terms %}
+                        <div class="kwLine">
+                          <span class="kwLabel">Gợi ý phụ</span><br />
+                          {% for term in log.keywords.terms %}<span class="kwTerm">{{ term }}</span>{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <span class="emptyBadge">Không ra từ khoá</span>
+                  {% endif %}
+                </td>
+                <td><span class="langBadge">{{ log.language }}</span></td>
+              </tr>
+            {% else %}
+              <tr id="historyEmptyRow">
+                <td colspan="6" style="text-align: center; color: #9ca3af; padding: 2rem;">Chưa có lượt lấy từ khoá nào.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {# Mốc cuộn: lọt vào khung nhìn thì xin thêm một mẻ - cùng cơ chế với hai trang
+           lịch sử kia. #}
+        <div id="historySentinel" style="height: 1px;"></div>
+        <div class="pagination">
+          <span id="historyStatus">
+            Đang hiện <b id="historyShown">{{ logs | length }}</b> / {{ total_logs }} dòng khớp bộ lọc
+          </span>
+          <span id="historyLoading" style="display:none; color:#6b7280;">Đang tải thêm…</span>
+        </div>
+      </div>
+
+      <script>
+        (function () {
+          const body = document.getElementById('historyBody');
+          const sentinel = document.getElementById('historySentinel');
+          const shownEl = document.getElementById('historyShown');
+          const loadingEl = document.getElementById('historyLoading');
+          if (!body || !sentinel) return;
+
+          const BATCH = {{ batch }};
+          const params = new URLSearchParams({
+            q: {{ (q or '') | tojson }},
+            only_empty: {{ 'true' if only_empty else 'false' }},
+            limit: String(BATCH),
+          });
+
+          let shown = {{ logs | length }};
+          let hasMore = {{ 'true' if logs | length >= batch else 'false' }};
+          let busy = false;
+          let cursorTime = {{ (logs[-1].created_at.isoformat() if logs else '') | tojson }};
+          let cursorId = {{ (logs[-1].id | string if logs else '') | tojson }};
+
+          function cell(text) {
+            const td = document.createElement('td');
+            // textContent chứ không phải innerHTML: câu hỏi gốc là chữ người dùng tự gõ,
+            // dựng bằng chuỗi HTML là mở đường cho script chèn vào trang admin.
+            td.textContent = text;
+            return td;
+          }
+
+          function keywordCell(row) {
+            const td = document.createElement('td');
+            if (!row.hasResult) {
+              const badge = document.createElement('span');
+              badge.className = 'emptyBadge';
+              badge.textContent = 'Không ra từ khoá';
+              td.appendChild(badge);
+              return td;
+            }
+            const wrap = document.createElement('div');
+            wrap.className = 'kwBlock';
+            const kw = row.keywords || {};
+
+            function labelled(labelText, valueText, valueClass) {
+              const line = document.createElement('div');
+              line.className = 'kwLine';
+              const label = document.createElement('span');
+              label.className = 'kwLabel';
+              label.textContent = labelText;
+              line.appendChild(label);
+              line.appendChild(document.createElement('br'));
+              const value = document.createElement('span');
+              value.className = valueClass;
+              value.textContent = valueText;
+              line.appendChild(value);
+              wrap.appendChild(line);
+            }
+
+            if (kw.fullSentence) labelled('Câu trọn vẹn', kw.fullSentence, 'kwSentence');
+            if (kw.mainKeyword) labelled('Cụm chính', kw.mainKeyword, 'kwMain');
+            if (Array.isArray(kw.terms) && kw.terms.length) {
+              const line = document.createElement('div');
+              line.className = 'kwLine';
+              const label = document.createElement('span');
+              label.className = 'kwLabel';
+              label.textContent = 'Gợi ý phụ';
+              line.appendChild(label);
+              line.appendChild(document.createElement('br'));
+              kw.terms.forEach(function (term) {
+                const chip = document.createElement('span');
+                chip.className = 'kwTerm';
+                chip.textContent = term;
+                line.appendChild(chip);
+              });
+              wrap.appendChild(line);
+            }
+            td.appendChild(wrap);
+            return td;
+          }
+
+          function addRow(row, index) {
+            const tr = document.createElement('tr');
+            tr.appendChild(cell(String(index)));
+            tr.appendChild(cell(row.time));
+            tr.appendChild(cell(row.username || ''));
+
+            const queryTd = document.createElement('td');
+            queryTd.className = 'queryCell';
+            const text = document.createElement('div');
+            text.className = 'queryText';
+            text.textContent = row.query;
+            queryTd.appendChild(text);
+            const toggle = document.createElement('button');
+            toggle.className = 'queryToggle';
+            toggle.type = 'button';
+            toggle.setAttribute('data-query-toggle', '');
+            toggle.textContent = 'Xem đầy đủ';
+            queryTd.appendChild(toggle);
+            tr.appendChild(queryTd);
+
+            tr.appendChild(keywordCell(row));
+
+            const lang = document.createElement('td');
+            const langSpan = document.createElement('span');
+            langSpan.className = 'langBadge';
+            langSpan.textContent = row.language;
+            lang.appendChild(langSpan);
+            tr.appendChild(lang);
+
+            body.appendChild(tr);
+          }
+
+          async function loadMore() {
+            if (busy || !hasMore) return;
+            busy = true;
+            loadingEl.style.display = '';
+            try {
+              params.set('before_time', cursorTime || '');
+              params.set('before_id', cursorId || '');
+              const res = await fetch('/api/admin/keyword-history/rows?' + params.toString());
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const data = await res.json();
+              data.rows.forEach(function (row) {
+                shown += 1;
+                addRow(row, shown);
+                cursorTime = row.createdAt;
+                cursorId = row.id;
+              });
+              shownEl.textContent = String(shown);
+              hasMore = data.hasMore;
+              if (!hasMore) {
+                loadingEl.textContent = 'Đã hiện hết lịch sử.';
+                loadingEl.style.display = '';
+                observer.disconnect();
+                return;
+              }
+            } catch (err) {
+              loadingEl.textContent = 'Không tải thêm được. Cuộn lại để thử tiếp.';
+              hasMore = true;
+            } finally {
+              busy = false;
+              if (hasMore) loadingEl.style.display = 'none';
+            }
+          }
+
+          const observer = new IntersectionObserver(function (entries) {
+            if (entries.some(function (e) { return e.isIntersecting; })) loadMore();
+          }, { rootMargin: '300px' });
+          observer.observe(sentinel);
+
+          // Một bộ lắng nghe chung cho MỌI nút "Xem đầy đủ" - cả dòng Jinja dựng sẵn lẫn
+          // dòng JS thêm khi cuộn.
+          body.addEventListener('click', function (event) {
+            const button = event.target.closest('[data-query-toggle]');
+            if (!button) return;
+            const cellEl = button.closest('.queryCell');
+            const expanded = cellEl.classList.toggle('expanded');
+            button.textContent = expanded ? 'Thu gọn' : 'Xem đầy đủ';
+          });
+        })();
+      </script>
+
+      <script>
+        document.getElementById("clearLogsBtn")?.addEventListener("click", async () => {
+          if (!confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử lấy từ khoá Pāḷi không?")) return;
+          try {
+            const res = await fetch("/api/admin/keyword-history/clear", { method: "POST" });
+            const data = await res.json();
+            if (data.ok) {
+              alert("Đã xóa toàn bộ lịch sử thành công!");
+              window.location.reload();
+            } else {
+              alert("Lỗi: " + (data.message || "Không thể xóa lịch sử."));
+            }
+          } catch (err) {
+            alert("Lỗi kết nối: " + err.message);
+          }
+        });
+      </script>
+    </main>
+    <script src="/static/admin-mobile.js?v=20260813-responsive"></script>
+  </body>
+</html>
