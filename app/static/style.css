@@ -1733,6 +1733,22 @@ body.modalOpen {
   background: var(--accent-soft);
 }
 
+/* Từ khoá vừa bấm "Tìm ngay". Bảng giờ ở lại sau khi tìm để còn thử tiếp từ khoá khác,
+   nên phải chỉ rõ kết quả bên dưới đang thuộc về dòng nào. Dùng viền trái đậm chứ không
+   đổi nền, để dấu này không đè lên dấu riêng của `.keywordRow.main`. */
+.keywordRow.active {
+  border-left: 4px solid var(--accent);
+  padding-left: 10px;
+  box-shadow: inset 0 0 0 1px rgba(159, 50, 50, 0.25);
+}
+
+.keywordUsageNote {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
 .keywordText {
   /* Cùng bộ chữ với `.pali`: dấu Pāḷi (ā ḷ ṃ ṭ) hiện rõ hơn hẳn so với font giao diện. */
   font-family: Georgia, "Times New Roman", serif;

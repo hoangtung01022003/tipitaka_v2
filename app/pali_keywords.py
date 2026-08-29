@@ -35,34 +35,25 @@ có "cụm chính" để hiện - đã được khách xác nhận chấp nhận
 from functools import lru_cache
 
 from pydantic import BaseModel, Field
-from psycopg.types.json import Jsonb
 
-from .db import execute, fetch_all, fetch_one
+from .db import fetch_all
 from .glossary import analyze_query, canonicalize_query
 from .i18n import DEFAULT_LANGUAGE, normalize_language
 from .normalize import normalize_pali
 from .query_expander import (
-    _cache_key,
     _client,
     _is_retryable_error,
     _keyword_models,
     expand_query_with_ai,
 )
 
-# Dùng lại bộ lọc của pipeline tìm kiếm chứ KHÔNG chép lại (một bản sao sẽ trôi khỏi bản
-# gốc). AI hay bịa ra từ Pāḷi không tồn tại - đo thật: nó trả `pariyācana`, từ này có mặt
-# trong ĐÚNG 0 đoạn của toàn kho. Trong tìm kiếm thì từ ma chỉ làm lệch xếp hạng; ở đây
-# hậu quả nặng hơn vì khách COPY đúng từ đó đem đi tìm rồi nhận về 0 kết quả và mất tin
-# vào chức năng.
-from .search_engine import _existing_pali_terms
-
 # Số thuật ngữ hiện ra cho khách, KHÔNG TÍNH cụm chính - khách yêu cầu "khoảng 5 kết quả
 # (bao gồm cả key chính)", nên 4 + 1 cụm chính = 5.
 MAX_TERMS = 4
 
-# Số ứng viên tối đa đem đi kiểm tra sự tồn tại. `_existing_pali_terms` chạy một truy vấn
-# cho mỗi từ (có `lru_cache`), nên phải chặn trần trước khi lọc - dư ra so với `MAX_TERMS`
-# vì vài ứng viên đầu bảng có thể là từ AI bịa, không tồn tại trong kho.
+# Số ứng viên tối đa đem đi kiểm tra sự tồn tại. `_is_usable_term` chạy một truy vấn cho
+# mỗi mục (có `lru_cache`), nên phải chặn trần trước khi lọc - dư ra so với `MAX_TERMS` vì
+# vài ứng viên đầu bảng có thể là từ AI bịa, không tồn tại trong kho.
 MAX_TERM_CANDIDATES = 10
 
 # Bỏ hư từ Pāḷi. Cụm AI trả về hay kèm `vā`, `ca`, `hi`, `pi`, `na` - có mặt khắp nơi
@@ -111,15 +102,20 @@ COLLECTION_WORDS = {
     "truong", "tuong", "tang", "chi", "tieu", "bo",
 }
 
-# Đổi chuỗi này khi đổi PROMPT hay cách chấm điểm bên dưới - đệm cũ sẽ tự động bị bỏ qua
-# vì nằm khác `pipeline_version`, không phải xoá tay trong DB.
-DEEP_KEYWORD_KIND = "deep_keyword"
-DEEP_KEYWORD_PROMPT_VERSION = "v3-sutta-name-first"
-
-# Đệm trong tiến trình - tránh round-trip xuống DB khi cùng một câu hỏi được hỏi lại
-# nhiều lần trong cùng một phiên chạy server (giống `_EXPANSION_CACHE`/`_KEYWORD_CACHE`
-# của `query_expander.py`).
-_DEEP_KEYWORD_CACHE: dict[tuple[str, str], dict] = {}
+# **KHÔNG ĐỆM lượt suy luận này** - cố ý, theo yêu cầu của khách: "hỏi đúng câu đó cứ bị
+# lặp lại". Bản trước đệm cả trong tiến trình lẫn dưới DB (`query_ai_cache`), nên bấm lại
+# nút trên cùng một câu hỏi luôn ra y hệt bộ từ khoá cũ - trong khi khách bấm lại CHÍNH LÀ
+# để xin một bộ khác mà thử.
+#
+# Đây là đánh đổi ngược hẳn với phần còn lại của dự án, nên nói rõ để đừng ai "sửa lại cho
+# nhất quán": ở chỗ khác Gemini phải được đệm để cùng câu hỏi cho cùng kết quả (xem
+# `003_query_cache.sql`), còn ở đây tính bất định của Gemini chính là thứ đang được dùng.
+# Cái giá là mỗi lần bấm tốn một lượt gọi Gemini, và bộ từ khoá có thể tốt xấu khác nhau
+# giữa hai lần bấm liền kề.
+#
+# `expand_query_with_ai` (danh sách "thuật ngữ liên quan") VẪN đệm như cũ và không được
+# đụng tới: đệm đó dùng chung với pipeline tìm kiếm chính, bỏ nó đi là làm kết quả tìm
+# kiếm mất ổn định - đúng thứ đệm đó sinh ra để chặn.
 
 
 class _DeepKeywordResult(BaseModel):
@@ -188,36 +184,6 @@ def _resolve_sutta_name(raw_name: str) -> str | None:
     return best
 
 
-def _deep_cache_get(key: str) -> dict | None:
-    """Đọc đệm riêng của lượt suy luận sâu - KHÔNG dùng `query_expander._cache_get`, vì
-    hàm đó khoá cứng theo `PIPELINE_VERSION` của module kia. Versioning ở đây phải độc
-    lập: đổi prompt suy luận sâu không được phép vô tình làm mất hiệu lực đệm mở rộng
-    truy vấn của pipeline chính, và ngược lại.
-    """
-    try:
-        row = fetch_one(
-            "select payload from query_ai_cache where cache_key = %s and kind = %s and pipeline_version = %s",
-            [key, DEEP_KEYWORD_KIND, DEEP_KEYWORD_PROMPT_VERSION],
-        )
-    except Exception:  # noqa: BLE001 - chua chay migration thi coi nhu chua co cache
-        return None
-    return row["payload"] if row else None
-
-
-def _deep_cache_put(key: str, payload: dict) -> None:
-    try:
-        execute(
-            """
-            insert into query_ai_cache (cache_key, kind, pipeline_version, payload)
-            values (%s, %s, %s, %s)
-            on conflict (cache_key, kind, pipeline_version) do nothing
-            """,
-            [key, DEEP_KEYWORD_KIND, DEEP_KEYWORD_PROMPT_VERSION, Jsonb(payload)],
-        )
-    except Exception:  # noqa: BLE001
-        pass
-
-
 @lru_cache(maxsize=4096)
 def _phrase_frequency(phrase: str) -> int:
     """Số đoạn chứa cụm này NGUYÊN VĂN, đếm có chặn trần ở `PHRASE_FREQ_CAP`.
@@ -241,39 +207,48 @@ def _rarity(frequency: int) -> float:
     return (PHRASE_FREQ_CAP - min(frequency, PHRASE_FREQ_CAP)) / PHRASE_FREQ_CAP
 
 
-def _contiguous_subphrases(words: list[str]):
-    """Các cụm con LIÊN TIẾP, dài trước ngắn sau, tối thiểu 2 từ.
+@lru_cache(maxsize=2048)
+def _cooccurrence_count(phrase: str) -> int:
+    """Số đoạn chứa TẤT CẢ các từ của cụm, KHÔNG đòi chúng nằm liền nhau.
 
-    Để cứu cụm AI chia sai MỘT chỗ: `jaccandhānaṃ hatthiṃ dassesi` mà `dassesi` sai thì
-    `jaccandhānaṃ hatthiṃ` vẫn là chữ thật trong kinh và vẫn tìm ra đúng bài.
+    Đây mới là phép đo đúng, vì công cụ tìm kiếm cũng làm y như vậy: nó AND các token
+    rời (`_tsquery_for_quote`), không đòi kề nhau. Đo bằng "nguyên văn liền nhau" là đo
+    sai thứ - xem `_resolve_candidate`.
     """
-    for size in range(len(words), 1, -1):
-        for start in range(len(words) - size + 1):
-            yield " ".join(words[start : start + size])
+    tokens = [word for word in phrase.split() if len(word) >= MIN_TERM_LENGTH]
+    if not tokens:
+        return 0
+    where = " and ".join(["normalized_pali like %s"] * len(tokens))
+    rows = fetch_all(
+        f"select 1 as ok from passages where {where} limit %s",
+        [*[f"%{token}%" for token in tokens], PHRASE_FREQ_CAP],
+    )
+    return len(rows)
 
 
 def _resolve_candidate(candidate: str) -> tuple[float, str] | None:
     """Chấm điểm MỘT ứng viên AI, và trả về dạng thực sự dùng được của nó.
 
-    **Tín hiệu quyết định là CỤM CÓ TỒN TẠI NGUYÊN VĂN TRONG KHO HAY KHÔNG.** Đo thật
-    trên câu "người mù sờ voi", tra từng ứng viên rồi chạy tìm kiếm bằng chính nó:
+    **GIỮ NGUYÊN CỤM NHIỀU TỪ.** Bản trước đòi cụm phải xuất hiện NGUYÊN VĂN LIỀN NHAU
+    trong kho, không thì bóp xuống còn một từ đơn. Luật đó sai, và sai nặng: đo trên chính
+    các cụm Gemini đưa ra cho khách, **5/6 cụm không hề tồn tại nguyên văn** dù ba trong số
+    đó tìm kiếm rất tốt:
 
-        jaccandhanam hatthim dassehi   1 đoạn  -> đúng bài, điểm 4,809 (cả top 3)
-        jaccandha hatthi               3 đoạn  -> đúng bài, điểm 2,824
-        jaccandha                    100 đoạn  -> đúng bài, điểm 1,699
-        andha hatthi dassana           0 đoạn  -> SAI bài
-        yavanti titthiya samanabrahmana 0 đoạn -> SAI bài
-        titthiya                    500+ đoạn  -> SAI bài
+        buddho pi buddhassa bhaneyya vannam   liền nhau 0 · AND 23 -> Namakkāraṭīkā (1,540)
+        buddho pi buddhassa bhaneyya          liền nhau 0 · AND 23 -> Buddhaguṇakathā (1,507)
+        khiyetha kappo                        liền nhau 23 · AND 26 -> Kappavināsakaṇḍo (1,246)
+        kappam pi ce titthati dighamayum      liền nhau 0 · AND  0 -> không truy hồi được
+        khiyyayyati kappo na hi buddhavanno   liền nhau 0 · AND  0 -> không truy hồi được
+        na tveva vanno sugatassa khiyyati     liền nhau 0 · AND  0 -> không truy hồi được
 
-    Ranh giới đúng/sai trùng khít với "có nguyên văn hay không", và cụm nguyên văn còn
-    thắng xa cả câu tiếng Việt đầy đủ (4,809 so với 2,243). Nên thứ hạng phải do nó quyết
-    định, độ hiếm chỉ dùng để so hai cụm cùng hạng.
+    Ranh giới dùng được / không dùng được nằm ở cột **AND** chứ không phải cột liền nhau,
+    vì công cụ tìm kiếm cũng AND các token rời. Đòi liền nhau thì giết 5/6 cụm chất lượng
+    Gemini và biến chúng thành từ đơn kiểu `dhamma` - đúng cái khách phàn nàn "từ đơn mang
+    nghĩa rộng quá".
 
-    Bản trước chấm 1.0 cho cụm nguyên văn và `số_từ_có_thật/tổng_số_từ` cho phần còn lại -
-    hỏng đúng ở đây: `andha hatthi dassana` không hề có nguyên văn nhưng cả ba từ đều tồn
-    tại riêng lẻ nên cũng được 3/3 = 1.0, HOÀ điểm với một cụm thật, rồi thắng nhờ đứng
-    trước trong danh sách. Vì vậy nhánh không-nguyên-văn giờ bị dìm hẳn xuống thang điểm
-    thấp hơn, không bao giờ đuổi kịp một cụm nguyên văn.
+    Vẫn phải LỌC TỪ BỊA: bỏ riêng những chữ không tồn tại trong kho rồi mới đo lại, thay vì
+    vứt cả cụm. `kappaṃ pi ce tiṭṭhati dīghamāyuṃ` chết cả cụm chỉ vì `dighamayum` là dạng
+    AI tự chia; bỏ chữ đó đi thì phần còn lại vẫn tìm được.
 
     Trả `None` khi không cứu được gì.
     """
@@ -284,26 +259,37 @@ def _resolve_candidate(candidate: str) -> tuple[float, str] | None:
     if not words:
         return None
 
-    # Hạng 1 - cụm NHIỀU TỪ có nguyên văn. Dài trước, nên cụm càng dài càng đặc trưng và
-    # được cộng thêm theo số từ; gặp cái đầu tiên là dừng, không cần dò tiếp cụm ngắn hơn.
-    if len(words) >= 2:
-        for phrase in _contiguous_subphrases(words):
-            frequency = _phrase_frequency(phrase)
-            if frequency > 0:
-                score = (
-                    MULTIWORD_BASE_SCORE
-                    + len(phrase.split()) * MULTIWORD_LENGTH_BONUS
-                    + _rarity(frequency)
-                )
-                return score, phrase
-
-    # Hạng 2 - từ đơn có thật và chưa quá phổ thông. `titthiya` (500+ đoạn) bị loại ở đây:
-    # từ phổ thông kéo kết quả về những bài chỉ trùng chủ đề chứ không phải bài đang tìm.
+    # Bỏ những chữ AI tự chia sai / bịa ra. Giữ THỨ TỰ gốc để cụm còn đọc được như một
+    # dòng kinh, không sắp xếp lại.
     existing = [(word, _phrase_frequency(word)) for word in words]
     existing = [(word, freq) for word, freq in existing if freq > 0]
     if not existing:
         return None
 
+    # Hạng 1 - CỤM NHIỀU TỪ. Cụm càng nhiều chữ càng thu hẹp kết quả nên càng đặc trưng;
+    # `_cooccurrence_count` là số đoạn chứa đủ mọi chữ, ít hơn thì đúng trọng tâm hơn.
+    #
+    # Không đòi đủ CẢ cụm ngay: một chữ phổ thông trong đó cũng đủ kéo phép AND về rỗng dù
+    # phần còn lại rất đúng. Đo thật với `kullaṁ upamaṁ katvā` - cả ba chữ đều có thật
+    # (`kullam` 30 đoạn, `upamam` và `katva` mỗi chữ 400+), nhưng không đoạn nào chứa đủ ba,
+    # nên bản trước bóp cả cụm xuống còn mỗi `kullam`. Bỏ dần chữ PHỔ THÔNG NHẤT rồi thử
+    # lại thì giữ được phần đặc trưng của cụm; chỉ khi xuống dưới 2 chữ mới chịu thua.
+    remaining = list(existing)
+    while len(remaining) >= 2:
+        phrase = " ".join(word for word, _ in remaining)
+        together = _cooccurrence_count(phrase)
+        if together > 0:
+            score = (
+                MULTIWORD_BASE_SCORE
+                + len(remaining) * MULTIWORD_LENGTH_BONUS
+                + _rarity(together)
+            )
+            return score, phrase
+        commonest = max(remaining, key=lambda item: item[1])
+        remaining.remove(commonest)
+
+    # Hạng 2 - từ đơn có thật và chưa quá phổ thông. `titthiya` (500+ đoạn) bị loại ở đây:
+    # từ phổ thông kéo kết quả về những bài chỉ trùng chủ đề chứ không phải bài đang tìm.
     specific = [(word, freq) for word, freq in existing if freq <= GENERIC_TERM_MAX]
     if specific:
         word, frequency = min(specific, key=lambda item: item[1])
@@ -342,15 +328,20 @@ def _deep_keyword_prompt(query: str) -> str:
             "   tin cậy giảm dần.",
             "",
             "BA YÊU CẦU BẮT BUỘC cho mỗi cụm ở mục 3, quan trọng hơn mọi thứ khác:",
-            "a. NGUYÊN VĂN. Cụm phải là chuỗi chữ XUẤT HIỆN Y NGUYÊN, LIỀN NHAU trong bản Pāḷi,",
+            "a. PHẢI TỪ 2 ĐẾN 4 CHỮ. TUYỆT ĐỐI KHÔNG đưa từ đơn lẻ. Một chữ đứng một mình mang",
+            "   nghĩa quá rộng, khớp hàng trăm bài không liên quan; hai chữ đi cùng nhau mới đủ",
+            "   thu hẹp về đúng đoạn kinh cần tìm.",
+            "   ĐÚNG:  \"sallaṁ āharissāmi\" · \"bhisakko sallakatto\" · \"jaccandhānaṁ hatthiṁ dassesi\"",
+            "   SAI:   \"salla\" · \"assamedho\" · \"mahāyañño\" · \"dhammapariyāyaṁ\"",
+            "   Nếu chỉ nghĩ ra một chữ, hãy ghép nó với chữ ĐỨNG NGAY CẠNH nó trong câu kinh.",
+            "b. NGUYÊN VĂN. Cụm phải là chuỗi chữ XUẤT HIỆN Y NGUYÊN, LIỀN NHAU trong bản Pāḷi,",
             "   đúng dạng đã chia (không phải dạng từ điển, không phải cụm bạn tự ghép cho xuôi",
-            "   tai). Hãy hình dung bạn đang trích một mẩu 2-4 chữ ra khỏi trang kinh rồi chép",
-            "   lại - nếu không nhớ chắc chuỗi chữ đó, hãy đưa một mẩu NGẮN HƠN mà bạn nhớ chắc",
-            "   là có thật, còn hơn một cụm dài nghe hợp lý nhưng bạn tự dựng nên.",
-            "b. ĐẶC TRƯNG. Ưu tiên chữ chỉ riêng câu chuyện/ẩn dụ này mới có (tên nhân vật, con",
+            "   tai). Hãy hình dung bạn đang trích một mẩu ra khỏi trang kinh rồi chép lại - nếu",
+            "   không nhớ chắc một chữ nào trong cụm, hãy thay cả cụm bằng mẩu khác mà bạn nhớ",
+            "   chắc là có thật, còn hơn một cụm nghe hợp lý nhưng bạn tự dựng nên.",
+            "c. ĐẶC TRƯNG. Ưu tiên chữ chỉ riêng câu chuyện/ẩn dụ này mới có (tên nhân vật, con",
             "   vật, đồ vật, hình ảnh ẩn dụ cụ thể). TRÁNH thuật ngữ giáo lý phổ thông xuất hiện",
             "   khắp Tam Tạng - chúng khớp hàng trăm bài không liên quan và làm chìm mất bài đúng.",
-            "c. NGẮN. 2-4 chữ là tốt nhất. Cụm càng dài càng dễ sai một chữ và thành không có thật.",
             "",
             "Không trả lời nội dung kinh, không dịch, không giải thích ngoài JSON.",
             "Trả JSON thuần:",
@@ -372,32 +363,27 @@ def extract_main_keyword_deep(query: str, language: str) -> tuple[str | None, li
     lưới an toàn nào khác. `suggest_pali_keywords` khi đó chỉ đơn giản không hiện "Cụm từ
     khoá chính", đúng yêu cầu "tách biệt ra đừng liên quan gì, nó chỉ việc là render ra
     từ khoá thôi".
+
+    **Mỗi lần gọi là một lượt hỏi Gemini MỚI, không đệm** - xem lời giải thích ở khối hằng
+    số đầu file. Bấm nút hai lần trên cùng một câu hỏi thì ra hai bộ từ khoá khác nhau, và
+    đó là chủ ý.
     """
-    memory_key = (query.strip(), language)
-    cached = _DEEP_KEYWORD_CACHE.get(memory_key)
-    if cached is None:
-        key = _cache_key(query.strip(), language, DEEP_KEYWORD_PROMPT_VERSION)
-        stored = _deep_cache_get(key)
-        if stored is None:
-            prompt = _deep_keyword_prompt(query)
-            client = _client()
-            parsed: _DeepKeywordResult | None = None
-            for model in _keyword_models():
-                try:
-                    response = client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config={"response_mime_type": "application/json"},
-                    )
-                    parsed = _DeepKeywordResult.model_validate_json(response.text or "{}")
-                    break
-                except Exception as exc:
-                    if not _is_retryable_error(exc):
-                        break
-            stored = parsed.model_dump() if parsed else {"identified": "", "reasoning": "", "candidates": []}
-            _deep_cache_put(key, stored)
-        _DEEP_KEYWORD_CACHE[memory_key] = stored
-        cached = stored
+    prompt = _deep_keyword_prompt(query)
+    client = _client()
+    parsed: _DeepKeywordResult | None = None
+    for model in _keyword_models():
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            parsed = _DeepKeywordResult.model_validate_json(response.text or "{}")
+            break
+        except Exception as exc:
+            if not _is_retryable_error(exc):
+                break
+    cached = parsed.model_dump() if parsed else {}
 
     # `_resolve_*` trả về DẠNG DÙNG ĐƯỢC của ứng viên, có thể chỉ là một phần của thứ AI
     # đưa ra - nên phải bỏ trùng SAU khi rút gọn: hai ứng viên khác nhau của AI hoàn toàn
@@ -470,6 +456,21 @@ def _pick_terms(values: list[str], avoid: set[str]) -> list[str]:
     return output
 
 
+def _is_usable_term(term: str) -> bool:
+    """Từ khoá này có tìm ra được cái gì trong kho không.
+
+    Phải phân biệt theo SỐ CHỮ, không dùng chung một phép kiểm tra: `search_engine`
+    `_existing_pali_terms` so bằng `like '%term%'`, tức đòi các chữ nằm LIỀN NHAU. Với từ
+    đơn thì đúng, với cụm nhiều chữ thì sai và sai âm thầm - `jaccandha hatthim dassesi`
+    là cụm đặc trưng nhất của bài kinh nhưng dạng chia trong kinh là `jaccandhānaṃ hatthiṃ
+    dassesi`, nên phép so liền nhau trả về 0 và cụm bị loại ngay trước khi hiện ra. Đó là
+    lý do danh sách gợi ý cứ rụng hết cụm dài và chỉ còn từ lẻ.
+    """
+    if " " in term:
+        return _cooccurrence_count(term) > 0
+    return _phrase_frequency(term) > 0
+
+
 def _interleave(short_terms: list[str], long_terms: list[str]) -> list[str]:
     """Xen kẽ hai danh sách để kết quả có ĐỦ CẢ từ đơn ngắn lẫn cụm dài, theo đúng yêu
     cầu khách "đủ loại key ngắn dài tuỳ vào câu hỏi" - không phải danh sách toàn từ đơn
@@ -534,7 +535,19 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
     # thuật ngữ trọng tâm của AI > thuật ngữ của bảng khái niệm tự soạn > thuật ngữ mở
     # rộng. KHÔNG lấy từng chữ tách rời của `main_keyword` như trước nữa: giờ mainKeyword
     # đã ở NGUYÊN CỤM trong kết quả, tách rời nó ra làm từ đơn chỉ tạo thêm hàng trùng ý.
-    short_pool = [
+    #
+    # Các ứng viên của lượt suy luận sâu phải được TÁCH theo số chữ trước khi xếp vào
+    # nguồn. Bản trước đổ nguyên cả `deep_alt_candidates` vào nguồn DÀI mà không lọc, mà
+    # trong đó có lẫn từ đơn - đo thật trên câu "voi mù" của khách, nguồn dài nhận
+    # `['titthiyavagga', 'jaccandha hatthim dassesi', ...]` nên phần tử ĐẦU của "nguồn dài"
+    # lại là một từ đơn. `_interleave` bắt đầu bằng nguồn dài, nên chính chỗ đáng lẽ là cụm
+    # đặc trưng nhất (`jaccandha hatthim dassesi`) bị `titthiyavagga` chiếm mất, và danh
+    # sách hiện ra gần như toàn từ lẻ - đúng cái khách phàn nàn.
+    deep_terms = _pick_terms(deep_alt_candidates, avoid)
+    deep_multiword = [term for term in deep_terms if " " in term]
+    deep_single = [term for term in deep_terms if " " not in term]
+
+    short_pool = deep_single + [
         term
         for term in _pick_terms(
             [
@@ -549,19 +562,16 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
         if " " not in term
     ]
 
-    # Nguồn DÀI: ưu tiên các cụm khác mà chính lượt suy luận sâu đã kiểm chứng (đã trả
-    # tiền cho một lượt gọi AI, không lấy thêm thì phí), rồi mới tới cụm nhiều từ của
-    # `expandedQueries` - cùng loại với cụm chính nhưng là phương án khác, hợp khi cụm
-    # chính không khớp đúng cách chia trong kinh. Lọc `" " not in term` phía trên /
-    # `" " in term` ở đây để hai nguồn không lẫn vào nhau: một mục một-từ lọt vào
-    # `expandedQueries` (AI vẫn hay trả lẫn) thì bỏ qua ở đây - nó đã có cơ hội xuất hiện
-    # qua `short_pool` rồi.
-    long_pool = _pick_terms(deep_alt_candidates, avoid) + [
+    # Nguồn DÀI: CHỈ những mục thật sự nhiều chữ. Ưu tiên cụm của lượt suy luận sâu (đã trả
+    # tiền cho một lượt gọi AI, không lấy thêm thì phí), rồi mới tới cụm nhiều chữ của
+    # `expandedQueries` - cùng loại với cụm chính nhưng là phương án khác, hợp khi cụm chính
+    # không khớp đúng cách chia trong kinh.
+    long_pool = deep_multiword + [
         term for term in _pick_terms(expansion.get("expandedQueries") or [], avoid) if " " in term
     ]
 
     candidates = _interleave(short_pool, long_pool)[:MAX_TERM_CANDIDATES]
-    terms = _existing_pali_terms(candidates)[:MAX_TERMS]
+    terms = [term for term in candidates if _is_usable_term(term)][:MAX_TERMS]
 
     return {
         "ok": bool(main_keyword or terms),

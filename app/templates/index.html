@@ -142,6 +142,10 @@
               <button class="button" type="submit" id="searchSubmitBtn">{{ t('search.submit') }}</button>
             </div>
           </div>
+
+          {# Hướng dẫn dùng lối tìm thứ hai. Đặt DƯỚI cụm nút chứ không phải trên, để mắt
+             đọc xong nút rồi mới tới lời giải thích cho chính nút đó. #}
+          <p class="keywordUsageNote">{{ t('keywords.usageNote') }}</p>
         </form>
 
         {# Để NGOÀI form: khối này chỉ hiện từ khoá, không đóng góp dữ liệu cho lượt tìm. #}
@@ -566,11 +570,17 @@
       async function submitSearch(event) {
         event.preventDefault();
 
-        // Phiên tìm mới thì đóng gợi ý từ khoá Pāḷi của câu hỏi CŨ lại - kể cả khi
-        // chính "Tìm ngay" trong bảng gợi ý là thứ gọi hàm này. Không đóng thì sau khi
-        // đổi câu hỏi/bấm Tìm kiếm, người đọc vẫn thấy cụm Pāḷi của câu hỏi trước đó
-        // nằm lơ lửng phía trên kết quả MỚI, chẳng còn liên quan gì đến nhau nữa.
-        closeKeywordPanel();
+        // Đóng gợi ý từ khoá của câu hỏi CŨ, TRỪ khi chính "Tìm ngay" trong bảng gợi ý
+        // gọi hàm này. Hai trường hợp ngược nhau hẳn:
+        // - Gõ câu hỏi mới rồi bấm "Tìm kiếm": cụm Pāḷi cũ chẳng liên quan gì tới kết quả
+        //   mới, để lại là gây hiểu nhầm.
+        // - Bấm "Tìm ngay" trên một từ khoá: người đọc đang THỬ LẦN LƯỢT các từ khoá, đóng
+        //   bảng đi là họ mất luôn các phương án còn lại và phải bấm lấy từ khoá lại từ đầu.
+        if (keepKeywordPanelForThisSearch) {
+          keepKeywordPanelForThisSearch = false;
+        } else {
+          closeKeywordPanel();
+        }
 
         const data = new FormData(form);
         const corpusValues = data.getAll("corpus_type");
@@ -634,6 +644,12 @@
       const queryInput = document.getElementById("query");
       const paliKeywordBtn = document.getElementById("paliKeywordBtn");
       const paliKeywordPanel = document.getElementById("paliKeywordPanel");
+
+      // Cờ dùng MỘT LẦN, đặt ngay trước khi "Tìm ngay" kích hoạt `submitSearch` và được
+      // xoá ngay trong đó. Phải là cờ chứ không thể xét trong `submitSearch` xem sự kiện
+      // đến từ đâu: `form.requestSubmit()` sinh ra một sự kiện submit không mang dấu vết
+      // gì của nút đã bấm.
+      let keepKeywordPanelForThisSearch = false;
 
       function showKeywordPanel(html) {
         if (!paliKeywordPanel) return;
@@ -729,9 +745,19 @@
 
       // Điền từ khoá vào ô tìm kiếm rồi chạy ĐÚNG luồng tìm kiếm cũ, giữ nguyên phần
       // Tạng/bộ kinh khách đã chọn - hệt như khách tự dán vào ô rồi bấm Tìm kiếm.
-      function searchWithKeyword(keyword) {
+      // Bảng gợi ý được GIỮ LẠI để còn thử tiếp các từ khoá khác - xem `submitSearch`.
+      function searchWithKeyword(keyword, row) {
         if (!keyword || !queryInput) return;
         queryInput.value = keyword;
+
+        // Đánh dấu dòng vừa bấm: đang có nhiều từ khoá cùng hiện, không đánh dấu thì
+        // xem xong kết quả không còn biết mình vừa thử cái nào.
+        paliKeywordPanel
+          ?.querySelectorAll(".keywordRow.active")
+          .forEach((item) => item.classList.remove("active"));
+        row?.classList.add("active");
+
+        keepKeywordPanelForThisSearch = true;
         if (typeof form.requestSubmit === "function") {
           form.requestSubmit();
         } else {
@@ -1049,7 +1075,7 @@
           }
           const searchBtn = event.target.closest("[data-keyword-search]");
           if (searchBtn) {
-            searchWithKeyword(searchBtn.dataset.keywordSearch);
+            searchWithKeyword(searchBtn.dataset.keywordSearch, searchBtn.closest(".keywordRow"));
             return;
           }
           if (event.target.closest("#paliKeywordClose")) {
