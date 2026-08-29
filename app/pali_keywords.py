@@ -33,14 +33,18 @@ có "cụm chính" để hiện - đã được khách xác nhận chấp nhận
 """
 
 from functools import lru_cache
+from itertools import count
+from threading import Lock
 
 from pydantic import BaseModel, Field
+from psycopg.types.json import Jsonb
 
-from .db import fetch_all
+from .db import execute, fetch_all
 from .glossary import analyze_query, canonicalize_query
 from .i18n import DEFAULT_LANGUAGE, normalize_language
 from .normalize import normalize_pali
 from .query_expander import (
+    _cache_key,
     _client,
     _is_retryable_error,
     _keyword_models,
@@ -102,20 +106,44 @@ COLLECTION_WORDS = {
     "truong", "tuong", "tang", "chi", "tieu", "bo",
 }
 
-# **KHÔNG ĐỆM lượt suy luận này** - cố ý, theo yêu cầu của khách: "hỏi đúng câu đó cứ bị
-# lặp lại". Bản trước đệm cả trong tiến trình lẫn dưới DB (`query_ai_cache`), nên bấm lại
-# nút trên cùng một câu hỏi luôn ra y hệt bộ từ khoá cũ - trong khi khách bấm lại CHÍNH LÀ
-# để xin một bộ khác mà thử.
+# Dấu hiệu CHẮC CHẮN là tên một BỘ/TẠNG chứ không phải tên bài kinh, dò theo kiểu CHỨA
+# CHUỖI CON. Cần riêng danh sách này vì `COLLECTION_WORDS` so khớp NGUYÊN TỪ, mà AI lại
+# hay viết dính liền: `Aṅguttaranikāya-aṭṭhakathā`, `Majjhimanikāya`, `Dīghanikāya-ṭīkā`
+# đều không khớp entry nào nên lọt hết qua lưới - khách gặp đúng ca này, cụm chính trả về
+# `anguttaranikaya-atthakatha`, tức tên cả một bộ chú giải, vô dụng làm từ khoá.
 #
-# Đây là đánh đổi ngược hẳn với phần còn lại của dự án, nên nói rõ để đừng ai "sửa lại cho
-# nhất quán": ở chỗ khác Gemini phải được đệm để cùng câu hỏi cho cùng kết quả (xem
-# `003_query_cache.sql`), còn ở đây tính bất định của Gemini chính là thứ đang được dùng.
-# Cái giá là mỗi lần bấm tốn một lượt gọi Gemini, và bộ từ khoá có thể tốt xấu khác nhau
-# giữa hai lần bấm liền kề.
+# Chỉ để ở đây những chuỗi KHÔNG BAO GIỜ nằm trong tên một bài kinh. Không được thêm
+# `sutta` (mọi tên bài kinh đều chứa), cũng không được thêm `digha`/`majjhima` theo kiểu
+# chuỗi con - `Dīghanakhasutta` (MN 74) là tên bài kinh thật và có chứa `digha`.
+COLLECTION_MARKERS = ("nikaya", "pitaka", "atthakatha")
+
+# **ĐỆM NHIỀU BỘ RỒI XOAY VÒNG**, chứ không phải đệm một bộ, cũng không phải bỏ đệm hẳn.
+# Cả hai thái cực đều đã thử và đều hỏng theo cách riêng:
+#
+# - Đệm MỘT bộ (bản đầu): bấm lại nút trên cùng câu hỏi luôn ra y hệt - khách báo "hỏi đúng
+#   câu đó cứ bị lặp lại", trong khi bấm lại CHÍNH LÀ để xin bộ khác mà thử.
+# - BỎ đệm hẳn (bản sau): mỗi lần bấm là một lượt hỏi mới, tốn 3-10 giây và một lượt gọi
+#   Gemini, mà chất lượng lên xuống thất thường - đo thật trên câu "voi mù", có lần ra
+#   `jaccandhasutta` (đúng) có lần ra `tittirajataka` (Tittira Jātaka, chuyện chim đa đa,
+#   sai hoàn toàn).
+#
+# Cách hiện tại lấy phần tốt của cả hai: sinh dần tối đa `KEYWORD_VARIANT_COUNT` bộ khác
+# nhau cho mỗi câu hỏi, mỗi bộ tốn đúng MỘT lượt gọi, rồi từ đó về sau chỉ xoay vòng trong
+# các bộ đã có. Khách vẫn thấy bộ mới ở mỗi lần bấm, mà không tốn thêm lượt gọi nào và
+# không phải chịu rủi ro một lượt đoán tồi mới.
 #
 # `expand_query_with_ai` (danh sách "thuật ngữ liên quan") VẪN đệm như cũ và không được
 # đụng tới: đệm đó dùng chung với pipeline tìm kiếm chính, bỏ nó đi là làm kết quả tìm
 # kiếm mất ổn định - đúng thứ đệm đó sinh ra để chặn.
+KEYWORD_VARIANT_COUNT = 3
+DEEP_KEYWORD_KIND = "deep_keyword"
+DEEP_KEYWORD_PROMPT_VERSION = "v4-multiword-required"
+
+# Con trỏ xoay vòng, sống trong tiến trình. KHÔNG cần bền vững: mất nó thì lần bấm đầu sau
+# khi khởi động lại quay về bộ số 0, hoàn toàn vô hại. Có khoá vì nhiều request có thể
+# cùng chạm vào nó một lúc.
+_VARIANT_CURSORS: dict[str, count] = {}
+_VARIANT_LOCK = Lock()
 
 
 class _DeepKeywordResult(BaseModel):
@@ -156,6 +184,8 @@ def _sutta_name_is_real(name: str) -> bool:
     kinh có thật, nên tác hại giới hạn.
     """
     if len(name) < SUTTA_NAME_MIN_LENGTH or name in COLLECTION_WORDS:
+        return False
+    if any(marker in name for marker in COLLECTION_MARKERS):
         return False
     stem = name[:SUTTA_NAME_STEM_LENGTH]
     return any(stem in title for title in _normalized_section_titles())
@@ -350,6 +380,102 @@ def _deep_keyword_prompt(query: str) -> str:
     )
 
 
+def _variant_cache_key(query: str, language: str, index: int) -> str:
+    """Mỗi BỘ một dòng riêng trong `query_ai_cache`, phân biệt bằng số thứ tự ở cuối khoá."""
+    return _cache_key(query.strip(), language, DEEP_KEYWORD_PROMPT_VERSION, str(index))
+
+
+def _load_variants(query: str, language: str) -> list[dict]:
+    """Các bộ đã sinh cho câu hỏi này, theo đúng thứ tự đã sinh."""
+    keys = [_variant_cache_key(query, language, i) for i in range(KEYWORD_VARIANT_COUNT)]
+    try:
+        rows = fetch_all(
+            "select cache_key, payload from query_ai_cache "
+            "where cache_key = any(%s) and kind = %s and pipeline_version = %s",
+            [keys, DEEP_KEYWORD_KIND, DEEP_KEYWORD_PROMPT_VERSION],
+        )
+    except Exception:  # noqa: BLE001 - chua chay migration thi coi nhu chua co bo nao
+        return []
+    by_key = {row["cache_key"]: row["payload"] for row in rows}
+    return [by_key[key] for key in keys if key in by_key]
+
+
+def _store_variant(query: str, language: str, index: int, payload: dict) -> None:
+    try:
+        execute(
+            "insert into query_ai_cache (cache_key, kind, pipeline_version, payload) "
+            "values (%s, %s, %s, %s) "
+            "on conflict (cache_key, kind, pipeline_version) do nothing",
+            [
+                _variant_cache_key(query, language, index),
+                DEEP_KEYWORD_KIND,
+                DEEP_KEYWORD_PROMPT_VERSION,
+                Jsonb(payload),
+            ],
+        )
+    except Exception:  # noqa: BLE001 - khong ghi duoc dem thi van tra ket qua cho khach
+        pass
+
+
+def _ask_deep_keywords(query: str) -> dict:
+    """MỘT lượt hỏi Gemini. Trả `{}` khi mọi model đều hỏng."""
+    prompt = _deep_keyword_prompt(query)
+    client = _client()
+    for model in _keyword_models():
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+            return _DeepKeywordResult.model_validate_json(response.text or "{}").model_dump()
+        except Exception as exc:
+            if not _is_retryable_error(exc):
+                break
+    return {}
+
+
+def _variant_fingerprint(payload: dict) -> str:
+    """Dấu nhận dạng NỘI DUNG của một bộ, để không đệm hai bộ giống hệt nhau.
+
+    Chỉ tính hai trường thật sự sinh ra từ khoá; `reasoning` là văn xuôi tự do, gần như
+    lần nào cũng khác đôi chút nên đưa vào là bộ nào cũng thành "mới".
+    """
+    names = [normalize_pali(str(item)) for item in (payload.get("suttaNames") or [])]
+    candidates = [normalize_pali(str(item)) for item in (payload.get("candidates") or [])]
+    return "|".join([*names, "~", *candidates])
+
+
+def _deep_keyword_payload(query: str, language: str) -> dict:
+    """Trả về MỘT bộ kết quả AI, xoay vòng giữa các bộ đã đệm - xem khối hằng số đầu file.
+
+    Chưa đủ `KEYWORD_VARIANT_COUNT` bộ thì hỏi thêm một lượt và đệm lại, nên vài lần bấm
+    đầu vừa cho bộ mới vừa làm đầy kho. Đủ rồi thì chỉ xoay vòng, không gọi Gemini nữa.
+
+    Bộ mới trùng nội dung với một bộ đã có thì KHÔNG đệm - đệm vào chỉ tổ chiếm một chỗ
+    trong `KEYWORD_VARIANT_COUNT` mà không thêm được phương án nào cho khách.
+    """
+    variants = _load_variants(query, language)
+
+    if len(variants) < KEYWORD_VARIANT_COUNT:
+        fresh = _ask_deep_keywords(query)
+        if fresh:
+            known = {_variant_fingerprint(item) for item in variants}
+            if _variant_fingerprint(fresh) not in known:
+                _store_variant(query, language, len(variants), fresh)
+            return fresh
+        # Gemini hỏng - vẫn còn bộ cũ thì xoay vòng tiếp ở dưới, không để khách tay trắng.
+
+    if not variants:
+        return {}
+
+    cursor_key = _cache_key(query.strip(), language)
+    with _VARIANT_LOCK:
+        cursor = _VARIANT_CURSORS.setdefault(cursor_key, count())
+        index = next(cursor)
+    return variants[index % len(variants)]
+
+
 def extract_main_keyword_deep(query: str, language: str) -> tuple[str | None, list[str]]:
     """Suy luận sâu để tìm "cụm từ khoá chính" - HOÀN TOÀN ĐỘC LẬP với pipeline tìm kiếm
     chính (không gọi, không lùi về `extract_search_keyword_with_ai`), xem docstring đầu
@@ -364,26 +490,10 @@ def extract_main_keyword_deep(query: str, language: str) -> tuple[str | None, li
     khoá chính", đúng yêu cầu "tách biệt ra đừng liên quan gì, nó chỉ việc là render ra
     từ khoá thôi".
 
-    **Mỗi lần gọi là một lượt hỏi Gemini MỚI, không đệm** - xem lời giải thích ở khối hằng
-    số đầu file. Bấm nút hai lần trên cùng một câu hỏi thì ra hai bộ từ khoá khác nhau, và
-    đó là chủ ý.
+    **Bấm hai lần trên cùng câu hỏi thì ra hai bộ từ khoá khác nhau**, nhưng không phải vì
+    hỏi lại AI mỗi lần - xem `_deep_keyword_payload` và khối hằng số đầu file.
     """
-    prompt = _deep_keyword_prompt(query)
-    client = _client()
-    parsed: _DeepKeywordResult | None = None
-    for model in _keyword_models():
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config={"response_mime_type": "application/json"},
-            )
-            parsed = _DeepKeywordResult.model_validate_json(response.text or "{}")
-            break
-        except Exception as exc:
-            if not _is_retryable_error(exc):
-                break
-    cached = parsed.model_dump() if parsed else {}
+    cached = _deep_keyword_payload(query, language)
 
     # `_resolve_*` trả về DẠNG DÙNG ĐƯỢC của ứng viên, có thể chỉ là một phần của thứ AI
     # đưa ra - nên phải bỏ trùng SAU khi rút gọn: hai ứng viên khác nhau của AI hoàn toàn
