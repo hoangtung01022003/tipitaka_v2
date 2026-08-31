@@ -819,6 +819,11 @@ def _suggest_pali_keywords_legacy(query: str, language: str = DEFAULT_LANGUAGE) 
 # không chính xác. Nên ở đây KHÔNG chấm điểm, KHÔNG đối chiếu kho, KHÔNG loại bỏ gì:
 # Gemini trả về sao thì hiện đúng vậy.
 #
+# Ràng buộc nội dung DUY NHẤT thêm vào câu lệnh gốc: **mỗi nhóm phải lấy từ một TẦNG văn
+# bản khác nhau - Chánh văn / Chú giải / Phụ chú giải.** Câu lệnh gốc chỉ nói "Tam tạng
+# kinh điển" nên model gần như chỉ đưa cụm chánh văn, mà từ khoá chánh văn thì không tìm
+# ra đoạn chú giải - xem `_direct_keyword_prompt`.
+#
 # Mỗi mục gồm HAI phần tách rời: `pali` (chỉ chữ Pāḷi) và `meaning` (nghĩa trong ngoặc).
 # Tách như vậy vì khách nói rõ "khi tìm kiếm thì chỉ lấy từ khoá pali thôi, dịch từ khoá
 # để lấy từ khoá phù hợp thôi" - phần nghĩa chỉ để người đọc chọn đúng cụm, hai nút
@@ -831,14 +836,17 @@ def _suggest_pali_keywords_legacy(query: str, language: str = DEFAULT_LANGUAGE) 
 # Trần cho vừa một bảng gợi ý, không phải để lọc chất lượng.
 #
 # **ĐÚNG 2 mục mỗi nhóm, và con số này do GIAO DIỆN quyết định chứ không phải nội dung.**
+# (Số NHÓM thì ngược lại - 3 nhóm là 3 tầng văn bản, xem `_direct_keyword_prompt`.)
 # `.keywordList` là lưới `auto-fill` với cột tối thiểu 420px, nên ở khổ máy tính nó xếp
 # ĐÚNG 2 cột. Để 3 mục thì mỗi nhóm thành một hàng đủ cộng một ô lẻ nằm chơ vơ bên trái -
 # khách nhìn thấy ngay và phàn nàn "sao cứ lẻ lẻ mỗi cái 3 key vậy". 2 mục thì mọi nhóm
 # đều là một hàng kín, không còn ô lẻ nào. Đổi con số này thì phải xem lại `.keywordList`.
 DIRECT_MAX_ITEMS_PER_GROUP = 2
 
-# Còn số nhóm là TRẦN THỜI GIAN: xin 4 nhóm x 4 mục (mỗi mục còn kèm một dòng nghĩa) làm
-# model phải viết dài gấp đôi, và `gemini-3.6-flash` bắt đầu trả 504 DEADLINE_EXCEEDED.
+# Số nhóm thì do NỘI DUNG quyết định: 3 nhóm = 3 tầng văn bản trong kho (Chánh văn, Chú
+# giải, Phụ chú giải), xem `_direct_keyword_prompt`. Tiện là con số này cũng vừa khít trần
+# thời gian - xin 4 nhóm x 4 mục (mỗi mục còn kèm một dòng nghĩa) làm model phải viết dài
+# gấp đôi, và `gemini-3.6-flash` bắt đầu trả 504 DEADLINE_EXCEEDED.
 DIRECT_MAX_GROUPS = 3
 
 # Lượt hỏi này CHẬM hơn hẳn mọi lượt gọi Gemini khác của app - khách bấm một nút rồi ngồi
@@ -889,11 +897,21 @@ class _DirectKeywordResult(BaseModel):
 
 
 def _direct_keyword_prompt(query: str, language: str) -> str:
-    """Câu lệnh của khách, giữ gần như nguyên văn - chỉ thêm phần mô tả JSON.
+    """Câu lệnh của khách, giữ gần như nguyên văn - thêm phần mô tả JSON và phần chia tầng.
 
-    Ba đoạn đầu là câu lệnh khách vẫn dán vào Gemini web. Phần còn lại chỉ nói CÁCH TRÌNH
-    BÀY (chia nhóm, tách `pali` khỏi `meaning`) chứ không thêm ràng buộc nào về nội dung -
-    đúng tinh thần "chủ yếu là cách đặt câu lệnh khéo léo cho AI".
+    Ba đoạn đầu là câu lệnh khách vẫn dán vào Gemini web, không đụng tới.
+
+    **Mỗi nhóm buộc phải lấy từ MỘT TẦNG văn bản khác nhau (Chánh văn / Chú giải / Phụ chú
+    giải).** Đây là ràng buộc nội dung DUY NHẤT của prompt này, và nó có lý do: kho tìm
+    kiếm chứa đủ cả ba tầng, nhưng bản đầu chỉ nói "trích từ Tam tạng kinh điển" nên model
+    gần như chỉ đưa cụm chánh văn - đo thật, cả ba `label` đều ghi "(Chánh văn ...)". Khách
+    báo đúng chỗ này: "nếu chỉ trích trong chánh tạng thì sẽ khó tìm ra ở trong chú giải
+    phụ chú giải". Từ khoá chánh văn KHÔNG tìm ra đoạn chú giải được, vì nhà chú giải dùng
+    chữ khác hẳn để giảng lại (`... nāma`, `... vuccati`, chữ ghép tự đặt) - tức một nửa
+    kho sách nằm ngoài tầm với của mọi từ khoá mà tính năng này đưa ra.
+
+    Còn lại vẫn chỉ là CÁCH TRÌNH BÀY (số nhóm, số mục, tách `pali` khỏi `meaning`) - đúng
+    tinh thần "chủ yếu là cách đặt câu lệnh khéo léo cho AI".
     """
     return "\n".join(
         [
@@ -903,12 +921,27 @@ def _direct_keyword_prompt(query: str, language: str) -> str:
             "chia ngôi chuẩn xác 100% như trong Tam tạng kinh điển để tôi dùng làm từ khóa",
             "tìm kiếm trong 1 công cụ tìm kiếm kinh điển Pāḷi bằng AI.",
             "",
+            "Công cụ tìm kiếm của tôi có ĐỦ BA TẦNG văn bản: Chánh văn (Tipiṭaka Mūla),",
+            "Chú giải (Aṭṭhakathā) và Phụ chú giải (Ṭīkā). Từ khoá chánh văn KHÔNG tìm ra được",
+            "đoạn chú giải, vì nhà chú giải giảng lại bằng chữ khác. Nên tôi cần từ khoá cho cả",
+            "ba tầng, không phải chỉ chánh văn.",
+            "",
             "Cách trình bày:",
-            f"- Chia thành 2-{DIRECT_MAX_GROUPS} NHÓM, xếp nhóm dễ tìm ra nhất lên đầu.",
-            "- `label` của nhóm nói rõ đó là loại cụm gì và lấy từ đâu. Ví dụ:",
-            '    "Cụm câu kinh văn chuẩn xác và dễ tìm ra nhất (Chánh văn Mahāparinibbānasutta & Udāna)"',
-            '    "Cụm câu kinh văn đối thoại và chịu đựng cơn đau (Chánh văn Mahāparinibbānasutta)"',
-            '    "Từ khóa và cụm Chú giải giải thích tên chứng bệnh"',
+            f"- Chia thành ĐÚNG {DIRECT_MAX_GROUPS} NHÓM, mỗi nhóm lấy từ MỘT TẦNG khác nhau:",
+            "    Nhóm 1 - CHÁNH VĂN (Tipiṭaka Mūla): cụm chép thẳng từ bài kinh/luật/luận gốc.",
+            "    Nhóm 2 - CHÚ GIẢI (Aṭṭhakathā): cụm chép từ chính đoạn chú giải bàn về chủ đề",
+            "             này. Phải là chữ của NHÀ CHÚ GIẢI chứ không phải chép lại chánh văn:",
+            "             câu định nghĩa, câu giảng nghĩa từ, chữ ghép do nhà chú giải đặt ra -",
+            "             thường có dạng `X nāma ...`, `X vuccati`, `X ti ...`.",
+            "    Nhóm 3 - PHỤ CHÚ GIẢI (Ṭīkā): cụm chép từ phụ chú giải bàn về chủ đề này.",
+            "             Chủ đề này không có phụ chú giải nào bàn tới thì cho thêm MỘT nhóm",
+            "             chú giải nữa thay vào chỗ đó, đừng bỏ trống và đừng quay về chánh văn.",
+            "- `label` viết như một câu mô tả tự nhiên về nội dung nhóm, rồi mở ngoặc ghi TẦNG",
+            "  văn bản và tên sách. KHÔNG mở đầu bằng \"Nhóm 1 -\", \"Nhóm 2 -\"; những chữ đó",
+            "  chỉ để tôi đánh số ở trên, người đọc không cần thấy. Ví dụ:",
+            '    "Cụm câu mô tả trực tiếp căn bệnh (Chánh văn Mahāparinibbānasutta & Udāna)"',
+            '    "Cụm Chú giải giải thích tên chứng bệnh (Chú giải Sumaṅgalavilāsinī)"',
+            '    "Cụm Phụ chú giải phân tích nguyên nhân (Phụ chú giải Dīghanikāya-ṭīkā)"',
             f"- Mỗi nhóm ĐÚNG {DIRECT_MAX_ITEMS_PER_GROUP} mục - không hơn không kém, kể cả khi bạn",
             "  nghĩ ra nhiều hơn: chỗ hiển thị chỉ vừa từng ấy. Nghĩ ra nhiều thì giữ lại hai",
             "  cụm chắc chắn nhất. Mỗi mục có đúng hai trường:",
@@ -998,6 +1031,18 @@ def _clean_pali(value: str) -> str:
     return text.strip().strip('"“”').strip()
 
 
+def _clean_label(value: str) -> str:
+    """Dọn tiêu đề nhóm - chỉ cắt phần đánh số của câu lệnh, không sửa gì khác.
+
+    Prompt đánh số "Nhóm 1 - CHÁNH VĂN / Nhóm 2 - CHÚ GIẢI ..." để buộc mỗi nhóm một tầng
+    văn bản, và model hay bê nguyên tiền tố đó vào `label` - người đọc thấy "Nhóm 2 - CHÚ
+    GIẢI (Chú giải Sumaṅgalavilāsinī)" thay vì một câu mô tả như trước. Prompt đã dặn đừng
+    viết, đây là lưới chắn cho những lần nó vẫn viết.
+    """
+    text = " ".join(str(value or "").split())
+    return re.sub(r"^nhóm\s*\d+\s*[-–:.]\s*", "", text, flags=re.IGNORECASE)
+
+
 def _empty_keyword_payload(query: str, error: str | None = None) -> dict:
     """`error` chỉ đặt khi lượt gọi Gemini HỎNG. Để trống thì giao diện dùng câu mặc định
     "chưa gợi ý được... thử diễn đạt ngắn gọn hơn" - câu đó chỉ đúng khi model đã trả lời."""
@@ -1065,7 +1110,7 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
         # bên dưới và tưởng trần 2 mục bị hỏng, dù mỗi nhóm vẫn đúng 2. Đây chính là ca
         # "vẫn hiển thị 3 kết quả" khách báo. Trần 2 mục là trần MỖI NHÓM, nên nó chỉ giữ
         # đúng lời hứa khi ranh giới giữa các nhóm còn nhìn thấy được.
-        label = " ".join(str(raw_group.get("label") or "").split())
+        label = _clean_label(str(raw_group.get("label") or ""))
         if not label and groups:
             continue
 
