@@ -683,6 +683,30 @@
         `;
       }
 
+      // Một mục của bản MỚI: chữ Pāḷi và phần nghĩa nằm hai dòng, nhưng hai nút CHỈ nhận
+      // `pali`. Khách nói rõ "khi tìm kiếm thì chỉ lấy từ khóa pali thôi, dịch từ khóa để
+      // lấy từ khóa phù hợp thôi" - phần nghĩa chỉ để chọn đúng cụm, không đem đi tìm.
+      function keywordItemHtml(item, isMain) {
+        const pali = String((item && item.pali) || "");
+        if (!pali) return "";
+        const meaning = String((item && item.meaning) || "");
+        const safe = escapeHtml(pali);
+        const classes = ["keywordRow", "withMeaning"];
+        if (isMain) classes.push("main");
+        return `
+          <div class="${classes.join(" ")}">
+            <div class="keywordBody">
+              <code class="keywordText">${safe}</code>
+              ${meaning ? `<span class="keywordMeaning">(${escapeHtml(meaning)})</span>` : ""}
+            </div>
+            <span class="keywordActions">
+              <button class="button secondary compact" type="button" data-keyword-copy="${safe}">${escapeHtml(tr("keywords.copy"))}</button>
+              <button class="button compact" type="button" data-keyword-search="${safe}">${escapeHtml(tr("keywords.searchWith"))}</button>
+            </span>
+          </div>
+        `;
+      }
+
       function renderKeywordPanel(payload) {
         if (!payload || !payload.ok) {
           showKeywordPanel(
@@ -698,6 +722,28 @@
           </div>
           <p class="meta">${escapeHtml(tr("keywords.hint"))}</p>`,
         ];
+
+        // BẢN MỚI: hiện đúng các nhóm Gemini trả về, tiêu đề nhóm cũng là chữ của
+        // Gemini nên không có khoá i18n nào ở đây. Ba khoá `fullSentence`/`mainKeyword`/
+        // `terms` bên dưới là ĐƯỜNG CŨ, chỉ chạy khi không có `groups` - giữ lại để nếu
+        // đổi máy chủ về bản cũ (`_suggest_pali_keywords_legacy`) thì trang vẫn hiện đúng.
+        const groups = Array.isArray(payload.groups) ? payload.groups : [];
+        if (groups.length) {
+          groups.forEach((group, groupIndex) => {
+            const items = Array.isArray(group.items) ? group.items : [];
+            if (!items.length) return;
+            if (group.label) {
+              parts.push(`<p class="keywordLabel">${escapeHtml(group.label)}</p>`);
+            }
+            parts.push(
+              `<div class="keywordList">${items
+                .map((item, itemIndex) => keywordItemHtml(item, groupIndex === 0 && itemIndex === 0))
+                .join("")}</div>`
+            );
+          });
+          showKeywordPanel(parts.join(""));
+          return;
+        }
 
         // Câu Pāḷi trọn vẹn đứng ĐẦU: đo thật, đây là loại từ khoá cho điểm cao nhất
         // (3,315 so với 2,576 của tên bài kinh trên cùng một câu hỏi).

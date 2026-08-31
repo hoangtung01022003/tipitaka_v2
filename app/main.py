@@ -1195,6 +1195,7 @@ def pali_keywords_api(payload: dict, request: Request):
         return {
             "ok": False,
             "query": query,
+            "groups": [],
             "fullSentence": None,
             "mainKeyword": None,
             "terms": [],

@@ -1,5 +1,15 @@
 """Gợi ý từ khoá Pāḷi cho câu hỏi khó - tính năng ĐỘC LẬP với luồng tìm kiếm.
 
+**ĐỌC TRƯỚC: file này có HAI bản, chỉ một bản đang chạy.**
+
+Bản ĐANG CHẠY nằm ở CUỐI file (`_direct_keyword_prompt` -> `suggest_pali_keywords`): hỏi
+Gemini bằng đúng câu lệnh khách tự viết rồi render thẳng kết quả, không lọc, không chấm
+điểm. Bản CŨ - toàn bộ phần giữa file, từ khối hằng số điểm tới
+`_suggest_pali_keywords_legacy` - đã TẮT sau khi khách dùng thử và báo kết quả không
+chính xác; giữ lại nguyên vẹn để còn quay về nếu bản mới cũng không ổn.
+
+Phần docstring còn lại dưới đây mô tả BẢN CŨ, để nguyên làm nhật ký thiết kế.
+
 Khách vẫn tìm bằng tiếng Việt như cũ. Khi câu hỏi khó quá và cách tìm thường không ra,
 khách bấm nút này để lấy cụm Pāḷi rồi tự dán vào ô tìm kiếm - đúng việc khách đang phải
 làm tay bằng Gemini web ("hỏi Gemini lấy từ khoá rồi tìm lại").
@@ -32,14 +42,18 @@ có "cụm chính" để hiện - đã được khách xác nhận chấp nhận
 "Cụm từ khoá chính" mới là chỗ được yêu cầu tách biệt.
 """
 
+import re
+import time
 from functools import lru_cache
 
+from google import genai
 from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
 
+from .config import settings
 from .db import execute, fetch_all, fetch_one
 from .glossary import analyze_query, canonicalize_query
-from .i18n import DEFAULT_LANGUAGE, normalize_language
+from .i18n import DEFAULT_LANGUAGE, normalize_language, t
 from .normalize import normalize_pali
 from .query_expander import (
     _cache_key,
@@ -697,7 +711,23 @@ def _interleave(short_terms: list[str], long_terms: list[str]) -> list[str]:
     return merged
 
 
-def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
+# ---------------------------------------------------------------------------
+# BẢN CŨ - ĐANG TẮT, GIỮ NGUYÊN ĐỂ CÒN QUAY LẠI
+#
+# Toàn bộ phần trên (`_deep_keyword_prompt`, `extract_main_keyword_deep`, các hằng số
+# điểm, `_resolve_*`, `_interleave` và `_suggest_pali_keywords_legacy` ngay dưới đây) là
+# bản CŨ: hỏi Gemini một lượt rồi TỰ CHẤM ĐIỂM và TỰ LỌC ứng viên bằng cách đối chiếu với
+# kho (`_phrase_frequency`, `_cooccurrence_count`, danh sách trắng đuôi tên bài kinh...).
+#
+# Khách trải nghiệm và báo kết quả KHÔNG CHÍNH XÁC. Khách tự hỏi Gemini web bằng câu lệnh
+# của mình thì ra đúng, nên yêu cầu là: dùng thẳng câu lệnh đó, render thẳng kết quả
+# Gemini trả về, không lọc, không chấm điểm - xem `_direct_keyword_prompt` bên dưới.
+#
+# KHÔNG XOÁ khối này: nếu bản mới cũng không ổn thì đổi lại `suggest_pali_keywords` gọi
+# `_suggest_pali_keywords_legacy` là quay về nguyên trạng. Hiện tại không nơi nào gọi
+# `_suggest_pali_keywords_legacy` nữa - đây là mã chết có chủ đích.
+# ---------------------------------------------------------------------------
+def _suggest_pali_keywords_legacy(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
     """Trả cụm Pāḷi chính + tối đa `MAX_TERMS` gợi ý khác cho một câu hỏi - tổng khoảng 5
     kết quả (kể cả cụm chính), đủ cả từ đơn ngắn lẫn cụm dài chứ không chỉ một loại.
 
@@ -778,6 +808,283 @@ def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
         "query": query,
         "mainKeyword": main_keyword or None,
         "terms": terms,
+    }
+
+
+# ---------------------------------------------------------------------------
+# BẢN ĐANG DÙNG: hỏi Gemini bằng ĐÚNG câu lệnh của khách rồi RENDER THẲNG
+#
+# Khách đã tự hỏi Gemini web bằng câu lệnh dưới đây và hài lòng với kết quả, trong khi
+# bản cũ (tự chấm điểm + tự lọc theo kho, xem khối "BẢN CŨ" phía trên) bị khách báo là
+# không chính xác. Nên ở đây KHÔNG chấm điểm, KHÔNG đối chiếu kho, KHÔNG loại bỏ gì:
+# Gemini trả về sao thì hiện đúng vậy.
+#
+# Mỗi mục gồm HAI phần tách rời: `pali` (chỉ chữ Pāḷi) và `meaning` (nghĩa trong ngoặc).
+# Tách như vậy vì khách nói rõ "khi tìm kiếm thì chỉ lấy từ khoá pali thôi, dịch từ khoá
+# để lấy từ khoá phù hợp thôi" - phần nghĩa chỉ để người đọc chọn đúng cụm, hai nút
+# "Sao chép"/"Tìm ngay" chỉ nhận `pali`.
+#
+# Cũng KHÔNG đệm: mỗi lần bấm là một lượt hỏi mới, cùng lý do đã ghi ở phần bản cũ
+# (khách phàn nàn bấm lại ra y hệt).
+# ---------------------------------------------------------------------------
+
+# Trần cho vừa một bảng gợi ý, không phải để lọc chất lượng.
+#
+# **ĐÚNG 2 mục mỗi nhóm, và con số này do GIAO DIỆN quyết định chứ không phải nội dung.**
+# `.keywordList` là lưới `auto-fill` với cột tối thiểu 420px, nên ở khổ máy tính nó xếp
+# ĐÚNG 2 cột. Để 3 mục thì mỗi nhóm thành một hàng đủ cộng một ô lẻ nằm chơ vơ bên trái -
+# khách nhìn thấy ngay và phàn nàn "sao cứ lẻ lẻ mỗi cái 3 key vậy". 2 mục thì mọi nhóm
+# đều là một hàng kín, không còn ô lẻ nào. Đổi con số này thì phải xem lại `.keywordList`.
+DIRECT_MAX_ITEMS_PER_GROUP = 2
+
+# Còn số nhóm là TRẦN THỜI GIAN: xin 4 nhóm x 4 mục (mỗi mục còn kèm một dòng nghĩa) làm
+# model phải viết dài gấp đôi, và `gemini-3.6-flash` bắt đầu trả 504 DEADLINE_EXCEEDED.
+DIRECT_MAX_GROUPS = 3
+
+# Lượt hỏi này CHẬM hơn hẳn mọi lượt gọi Gemini khác của app - khách bấm một nút rồi ngồi
+# xem con quay, chứ không phải một bước ngầm trong lúc tìm kiếm. Nên nó có timeout riêng
+# thay vì dùng `gemini_request_timeout_ms` (12s, đặt cho các lượt gọi ngầm của tìm kiếm).
+# Cùng cách xử lý với `translator.py` cho phần tóm tắt dài (timeout 60s riêng).
+#
+# Vì sao phải nới: 12s là QUÁ NGẮN cho lượt hỏi này. Đo thật trên câu "người mù sờ voi",
+# hai lần bấm mỗi model:
+#
+#     gemini-3.6-flash        24.0s / 37.9s   (trả lời tốt, 3 nhóm)
+#     gemini-3.5-flash        27.0s / 18.1s   (trả lời tốt)
+#     gemini-3.5-flash-lite    1.7s /  1.7s   (nhanh nhưng có lần JSON hỏng)
+#     gemini-3.1-flash-lite    2.6s /  3.7s
+#
+# Tức hai model tốt nhất KHÔNG BAO GIỜ kịp trong 12s - khách hỏi một câu rất rõ ràng mà
+# vẫn bị báo "chưa gợi ý được từ khoá". Đây chính là lỗi khách gặp.
+DIRECT_REQUEST_TIMEOUT_MS = 40000
+
+# Trần cho CẢ vòng thử, không phải cho từng model. Bắt buộc phải có: timeout 40s nhân với
+# 4 model trong danh sách là 160s, trong khi nginx trước app cắt ở 60s - khách sẽ nhận 504
+# của nginx (một trang lỗi, không phải câu nhắn) trước khi vòng lặp kịp chạy xong.
+#
+# 50s để còn chỗ cho phần ghi nhật ký và độ trễ mạng. Model đầu ăn hết 40s thì model sau
+# chỉ còn 10s - vẫn thừa cho hai model `lite` (1.7-3.7s), tức chuỗi dự phòng vẫn chạy.
+DIRECT_TOTAL_BUDGET_MS = 50000
+
+# Còn ít hơn ngần này thì thôi, không thử thêm model nào: một lượt gọi chắc chắn hỏng chỉ
+# làm khách chờ thêm mà không đổi được kết quả.
+DIRECT_MIN_ATTEMPT_MS = 4000
+
+# Ngôn ngữ viết phần nghĩa trong ngoặc - chuỗi này nằm trong câu tiếng Việt của prompt.
+_MEANING_LANGUAGE = {"vi": "tiếng Việt", "en": "tiếng Anh", "my": "tiếng Myanmar (Miến Điện)"}
+
+
+class _DirectKeywordItem(BaseModel):
+    pali: str = ""
+    meaning: str = ""
+
+
+class _DirectKeywordGroup(BaseModel):
+    label: str = ""
+    items: list[_DirectKeywordItem] = Field(default_factory=list)
+
+
+class _DirectKeywordResult(BaseModel):
+    groups: list[_DirectKeywordGroup] = Field(default_factory=list)
+
+
+def _direct_keyword_prompt(query: str, language: str) -> str:
+    """Câu lệnh của khách, giữ gần như nguyên văn - chỉ thêm phần mô tả JSON.
+
+    Ba đoạn đầu là câu lệnh khách vẫn dán vào Gemini web. Phần còn lại chỉ nói CÁCH TRÌNH
+    BÀY (chia nhóm, tách `pali` khỏi `meaning`) chứ không thêm ràng buộc nào về nội dung -
+    đúng tinh thần "chủ yếu là cách đặt câu lệnh khéo léo cho AI".
+    """
+    return "\n".join(
+        [
+            "Hãy đóng vai chuyên gia Pāḷi kinh điển Tam tạng.",
+            f'Tôi muốn tìm bài kinh về chủ đề: "{query}"',
+            "Cung cấp cho tôi từ khóa ngắn gọn bằng tiếng Pāḷi đã được chia cách, chia thì,",
+            "chia ngôi chuẩn xác 100% như trong Tam tạng kinh điển để tôi dùng làm từ khóa",
+            "tìm kiếm trong 1 công cụ tìm kiếm kinh điển Pāḷi bằng AI.",
+            "",
+            "Cách trình bày:",
+            f"- Chia thành 2-{DIRECT_MAX_GROUPS} NHÓM, xếp nhóm dễ tìm ra nhất lên đầu.",
+            "- `label` của nhóm nói rõ đó là loại cụm gì và lấy từ đâu. Ví dụ:",
+            '    "Cụm câu kinh văn chuẩn xác và dễ tìm ra nhất (Chánh văn Mahāparinibbānasutta & Udāna)"',
+            '    "Cụm câu kinh văn đối thoại và chịu đựng cơn đau (Chánh văn Mahāparinibbānasutta)"',
+            '    "Từ khóa và cụm Chú giải giải thích tên chứng bệnh"',
+            f"- Mỗi nhóm ĐÚNG {DIRECT_MAX_ITEMS_PER_GROUP} mục - không hơn không kém, kể cả khi bạn",
+            "  nghĩ ra nhiều hơn: chỗ hiển thị chỉ vừa từng ấy. Nghĩ ra nhiều thì giữ lại hai",
+            "  cụm chắc chắn nhất. Mỗi mục có đúng hai trường:",
+            "    `pali`   : CHỈ chữ Pāḷi, nguyên văn như trong kinh, đúng dạng đã chia.",
+            "               Không kèm dấu ngoặc, không kèm bản dịch, không đánh số.",
+            f"    `meaning`: nghĩa ngắn gọn bằng {_MEANING_LANGUAGE[language]} - đúng phần",
+            "               vẫn viết trong ngoặc đơn ngay dưới cụm Pāḷi.",
+            "- Ví dụ hai mục đúng:",
+            '    {"pali":"kharo ābādho uppajji lohitapakkhandikā",',
+            '     "meaning":"Cơn trọng bệnh khốc liệt khởi lên, chứng kiết lỵ ra máu"}',
+            '    {"pali":"lohitapakkhandikābādho","meaning":"Chứng bệnh kiết lỵ đi tiêu ra máu"}',
+            "",
+            "Không viết gì ngoài JSON.",
+            "Trả JSON thuần:",
+            '{"groups":[{"label":"","items":[{"pali":"","meaning":""}]}]}',
+        ]
+    )
+
+
+def _direct_client(timeout_ms: int) -> genai.Client:
+    """Client riêng CHỈ để đặt timeout - xem `DIRECT_REQUEST_TIMEOUT_MS`.
+
+    Không dùng `query_expander._client()` được vì hàm đó khoá cứng
+    `gemini_request_timeout_ms`, và nới biến môi trường đó lên thì nới cho cả các lượt gọi
+    ngầm của tìm kiếm - đúng chỗ 12s đang bảo vệ người dùng khỏi phải chờ.
+
+    Dựng MỘT client cho mỗi lượt thử chứ không dùng lại: `timeout` nằm trong `http_options`
+    của client, mà mỗi model lại được cấp một hạn giờ khác nhau tuỳ phần ngân sách còn lại.
+    """
+    api_key = str(settings()["gemini_api_key"])
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    return genai.Client(api_key=api_key, http_options={"timeout": timeout_ms})
+
+
+def _ask_direct_keywords(query: str, language: str) -> dict | None:
+    """MỘT lượt hỏi Gemini, thử lần lượt các model trong danh sách.
+
+    Trả `None` khi MỌI model đều hỏng (hết giờ, hết quota, Google lỗi) - khác hẳn với việc
+    model trả lời nhưng không nêu được từ khoá nào. Hai trường hợp này phải nói với khách
+    bằng hai câu khác nhau: một câu bảo "thử lại sau", một câu bảo "diễn đạt khác đi". Bản
+    đầu gộp cả hai thành `{}` và khách gặp đúng cảnh vô lý - hỏi một câu rất rõ ràng (câu
+    chuyện người mù sờ voi) mà bị bảo là "hãy thử diễn đạt ngắn gọn hơn", trong khi lỗi
+    thật chỉ là hai model đầu bảng hết 12 giây.
+    """
+    prompt = _direct_keyword_prompt(query, language)
+    deadline = time.monotonic() + DIRECT_TOTAL_BUDGET_MS / 1000
+
+    for model in _keyword_models():
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms < DIRECT_MIN_ATTEMPT_MS:
+            break
+        try:
+            response = _direct_client(min(DIRECT_REQUEST_TIMEOUT_MS, remaining_ms)).models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+        except Exception as exc:
+            if not _is_retryable_error(exc):
+                break
+            continue
+
+        # JSON hỏng thì LUÔN thử model sau, không tính là lỗi dừng vòng. Đo thật:
+        # `gemini-3.5-flash-lite` có lần trả JSON lệch dấu ngoặc (`"items"` nằm sai cấp) -
+        # `_is_retryable_error` đọc câu báo lỗi của pydantic thì không thấy từ khoá nào nên
+        # coi là lỗi chết người và dừng cả vòng, dù model kế tiếp trả lời tốt trong 3 giây.
+        try:
+            return _DirectKeywordResult.model_validate_json(response.text or "{}").model_dump()
+        except Exception:  # noqa: BLE001 - model tra JSON hong, thu model khac
+            continue
+
+    return None
+
+
+def _clean_pali(value: str) -> str:
+    """Dọn phần `pali` về ĐÚNG chuỗi đem đi tìm kiếm được, không sửa chính tả Pāḷi.
+
+    Chỉ chống lại thói quen trình bày của model chứ không phải một bộ lọc chất lượng:
+    model hay trả `kharo ābādho (cơn bệnh khốc liệt)` hoặc `1. lohitapakkhandikā` dù prompt
+    đã dặn tách riêng `meaning`. Phần trong ngoặc bị cắt vì khách yêu cầu "khi tìm kiếm thì
+    chỉ lấy từ khoá pali thôi" - để nguyên thì nó chui thẳng vào ô tìm kiếm.
+    """
+    text = " ".join(str(value or "").split())
+    text = re.sub(r"^\d+[.)]\s*", "", text)
+    text = re.sub(r"\s*[(（\[].*$", "", text)
+    return text.strip().strip('"“”').strip()
+
+
+def _empty_keyword_payload(query: str, error: str | None = None) -> dict:
+    """`error` chỉ đặt khi lượt gọi Gemini HỎNG. Để trống thì giao diện dùng câu mặc định
+    "chưa gợi ý được... thử diễn đạt ngắn gọn hơn" - câu đó chỉ đúng khi model đã trả lời."""
+    payload = {
+        "ok": False,
+        "query": query,
+        "groups": [],
+        "fullSentence": None,
+        "mainKeyword": None,
+        "terms": [],
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def suggest_pali_keywords(query: str, language: str = DEFAULT_LANGUAGE) -> dict:
+    """Trả các nhóm từ khoá Pāḷi cho một câu hỏi - **render thẳng những gì Gemini đưa ra**.
+
+    Không ghi `search_logs`: đây không phải một lượt tìm kiếm, và lượt tìm thật sau đó
+    (khi khách bấm "Tìm ngay" hoặc tự dán) mới là thứ đáng vào lịch sử.
+
+    Ba khoá `fullSentence` / `mainKeyword` / `terms` vẫn còn trong kết quả nhưng CHỈ để
+    tương thích ngược, không phải để hiển thị: `log_keyword_request` và trang
+    `admin_keyword_history` đọc đúng ba khoá đó. Giao diện tìm kiếm đọc `groups`.
+    """
+    query = str(query or "").strip()
+    language = normalize_language(language)
+    if not query:
+        return _empty_keyword_payload("")
+
+    data = _ask_direct_keywords(query, language)
+    if data is None:
+        return _empty_keyword_payload(query, t(language, "keywords.failed"))
+
+    groups: list[dict] = []
+    flat: list[str] = []
+    seen: set[str] = set()
+    for raw_group in (data.get("groups") or [])[:DIRECT_MAX_GROUPS]:
+        items: list[dict] = []
+        # Duyệt HẾT các mục model đưa ra rồi mới cắt còn 2 ở cuối, chứ không cắt trước:
+        # model vẫn có lúc trả 3 mục dù prompt dặn 2, và một mục có thể bị loại vì trùng.
+        # Cắt trước thì nhóm đó chỉ còn 1 ô - đúng cái ô lẻ đang muốn tránh.
+        taken: set[str] = set()
+        for raw_item in raw_group.get("items") or []:
+            if len(items) >= DIRECT_MAX_ITEMS_PER_GROUP:
+                break
+            pali = _clean_pali(str(raw_item.get("pali") or ""))
+            if not pali:
+                continue
+            # Bỏ trùng theo dạng đã chuẩn hoá - hai nhóm hay lặp lại cùng một cụm chỉ khác
+            # dấu câu. Đây là chỗ DUY NHẤT loại bỏ mục, và không phải vì chê chất lượng.
+            key = normalize_pali(pali)
+            if not key or key in seen or key in taken:
+                continue
+            taken.add(key)
+            items.append({"pali": pali, "meaning": " ".join(str(raw_item.get("meaning") or "").split())})
+        if not items:
+            continue
+
+        # NHÓM KHÔNG CÓ TIÊU ĐỀ THÌ BỎ, trừ khi nó là nhóm đầu tiên.
+        #
+        # Giao diện chỉ vẽ tiêu đề khi `label` có chữ, nên một nhóm không tiêu đề nằm ngay
+        # dưới nhóm trước sẽ DÍNH LIỀN vào nhóm đó - khách nhìn thấy một tiêu đề với 3 thẻ
+        # bên dưới và tưởng trần 2 mục bị hỏng, dù mỗi nhóm vẫn đúng 2. Đây chính là ca
+        # "vẫn hiển thị 3 kết quả" khách báo. Trần 2 mục là trần MỖI NHÓM, nên nó chỉ giữ
+        # đúng lời hứa khi ranh giới giữa các nhóm còn nhìn thấy được.
+        label = " ".join(str(raw_group.get("label") or "").split())
+        if not label and groups:
+            continue
+
+        # `seen` chỉ nhận những mục THẬT SỰ hiện ra. Ghi cả mục đã bị cắt bỏ vào đây thì
+        # một cụm không ai nhìn thấy vẫn chặn mất chính nó ở nhóm sau.
+        seen |= taken
+        flat.extend(item["pali"] for item in items)
+        groups.append({"label": label, "items": items})
+
+    if not flat:
+        return _empty_keyword_payload(query)
+
+    return {
+        "ok": True,
+        "query": query,
+        "groups": groups,
+        "fullSentence": None,
+        "mainKeyword": flat[0],
+        "terms": flat[1:],
     }
 
 

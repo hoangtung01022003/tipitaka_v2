@@ -1750,6 +1750,48 @@ body.modalOpen {
   justify-content: flex-end;
 }
 
+/* Mục của bản mới: cụm Pāḷi thường dài cả câu và còn kèm một dòng nghĩa, nên cho chữ chiếm trọn
+   bề ngang và đẩy hai nút xuống dưới - cùng cách xử lý với `.keywordRow.sentence`.
+
+   `height: 100%` + `.keywordBody { flex: 1 }` là ĐỂ CHỐNG LỆCH, không phải để cho đẹp thêm:
+   hai thẻ nằm cạnh nhau gần như không bao giờ cao bằng nhau (thẻ này cụm Pāḷi xuống 2 dòng,
+   thẻ kia 1 dòng; dòng nghĩa cũng dài ngắn khác nhau). Lưới `.keywordList` vốn đã kéo hai thẻ
+   cao bằng nhau, nhưng nếu bên trong thẻ chỉ xếp từ trên xuống thì hai cặp nút dừng ở hai độ
+   cao khác nhau - đúng chỗ khách thấy lệch. Cho phần chữ nở ra chiếm hết chỗ thừa thì hai cặp
+   nút bị đẩy xuống sát đáy thẻ, mà đáy hai thẻ thì lưới đã cho bằng nhau rồi.
+
+   Cách này đúng cho CẢ hai khổ: ở điện thoại lưới chỉ còn một cột nên không có gì để so lệch,
+   và luật vẫn vô hại. */
+.keywordRow.withMeaning {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  height: 100%;
+}
+
+.keywordBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.keywordRow.withMeaning .keywordBody {
+  flex: 1 1 auto;
+}
+
+/* Phần nghĩa chỉ để người đọc chọn đúng cụm, KHÔNG phải thứ đem đi tìm - nên nhạt hơn và
+   nhỏ hơn hẳn chữ Pāḷi, đứng lùi xuống dưới như phần trong ngoặc đơn. */
+.keywordMeaning {
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+
+.keywordRow.withMeaning .keywordActions {
+  justify-content: flex-end;
+}
+
 /* Từ khoá vừa bấm "Tìm ngay". Bảng giờ ở lại sau khi tìm để còn thử tiếp từ khoá khác,
    nên phải chỉ rõ kết quả bên dưới đang thuộc về dòng nào. Dùng viền trái đậm chứ không
    đổi nền, để dấu này không đè lên dấu riêng của `.keywordRow.main`. */

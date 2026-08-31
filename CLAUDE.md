@@ -1,5 +1,15 @@
 # CLAUDE.md
 
+> **Continuation note (2026-08-31):** The live thread of work is the Pāḷi keyword
+> helper — read "The Pāḷi keyword helper (`pali_keywords.py`)" below before touching
+> it. Two things are pending, neither blocking: **migration `013_pali_keyword_logs.sql`
+> has not been run on the VPS** (the admin history page 500s until it is; the feature
+> itself still works), and the client is still refining the button's note text
+> (`keywords.usageNote`, currently a placeholder they said they would replace).
+> Quality is uneven by design — no caching, so a press can return a weak set or,
+> rarely, an empty one; see the "No caching, deliberately" subsection before
+> "fixing" that.
+
 > **Continuation note (2026-08-15):** Before extending Indacanda whole-PDF
 > coverage, read `INDACANDA_FULL_HANDOFF.md`. It records the completed 3-volume
 > import, current DB counts, safety invariants, the interrupted 27-volume profile,
@@ -151,6 +161,9 @@ Key env vars (see `.env.example`):
 - `normalize.py` — Pali diacritic stripping (`normalize_pali`) and Vietnamese diacritic stripping (`strip_vietnamese`, `tokenize`). Nearly every search/translation module depends on this.
 - `glossary.py` — a hand-curated `CONCEPTS` table mapping Vietnamese trigger phrases to Pali term sets (`must`/`should`/`avoid`/`phrases`) for ~17 core Buddhist concepts (sīla items, jewels, kamma, etc.). `analyze_query()` is the **local, non-AI** query analyzer — it always runs first and is the fallback when Gemini is disabled or fails.
 - `query_expander.py` — Gemini-based query expansion (`expand_query_with_ai`) and AI reranking (`rerank_candidates_with_ai`), gated by `PY_SEARCH_AI_MODE`. `merge_expansion()` combines the AI result with the local `glossary.py` analysis (AI is additive, never fully replaces the local signal). Has an in-process expansion cache (`_EXPANSION_CACHE`, unbounded, process-lifetime).
+
+  **Fixed 2026-08-31 — the DB expansion cache had never once worked.** Inside `expand_query_with_ai` the normalisation loop was written `for key in [...]`, shadowing the outer `key` that held the cache key. After the loop `key == "expandedQueries"`, so `_cache_put(key, "expansion", data)` wrote every query under that one literal string; `on conflict do nothing` then kept only the first query ever cached and dropped all the rest, while reads (which use the real hash) never matched. Evidence: the whole table held **1** `expansion` row against 7 `keyword` and 359 `rerank`. Cost of the bug was a wasted Gemini call on *every* search plus non-deterministic results across restarts — exactly what `003_query_cache.sql` exists to prevent. The loop variable is now `field`; after the fix two fresh processes produced byte-identical keyword output where they had differed before.
+- `pali_keywords.py` — the "🔤 Lấy Từ khoá Pāḷi (Tìm kiếm nâng cao)" button on the home page. **Not part of the search pipeline** — see its own section below.
 - `translator.py` — Gemini Pali→Vietnamese translation with a rotating model-fallback list (`_models_for_call` round-robins via a shared cursor), tolerant JSON parsing of the model response (several regex/fallback strategies since Gemini doesn't always return clean JSON), and **two-tier DB caching**: `translations` keyed by `passage_id` (for indexed passages) and `text_translations` keyed by a SHA-256 hash of normalized text (for arbitrary/snippet text, e.g. expanded search snippets or section chunks that don't map to one passage). Long text is chunked and translated piecewise with paragraph/sentence-boundary-aware splitting when a single call fails or exceeds size limits. `embed_query_vector()` calls Gemini's embedding model (`gemini-embedding-2`, 768 dims) for the vector search branch.
 - `search_engine.py` — the core search pipeline, see below.
 - `main.py` — FastAPI routes: page routes returning full Jinja pages (`/`, `/section-page/{id}`), an HTML-fragment route (`/search-page`, returns a partial rendered by `results.html`/appended client-side), JSON API routes (`/search`, `/api/translate-result`, `/api/sections/{id}`, `/api/sections/{id}/translate`, `/api/sections/{id}/translate-chunk` for incremental streamed section translation, `/api/passages/{id}`), and a cookie-session-based `/admin` area (login, search history viewer, history detail, clear-history) protected by `get_current_admin` (redirects to `/admin/login` via a raised `HTTPException` with a 302 status — not a typical error response).
@@ -396,6 +409,55 @@ Root cause of the huge span, for whoever does take this on: the XML import produ
 
 Proven additive across all 37,173 sections: **36,702 unchanged, 459 pages gained an outline, 0 pages lost an entry.** 12 pages changed only the *order* of the same entries (identical sets), because ties on `start_sort_order` are now broken by `end_sort_order` instead of by whatever order the DB returned. Compare sets, not lists, if you re-measure this — an unsorted comparison reported 166 false differences.
 
+### The Pāḷi keyword helper (`pali_keywords.py`) — second search path, built 2026-08-31
+
+The client's workflow before this existed: paste the Vietnamese question into Gemini on the web, get a short Pāḷi phrase back, paste *that* into this site's search box. The button automates the middle step. It sits beside "🔎 Tìm kiếm" and returns three blocks, all from **one** Gemini call:
+
+| block | what it is | why |
+|---|---|---|
+| Câu Pāḷi trọn vẹn | one complete sentence/verse, 6-20 words, diacritics kept | highest measured score; lands on the exact passage |
+| Cụm từ khoá chính | 2-4 word phrase **from the passage body** | the client's "mặc định"; robust when AI mis-inflects one word |
+| Thuật ngữ liên quan | 4 more, mixing phrases and single words; **sutta names live here** | complementary coverage |
+
+`POST /api/pali-keywords` → `suggest_pali_keywords`. Clicking "Tìm ngay" only fills the search box and re-runs the ordinary `submitSearch`, so this feature cannot move a search result by itself; delete the module and search is unchanged.
+
+#### It must not reuse `extract_search_keyword_with_ai`, and the first version did
+
+`search_engine._rank_candidates` **already** calls that function for every non-Pāḷi query and injects the result into `queryTerms`/`querySegmentTexts` — the code comment there even says "đúng cái khách làm tay". The first build called the same function with the same cache key (`query.strip()` + language; `clean_query` is *not* in the key), so pressing "Tìm ngay" on the main keyword re-ran exactly what the pipeline had already tried silently. `extract_main_keyword_deep` is therefore a wholly separate prompt, and there is **no fallback to the old function** — if it finds nothing, the block simply does not render.
+
+#### Body phrase beats sutta name — the reversal, and why the first measurement was wrong
+
+The first design scored a verified sutta name at 1000, far above everything. That came from a measurement asking **"does it find the right sutta?"** (name won 3/4). The client then reported the real failure: right sutta, **wrong passage**. Re-measured at passage level on "lý do Đức Phật niết bàn tại Kusinārā":
+
+```
+mahaparinibbanasutta (name)                        2.287  -> a Q&A passage *about* the sutta;
+                                                             rank 2 was Mahāpariḷāhasuttaṃ (hell)
+ma hevam ananda avaca khuddakanagarakam ...        3.885  -> the exact passage
+bhutapubbam ananda raja mahasudassano nama ahosi   4.809  -> the exact passage
+```
+
+Mechanism: `_names_the_concept` adds `CONCEPT_TITLE_BONUS_SUTTA` (1.50) to **every** passage whose `sourcePath` carries that name, so all 200+ passages of a sutta rise by the same amount and the base score — which favours long rows — picks the winner. A sutta name cannot point at a passage, only at a sutta. Tiers are now `MULTIWORD_BASE_SCORE` 100 > `SUTTA_NAME_BASE_SCORE` 50 > `SINGLE_WORD_BASE_SCORE` 10. Names stay because they are genuinely complementary: on "mũi tên độc" the body phrases failed and the name succeeded; across the measured cases at least one of the two is right every time.
+
+#### Three measurement traps, each of which produced a shipped bug
+
+1. **Verbatim adjacency is the wrong test for a phrase.** Requiring `like '%a b c%'` collapsed multi-word candidates to single words — the client's "từ đơn mang nghĩa rộng quá". Measured on Gemini's own six phrases, **5 of 6 do not exist verbatim** yet three of them search well. The right test is co-occurrence of the tokens (`_cooccurrence_count`), because `_tsquery_for_quote` ANDs tokens rather than requiring adjacency. `_is_usable_term` must apply the same split — `_existing_pali_terms` from `search_engine` is adjacency-based and silently deleted every good phrase when used as the final filter.
+2. **AI's own ordering is the relevance signal; rarity is not.** Rarity measures *how specific*, never *how relevant*. This bug shipped twice — first on `suttaNames` (a 23-char name AI ranked 3rd beat the 17-char name it ranked 1st, returning the wrong sutta), then on `candidates` (scores tied at 120.97/120.97/120.91, so a slightly rarer wrong phrase took the main slot). Both now use `BASE - index` as the primary key, with length and rarity capped below 1.0 so they can only break ties.
+3. **A blacklist of collection words never finishes.** `Aṅguttaranikāya` slipped through a whole-word list; the substring patch (`nikaya`/`pitaka`/`atthakatha`) then let `visuddhimagga`, `abhidhammatthasangaha` and `atthasalini` through — the client saw a whole treatise offered as a keyword. Replaced by a **whitelist**: a name is accepted only if it ends in `SUTTA_NAME_TAILS` (`sutta`/`jataka`/`vatthu`/`sikkhapada`/`gatha`/…). Measured 15/15 — blocks 9 book names, keeps 6 sutta names including `dighanakhasutta`, which contains `digha`. `sections.level` was tried first and **does not separate them**: `visuddhimagga` is level 3, `kutadantasutta` level 4.
+
+#### No caching, deliberately — three versions, do not revert to the middle one
+
+1. Cache one result: pressing again returned the identical set — "hỏi đúng câu đó cứ bị lặp lại".
+2. Cache three variants and rotate: same failure, slower to notice — after three presses it only cycles the stored three, so "Cụm từ khoá chính" freezes. The client found this.
+3. **Current — always a fresh call.** What rotation saved was nothing: all three display blocks come from the *same* call, so a fresh answer costs exactly the one request rotation was avoiding.
+
+Accepted costs, both observed: **14-30 s per press**, and an occasional wholly empty result when every model in `_keyword_models()` fails (1 of 5 presses in one run). `expand_query_with_ai`'s cache is untouched — it is shared with the search pipeline, and removing it would re-break search determinism.
+
+#### Verification and history
+
+`GET /admin/keyword-history` (sidebar "🔤 Lịch sử từ khoá Pāḷi") logs the **original question** plus the keyword set, per the client's "em muốn xem câu hỏi gốc của mn là gì". Table `pali_keyword_logs` — `db/migrations/013_pali_keyword_logs.sql`, **already run locally; run it on the VPS before deploying** or that page 500s. Keywords are stored as `jsonb` because the result shape changed three times during the build. Logging is wrapped in `try/except`, so a VPS without the migration still serves keywords.
+
+Latency note for whoever tunes this: `GEMINI_REQUEST_TIMEOUT_MS` defaults to 12 s and `_keyword_models()` tries several models in turn, which is where the 30 s worst case comes from.
+
 ### Human translations
 
 `human_translations` (`../db/migrations/002_human_translations.sql`) stores translations by a **named translator**, keyed `(passage_id, source)` — as opposed to `translations`, which only models AI output keyed by `(passage_id, language, model, prompt_version)`. `human_translation_imports` logs each run so you can see coverage.
@@ -595,7 +657,7 @@ A useful target shape for this corpus: ~60% certain + ~20% inferred from context
 
 ### Data model (see `001_init.sql`, owned upstream by `../db/migrations/`)
 
-`documents` (one per source XML file, `corpus_type` ∈ mul/att/tik/nrf) → `sections` (hierarchical, `source_path text[]`) → `passages` (the actual searchable Pali text, `normalized_pali` for FTS/trgm, `hierarchy jsonb`, `embedding` for optional vector search). `translations` caches AI translations per `passage_id`; `text_translations` caches by content hash for text that isn't a single passage row. `search_logs` records every search query/filters/result set for the admin analytics view.
+`documents` (one per source XML file, `corpus_type` ∈ mul/att/tik/nrf) → `sections` (hierarchical, `source_path text[]`) → `passages` (the actual searchable Pali text, `normalized_pali` for FTS/trgm, `hierarchy jsonb`, `embedding` for optional vector search). `translations` caches AI translations per `passage_id`; `text_translations` caches by content hash for text that isn't a single passage row. `search_logs` records every search query/filters/result set for the admin analytics view; `pali_keyword_logs` (013) does the same for the Pāḷi-keyword button, kept separate for the reason given under Admin area.
 
 ### Admin area
 
@@ -604,6 +666,7 @@ Session-cookie auth only (`SessionMiddleware` + a boolean `admin_logged_in` flag
 - `/admin/history` — `search_logs` with **infinite scroll**, not numbered pages: the page renders the first `ADMIN_HISTORY_BATCH = 20` rows, and the browser asks `/api/admin/history/rows` for the next batch (`ADMIN_HISTORY_MAX_BATCH = 100` per call) using a keyset cursor (`before_time` + `before_id`), so there is no upper bound on how far back you can scroll — verified pulling all 387 logged rows. Plus a keyword filter (`?q=`), an `?only_empty=true` filter for searches that returned nothing, a total count, and a top-10 most-frequent-query list.
 - `/api/admin/history/{id}` resolves the logged `result_passage_ids` back to full passage rows; `/api/admin/history/clear` truncates `search_logs`.
 - `/admin/notice` — GET renders the notice editor (title + body per language, plus an on/off toggle), POST saves it via `notice.save_notice` and bumps the version when the content actually changed.
+- `/admin/keyword-history` — `pali_keyword_logs`, same infinite-scroll + keyword-filter + `?only_empty=true` shape as the two histories above. Deliberately a **separate table and page**, not merged into `search_logs`: a keyword request touches no `passages` row, has no corpus/pitaka filter, and stores an AI keyword set instead of a result list — merging would corrupt every search statistic on `/admin/history`. See the `pali_keywords.py` section.
 
 ## Client requests (`feat_new/`) — status
 
@@ -621,6 +684,7 @@ The requests live in `feat_new/Yêu cầu.docx` (feature list) and `feat_new/toi
    - Brahmali (English, Vinaya) — bilara-data, **not in the client's list** but the only English Vinaya in existence for this corpus. **Imported** by `import_brahmali.py` (9,639 rows, 74% of the Vinaya root canon).
 3. **"Search all" option — DONE.** Both selectors gained an `all` entry and default to it, so a visitor can type and search without choosing anything. `resolve_corpus_types` / `resolve_pitaka_type` normalize it. Note this also required fixing `_display_source`, which labelled every row with `corpus_types[0]` and so tagged Ṭīkā results as "Tipiṭaka Mūla" once more than one corpus was in scope.
 4. **Raise the admin search-history cap — DONE.** 50/200 → default 200, max 5000, plus pagination, a page-size picker, a keyword filter and a zero-result filter.
+5. **"Biến đổi từ khoá sang Pāḷi cho câu hỏi khó" — DONE (2026-08-31), and still being tuned by client feedback.** Full design and every measurement in the `pali_keywords.py` section above. The client's standing criteria, in their words: keywords must be *"1 cụm từ khoá mang ý nghĩa liên quan, đôi lúc có thể trích dẫn tên bài kinh tùy theo câu hỏi"* — i.e. **body phrase is the default, sutta name is the exception** — and the goal is the right *đoạn kinh*, not merely the right *bài kinh*. Judge any future change to this module against passage-level correctness on a known-answer question, never against sutta-level.
 
 ### Search-quality bugs (`toiuu_timkiem.docx`)
 
