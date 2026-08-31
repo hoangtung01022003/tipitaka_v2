@@ -33,8 +33,6 @@ có "cụm chính" để hiện - đã được khách xác nhận chấp nhận
 """
 
 from functools import lru_cache
-from itertools import count
-from threading import Lock
 
 from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
@@ -82,13 +80,33 @@ PHRASE_FREQ_CAP = 400
 # trả về sai bài, `jaccandha` (100 đoạn) trả về đúng bài.
 GENERIC_TERM_MAX = 250
 
-# Bốn thang điểm TÁCH RỜI nhau, không phải bốn mức trong cùng một thang: một TÊN BÀI KINH
-# đã xác thực phải luôn thắng mọi cụm trích từ thân kinh, cụm nhiều từ phải luôn thắng từ
-# đơn, và từ đơn đặc trưng phải luôn thắng từ phổ thông - bất kể độ hiếm chênh nhau bao
-# nhiêu. Xem `_resolve_candidate` và `_resolve_sutta_name`.
-SUTTA_NAME_BASE_SCORE = 1000.0
+# Bốn thang điểm TÁCH RỜI nhau, không phải bốn mức trong cùng một thang: hạng trên luôn
+# thắng hạng dưới bất kể độ hiếm chênh nhau bao nhiêu.
+#
+# **CỤM TRÍCH THÂN KINH ĐỨNG TRÊN TÊN BÀI KINH.** Bản trước ngược lại (tên bài kinh 1000
+# điểm, luôn chiếm ô "Cụm từ khoá chính"), và đó là lỗi thiết kế do tôi đo sai câu hỏi:
+# tôi đo "có ra đúng BÀI KINH không" (tên bài thắng 3/4), trong khi cái người đọc cần là
+# "có ra đúng ĐOẠN KINH không". Với thước đúng thì kết luận đảo hẳn.
+#
+# Nguyên nhân nằm ở `search_engine._names_the_concept`: nó cộng `CONCEPT_TITLE_BONUS_SUTTA`
+# (1.50) cho MỌI đoạn có tên đó trong `sourcePath`. Tìm bằng tên bài kinh nghĩa là cả 200+
+# đoạn của bài được cộng ĐỀU NHAU, nên đoạn nào nổi lên là do điểm nền quyết định - hoàn
+# toàn ngẫu nhiên so với ý người hỏi. Đo thật với câu "lý do Đức Phật niết bàn tại Kusinārā":
+#
+#     mahaparinibbanasutta (tên bài)                      2,287  -> đoạn HỎI ĐÁP VỀ bài kinh,
+#                                                                   hạng 2 còn là bài về địa ngục
+#     bhutapubbam ananda raja mahasudassano nama ahosi    4,809  -> ĐÚNG đoạn cần tìm
+#     ma hevam ananda avaca khuddakanagarakam ...         3,885  -> ĐÚNG đoạn cần tìm
+#
+# Khách nói thẳng: "cụm nội dung là mặc định, tên bài kinh là ngoại lệ". Tên bài kinh vẫn
+# giữ ở hạng dưới chứ không xoá - đo thật, ca "mũi tên độc" thì câu/cụm thân kinh SAI mà
+# tên bài kinh ĐÚNG, hai loại bù nhau.
 MULTIWORD_BASE_SCORE = 100.0
-MULTIWORD_LENGTH_BONUS = 10.0
+# Nhỏ, và có trần 4 chữ: chỉ để phá hoà giữa các cụm AI xếp NGANG NHAU, không được phép
+# vượt một bậc thứ tự của AI. Bản trước để 10.0 nên một cụm dài AI xếp thứ 3 vẫn đè được
+# cụm ngắn AI xếp thứ nhất.
+MULTIWORD_LENGTH_BONUS = 0.1
+SUTTA_NAME_BASE_SCORE = 50.0
 SINGLE_WORD_BASE_SCORE = 10.0
 
 # Tên bài kinh phải đủ dài mới mang thông tin. Đo thật: `culamalunkyovada` (16) và
@@ -102,53 +120,55 @@ SUTTA_NAME_MIN_LENGTH = 8
 # `Cūḷamālukyasuttavaṇṇanā` trong DB.
 SUTTA_NAME_STEM_LENGTH = 8
 
-# Tên bộ/tạng/ấn bản - không phải tên bài kinh, và khớp lung tung khắp nơi. Đo thật:
-# `majjhima` trả về `Vicayahārasampāto`, `nikaya` trả về `Paṭhamamahāsaṅgītikathā`.
-COLLECTION_WORDS = {
-    "sutta", "suttam", "suttanta", "vagga", "vaggo", "nikaya", "pitaka", "pitake",
-    "majjhima", "digha", "samyutta", "anguttara", "khuddaka", "tipitaka", "udana",
-    "vinaya", "abhidhamma", "atthakatha", "tika", "pali", "palic", "kinh", "trung",
-    "truong", "tuong", "tang", "chi", "tieu", "bo",
-}
+# **DANH SÁCH TRẮNG: một cái tên chỉ được nhận nếu KẾT THÚC bằng một trong các đuôi này.**
+#
+# Trước đây tôi làm ngược - liệt kê các từ CẤM (`nikaya`, `pitaka`, `atthakatha`...) - và
+# sai hai lần liên tiếp vì danh sách đen không bao giờ đủ: lần đầu lọt `Aṅguttaranikāya`
+# (đã vá bằng cách dò chuỗi con), lần sau lọt tiếp `visuddhimagga` (Thanh Tịnh Đạo, cả một
+# bộ luận), `abhidhammatthasangaha`, `atthasalini` - không tên nào chứa từ cấm nào. Cứ có
+# tên sách mới là lại sót.
+#
+# Đảo lại thành danh sách trắng thì bền: tên BỘ/SÁCH kết thúc bằng `magga`, `saṅgaha`,
+# `nikāya`, `piṭaka`, `ṭīkā`, `sālinī`, `purāṇī`, `pasādikā`... - không cái nào trùng đuôi
+# của một bài kinh, nên tên sách mới xuất hiện bao nhiêu cũng tự động bị loại mà không phải
+# sửa gì. Đo trên 13 tên: loại đúng 8/8 tên bộ sách, giữ đúng 5/5 tên bài kinh, 0 sai.
+#
+# Đã thử dùng cột `sections.level` thay cho cách này và KHÔNG được: `visuddhimagga` nằm ở
+# cấp 3 còn `kutadantasutta` ở cấp 4 - hai loại chồng lấn cấp nhau, không có ngưỡng nào cắt.
+SUTTA_NAME_TAILS = (
+    "sutta", "suttam", "suttanta", "suttantam",
+    "jataka", "jatakam",
+    "vatthu", "vatthum",
+    "sikkhapada", "sikkhapadam",
+    "gatha", "gatham",
+    "puccha", "pucchā",
+    "parajika", "parajikam",
+    "cariya", "cariyam",
+)
 
-# Dấu hiệu CHẮC CHẮN là tên một BỘ/TẠNG chứ không phải tên bài kinh, dò theo kiểu CHỨA
-# CHUỖI CON. Cần riêng danh sách này vì `COLLECTION_WORDS` so khớp NGUYÊN TỪ, mà AI lại
-# hay viết dính liền: `Aṅguttaranikāya-aṭṭhakathā`, `Majjhimanikāya`, `Dīghanikāya-ṭīkā`
-# đều không khớp entry nào nên lọt hết qua lưới - khách gặp đúng ca này, cụm chính trả về
-# `anguttaranikaya-atthakatha`, tức tên cả một bộ chú giải, vô dụng làm từ khoá.
+# **KHÔNG ĐỆM lượt suy luận này - mỗi lần bấm là một lượt hỏi Gemini mới.** Đã đi qua ba
+# bản, ghi lại để đừng ai quay về bản giữa:
 #
-# Chỉ để ở đây những chuỗi KHÔNG BAO GIỜ nằm trong tên một bài kinh. Không được thêm
-# `sutta` (mọi tên bài kinh đều chứa), cũng không được thêm `digha`/`majjhima` theo kiểu
-# chuỗi con - `Dīghanakhasutta` (MN 74) là tên bài kinh thật và có chứa `digha`.
-COLLECTION_MARKERS = ("nikaya", "pitaka", "atthakatha")
-
-# **ĐỆM NHIỀU BỘ RỒI XOAY VÒNG**, chứ không phải đệm một bộ, cũng không phải bỏ đệm hẳn.
-# Cả hai thái cực đều đã thử và đều hỏng theo cách riêng:
+# 1. Đệm MỘT bộ: bấm lại luôn ra y hệt - khách báo "hỏi đúng câu đó cứ bị lặp lại".
+# 2. Đệm BA bộ rồi xoay vòng: đỡ hơn nhưng hỏng cùng kiểu, chỉ chậm hơn - sau 3 lần bấm là
+#    hết bộ mới, từ đó chỉ xoay lại ba bộ cũ nên "Cụm từ khoá chính" đứng im. Khách phát
+#    hiện đúng chỗ này.
+# 3. Hiện tại - luôn hỏi mới.
 #
-# - Đệm MỘT bộ (bản đầu): bấm lại nút trên cùng câu hỏi luôn ra y hệt - khách báo "hỏi đúng
-#   câu đó cứ bị lặp lại", trong khi bấm lại CHÍNH LÀ để xin bộ khác mà thử.
-# - BỎ đệm hẳn (bản sau): mỗi lần bấm là một lượt hỏi mới, tốn 3-10 giây và một lượt gọi
-#   Gemini, mà chất lượng lên xuống thất thường - đo thật trên câu "voi mù", có lần ra
-#   `jaccandhasutta` (đúng) có lần ra `tittirajataka` (Tittira Jātaka, chuyện chim đa đa,
-#   sai hoàn toàn).
+# Lý do bản 2 không đáng giữ: nó tiết kiệm một thứ vốn không tốn thêm gì. **Cả ba phần hiển
+# thị (Câu Pāḷi trọn vẹn, Cụm từ khoá chính, Thuật ngữ liên quan) đều đến từ CÙNG MỘT lượt
+# gọi**, nên hỏi mới cũng chỉ đúng một lượt - bằng đúng cái mà xoay vòng đang tránh.
 #
-# Cách hiện tại lấy phần tốt của cả hai: sinh dần tối đa `KEYWORD_VARIANT_COUNT` bộ khác
-# nhau cho mỗi câu hỏi, mỗi bộ tốn đúng MỘT lượt gọi, rồi từ đó về sau chỉ xoay vòng trong
-# các bộ đã có. Khách vẫn thấy bộ mới ở mỗi lần bấm, mà không tốn thêm lượt gọi nào và
-# không phải chịu rủi ro một lượt đoán tồi mới.
+# Cái giá phải chấp nhận: mỗi lần bấm mất 3-10 giây và một lượt gọi Gemini, và chất lượng
+# lên xuống giữa hai lần bấm liền kề (đo thật trên câu "voi mù": có lần ra `jaccandhasutta`
+# đúng, có lần ra `tittirajataka` sai hẳn). Đây là đánh đổi khách đã chọn.
 #
 # `expand_query_with_ai` (danh sách "thuật ngữ liên quan") VẪN đệm như cũ và không được
 # đụng tới: đệm đó dùng chung với pipeline tìm kiếm chính, bỏ nó đi là làm kết quả tìm
 # kiếm mất ổn định - đúng thứ đệm đó sinh ra để chặn.
 KEYWORD_VARIANT_COUNT = 3
 DEEP_KEYWORD_KIND = "deep_keyword"
-DEEP_KEYWORD_PROMPT_VERSION = "v4-multiword-required"
-
-# Con trỏ xoay vòng, sống trong tiến trình. KHÔNG cần bền vững: mất nó thì lần bấm đầu sau
-# khi khởi động lại quay về bộ số 0, hoàn toàn vô hại. Có khoá vì nhiều request có thể
-# cùng chạm vào nó một lúc.
-_VARIANT_CURSORS: dict[str, count] = {}
-_VARIANT_LOCK = Lock()
+DEEP_KEYWORD_PROMPT_VERSION = "v5-body-phrase-first"
 
 
 class _DeepKeywordResult(BaseModel):
@@ -157,10 +177,11 @@ class _DeepKeywordResult(BaseModel):
     # MỘT câu / bài kệ Pāḷi trọn vẹn. Đo thật, đây là loại từ khoá cho kết quả tốt NHẤT -
     # xem `_resolve_full_sentence`.
     fullSentence: str = ""
-    # Tên bài kinh viết bằng Pāḷi, XIN NHIỀU CÁCH VIẾT. Đây là trường cho từ khoá tốt nhất
-    # (xem `_resolve_sutta_name`), nhưng mỗi ấn bản đặt tên một khác nên phải xin vài cách:
-    # câu "người mù sờ voi" được AI gọi là "Tittha Sutta" (tên bên SuttaCentral) trong khi
-    # CST đặt là `Paṭhamanānātitthiyasuttaṃ` - chỉ xin một cách viết là hụt mất bài đúng.
+    # Tên bài kinh, XIN NHIỀU CÁCH VIẾT vì mỗi ấn bản đặt tên một khác: câu "người mù sờ
+    # voi" được AI gọi là "Tittha Sutta" (tên bên SuttaCentral) trong khi CST đặt là
+    # `Paṭhamanānātitthiyasuttaṃ` - chỉ xin một cách viết là hụt mất bài đúng.
+    #
+    # Đây là trường PHỤ, xếp dưới `candidates` - xem khối hằng số điểm để biết vì sao.
     suttaNames: list[str] = Field(default_factory=list)
     candidates: list[str] = Field(default_factory=list)
 
@@ -183,17 +204,24 @@ def _normalized_section_titles() -> tuple[str, ...]:
 
 
 def _sutta_name_is_real(name: str) -> bool:
-    """Tên này có ứng với một tiêu đề thật trong kho không - chặn tên AI bịa.
+    """Tên này có phải TÊN MỘT BÀI KINH có thật trong kho không.
 
-    Đo thật trên 4 tên có thật và 4 tên bịa: nhận đúng cả 4 tên thật (kể cả
-    `culamalunkyovada`, thứ không xuất hiện nguyên văn trong BẤT KỲ đoạn kinh nào nên
-    phép kiểm tra theo thân kinh sẽ loại oan), và loại 3/4 tên bịa. Ca lọt lưới duy nhất
-    là `brahmajalupama` khớp gốc `brahmaja` của `Brahmajālasuttaṃ` - vẫn trỏ về một bài
-    kinh có thật, nên tác hại giới hạn.
+    Hai cửa, mỗi cửa chặn một loại lỗi khác nhau:
+
+    1. **Kết thúc bằng đuôi của tên bài kinh** (`SUTTA_NAME_TAILS`) - chặn tên BỘ/SÁCH.
+       Xem lời giải thích ở chỗ khai báo hằng số để biết vì sao phải là danh sách trắng
+       chứ không phải danh sách đen.
+    2. **Gốc khớp một tiêu đề thật trong DB** - chặn tên AI bịa. Phải so GỐC chứ không so
+       nguyên chuỗi: `culamalunkyovada` của AI không xuất hiện nguyên văn ở đâu cả, nhưng
+       gốc `culamalu` khớp đúng `Cūḷamālukyasuttavaṇṇanā`.
+
+    Đo trên 4 tên thật + 4 tên bịa ở cửa 2: nhận đúng cả 4 tên thật, loại 3/4 tên bịa. Ca
+    lọt lưới duy nhất là `brahmajalupama` khớp gốc `brahmaja` của `Brahmajālasuttaṃ` - vẫn
+    trỏ về một bài kinh có thật nên tác hại giới hạn.
     """
-    if len(name) < SUTTA_NAME_MIN_LENGTH or name in COLLECTION_WORDS:
+    if len(name) < SUTTA_NAME_MIN_LENGTH:
         return False
-    if any(marker in name for marker in COLLECTION_MARKERS):
+    if not name.endswith(SUTTA_NAME_TAILS):
         return False
     stem = name[:SUTTA_NAME_STEM_LENGTH]
     return any(stem in title for title in _normalized_section_titles())
@@ -264,7 +292,7 @@ def _cooccurrence_count(phrase: str) -> int:
     return len(rows)
 
 
-def _resolve_candidate(candidate: str) -> tuple[float, str] | None:
+def _resolve_candidate(candidate: str, index: int = 0) -> tuple[float, str] | None:
     """Chấm điểm MỘT ứng viên AI, và trả về dạng thực sự dùng được của nó.
 
     **GIỮ NGUYÊN CỤM NHIỀU TỪ.** Bản trước đòi cụm phải xuất hiện NGUYÊN VĂN LIỀN NHAU
@@ -287,6 +315,14 @@ def _resolve_candidate(candidate: str) -> tuple[float, str] | None:
     Vẫn phải LỌC TỪ BỊA: bỏ riêng những chữ không tồn tại trong kho rồi mới đo lại, thay vì
     vứt cả cụm. `kappaṃ pi ce tiṭṭhati dīghamāyuṃ` chết cả cụm chỉ vì `dighamayum` là dạng
     AI tự chia; bỏ chữ đó đi thì phần còn lại vẫn tìm được.
+
+    **`index` (thứ tự AI xếp) là khoá chính trong hạng cụm nhiều chữ, độ hiếm chỉ phá hoà.**
+    Đo thật: cụm ở vị trí 0 của AI đúng ở CẢ HAI ca thử, trong khi điểm cũ (chỉ gồm số chữ
+    + độ hiếm) cho gần như hoà nhau - `kullūpamaṁ vo bhikkhave` (ĐÚNG) 120,97 so với
+    `nittharaṇatthāya no gahaṇatthāya` (SAI) cũng 120,97 - nên chỉ cần cụm sai hiếm hơn một
+    chút là nó lật ngược được thứ tự AI và chiếm ô "cụm chính". Đây đúng bài học đã rút ra
+    ở `suttaNames`: độ hiếm đo được "đặc trưng đến đâu", KHÔNG đo được "có liên quan tới
+    câu hỏi không" - chỉ AI biết điều đó, và nó thể hiện qua thứ tự nó xếp.
 
     Trả `None` khi không cứu được gì.
     """
@@ -317,10 +353,14 @@ def _resolve_candidate(candidate: str) -> tuple[float, str] | None:
         phrase = " ".join(word for word, _ in remaining)
         together = _cooccurrence_count(phrase)
         if together > 0:
+            # Thứ tự AI (`index`) là khoá chính; số chữ và độ hiếm chỉ phá hoà giữa các cụm
+            # AI xếp ngang nhau. Cả hai cộng lại phải NHỎ HƠN 1 để không bao giờ vượt được
+            # một bậc `index`, nếu không lại rơi vào đúng lỗi cũ.
             score = (
                 MULTIWORD_BASE_SCORE
-                + len(remaining) * MULTIWORD_LENGTH_BONUS
-                + _rarity(together)
+                - index
+                + min(len(remaining), 4) * MULTIWORD_LENGTH_BONUS
+                + _rarity(together) * 0.1
             )
             return score, phrase
         commonest = max(remaining, key=lambda item: item[1])
@@ -363,19 +403,16 @@ def _deep_keyword_prompt(query: str) -> str:
             "   Không nhớ chắc cả câu thì cứ đưa phần bạn nhớ chắc nhất, miễn còn đọc ra một",
             "   câu; để trống chỉ khi hoàn toàn không nhớ được câu nào.",
             "",
-            "3. `suttaNames` - Nếu nhận ra, hãy cho 2-4 CÁCH VIẾT PĀḶI",
-            "   khác nhau của TÊN bài kinh đó, chỉ tên thôi, KHÔNG kèm tên bộ/tạng/số hiệu.",
-            "   Mỗi ấn bản đặt tên một khác, nên hãy liệt kê cả tên ngắn lẫn tên dài đầy đủ,",
-            "   cả cách viết của ấn bản Miến (CST/Chaṭṭha Saṅgāyana) lẫn cách viết phổ biến.",
-            "   Ví dụ dạng mong muốn: [\"Alagaddūpamasutta\", \"Alagaddūpama\"];",
-            "   [\"Cūḷamālukyasutta\", \"Cūḷamālunkyovādasutta\"].",
-            "   Không chắc thì cứ đưa phỏng đoán tốt nhất; để trống chỉ khi hoàn toàn mù tịt.",
+            f"3. `candidates` - PHẦN QUAN TRỌNG NHẤT. {DEEP_CANDIDATE_COUNT} CỤM TỪ KHOÁ PĀḶI",
+            "   trích từ THÂN đoạn kinh, khác nhau thật sự (không phải biến thể chính tả của",
+            "   cùng một cụm), xếp theo độ tin cậy giảm dần.",
             "",
-            f"4. `candidates` - {DEEP_CANDIDATE_COUNT} CỤM TỪ KHOÁ PĀḶI trích từ THÂN bài kinh,",
-            "   khác nhau thật sự (không phải biến thể chính tả của cùng một cụm), xếp theo độ",
-            "   tin cậy giảm dần.",
+            "   Vì sao đây là phần quan trọng nhất: người đọc cần tìm ĐÚNG ĐOẠN KINH mang ý",
+            "   nghĩa họ hỏi, không phải chỉ tìm ra tên bài kinh. Một cụm chữ nằm ngay trong",
+            "   đoạn đó sẽ trỏ thẳng vào đoạn đó; còn tên bài kinh thì trỏ đều vào cả trăm đoạn",
+            "   của bài, và đoạn hiện ra thường không phải đoạn họ cần.",
             "",
-            "BA YÊU CẦU BẮT BUỘC cho mỗi cụm ở mục 4, quan trọng hơn mọi thứ khác:",
+            "BA YÊU CẦU BẮT BUỘC cho mỗi cụm ở mục 3, quan trọng hơn mọi thứ khác:",
             "a. PHẢI TỪ 2 ĐẾN 4 CHỮ. TUYỆT ĐỐI KHÔNG đưa từ đơn lẻ. Một chữ đứng một mình mang",
             "   nghĩa quá rộng, khớp hàng trăm bài không liên quan; hai chữ đi cùng nhau mới đủ",
             "   thu hẹp về đúng đoạn kinh cần tìm.",
@@ -390,6 +427,15 @@ def _deep_keyword_prompt(query: str) -> str:
             "c. ĐẶC TRƯNG. Ưu tiên chữ chỉ riêng câu chuyện/ẩn dụ này mới có (tên nhân vật, con",
             "   vật, đồ vật, hình ảnh ẩn dụ cụ thể). TRÁNH thuật ngữ giáo lý phổ thông xuất hiện",
             "   khắp Tam Tạng - chúng khớp hàng trăm bài không liên quan và làm chìm mất bài đúng.",
+            "",
+            "4. `suttaNames` - PHẦN PHỤ, chỉ điền khi bạn thực sự nhận ra bài kinh. Cho 2-4 CÁCH",
+            "   VIẾT PĀḶI khác nhau của TÊN bài kinh, chỉ tên bài thôi.",
+            "   TUYỆT ĐỐI KHÔNG đưa tên BỘ/TẠNG/SÁCH LỚN - `Visuddhimagga`, `Aṅguttaranikāya`,",
+            "   `Abhidhammatthasaṅgaha`, `Atthasālinī`, `Suttapiṭaka` đều SAI ở đây: chúng bao cả",
+            "   nghìn đoạn nên vô dụng làm từ khoá. Chỉ tên MỘT bài kinh cụ thể mới được.",
+            "   Ví dụ dạng mong muốn: [\"Alagaddūpamasutta\", \"Alagaddūpama\"];",
+            "   [\"Cūḷamālukyasutta\", \"Cūḷamālunkyovādasutta\"].",
+            "   Không nhận ra bài nào thì để trống - thà trống còn hơn đưa tên một bộ sách.",
             "",
             "Không dịch, không giải thích ngoài JSON.",
             "Trả JSON thuần:",
@@ -454,45 +500,23 @@ def _ask_deep_keywords(query: str) -> dict:
     return {}
 
 
-def _variant_fingerprint(payload: dict) -> str:
-    """Dấu nhận dạng NỘI DUNG của một bộ, để không đệm hai bộ giống hệt nhau.
-
-    Chỉ tính hai trường thật sự sinh ra từ khoá; `reasoning` là văn xuôi tự do, gần như
-    lần nào cũng khác đôi chút nên đưa vào là bộ nào cũng thành "mới".
-    """
-    names = [normalize_pali(str(item)) for item in (payload.get("suttaNames") or [])]
-    candidates = [normalize_pali(str(item)) for item in (payload.get("candidates") or [])]
-    return "|".join([*names, "~", *candidates])
-
-
 def _deep_keyword_payload(query: str, language: str) -> dict:
-    """Trả về MỘT bộ kết quả AI, xoay vòng giữa các bộ đã đệm - xem khối hằng số đầu file.
+    """Trả về kết quả AI cho câu hỏi này - **LUÔN hỏi mới, không đệm gì cả**.
 
-    Chưa đủ `KEYWORD_VARIANT_COUNT` bộ thì hỏi thêm một lượt và đệm lại, nên vài lần bấm
-    đầu vừa cho bộ mới vừa làm đầy kho. Đủ rồi thì chỉ xoay vòng, không gọi Gemini nữa.
+    Bản trước đệm 3 bộ rồi xoay vòng, nhằm cho khách bộ khác nhau mỗi lần bấm mà không tốn
+    thêm lượt gọi. Nó hỏng ở chỗ đơn giản: sau 3 lần bấm là hết bộ mới, từ đó chỉ xoay lại
+    ba bộ cũ - khách bấm lấy lại từ khoá mà "Cụm từ khoá chính" vẫn y nguyên.
 
-    Bộ mới trùng nội dung với một bộ đã có thì KHÔNG đệm - đệm vào chỉ tổ chiếm một chỗ
-    trong `KEYWORD_VARIANT_COUNT` mà không thêm được phương án nào cho khách.
+    Và cái nó tiết kiệm hoá ra không đáng: **cả ba phần hiển thị (Câu Pāḷi trọn vẹn, Cụm từ
+    khoá chính, Thuật ngữ liên quan) đều lấy từ CÙNG MỘT lượt gọi này**, nên hỏi mới cũng
+    chỉ tốn đúng một lượt - bằng đúng cái mà xoay vòng đang tránh. Đổi lại, mỗi lần bấm là
+    một phương án thật sự mới.
+
+    `_load_variants` / `_store_variant` giữ lại nhưng không còn ai gọi: bảng `query_ai_cache`
+    vẫn còn các dòng `deep_keyword` cũ, và nếu sau này muốn quay lại cơ chế đệm thì đã có
+    sẵn. Hiện tại chúng là mã chết, đừng đọc nhầm thành "vẫn đang đệm".
     """
-    variants = _load_variants(query, language)
-
-    if len(variants) < KEYWORD_VARIANT_COUNT:
-        fresh = _ask_deep_keywords(query)
-        if fresh:
-            known = {_variant_fingerprint(item) for item in variants}
-            if _variant_fingerprint(fresh) not in known:
-                _store_variant(query, language, len(variants), fresh)
-            return fresh
-        # Gemini hỏng - vẫn còn bộ cũ thì xoay vòng tiếp ở dưới, không để khách tay trắng.
-
-    if not variants:
-        return {}
-
-    cursor_key = _cache_key(query.strip(), language)
-    with _VARIANT_LOCK:
-        cursor = _VARIANT_CURSORS.setdefault(cursor_key, count())
-        index = next(cursor)
-    return variants[index % len(variants)]
+    return _ask_deep_keywords(query)
 
 
 def extract_main_keyword_deep(
@@ -553,8 +577,9 @@ def extract_main_keyword_deep(
         if name:
             collect((SUTTA_NAME_BASE_SCORE - len(cached.get("suttaNames") or []), name))
 
-    for raw_candidate in cached.get("candidates") or []:
-        collect(_resolve_candidate(str(raw_candidate)))
+    # `index` truyền vào để giữ ĐÚNG thứ tự AI xếp - xem `_resolve_candidate`.
+    for index, raw_candidate in enumerate(cached.get("candidates") or []):
+        collect(_resolve_candidate(str(raw_candidate), index))
 
     if not resolved:
         # Không ứng viên nào lấy một chữ có thật trong kho. AI bịa hoàn toàn cho câu hỏi
