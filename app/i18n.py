@@ -45,12 +45,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.loadMoreFailed": "Không tải được kết quả tiếp theo.",
         # Lối tìm THỨ HAI: "Biến đổi từ khoá sang Pāḷi cho câu hỏi khó" - xem
         # `pali_keywords.py`. Chạy song song, không thay thế ô nhập tiếng Việt.
-        "keywords.button": "🔤 Lấy Từ khoá Pāḷi (Tìm kiếm nâng cao)",
+        "keywords.button": "Chuyển đổi câu hỏi thành từ khóa Pāḷi",
         "keywords.buttonHint": "Câu hỏi khó, tìm mãi không ra?",
         # Ghi chú hướng dẫn dưới cụm nút. Khách gọi đây là bản TẠM ("mai em nghĩ note hay
         # hơn thì em thông báo lại"), nên để riêng một khoá để sau đổi chữ mà không phải
         # đụng vào template.
-        "keywords.usageNote": "Nếu quý vị tìm kiếm với từ khoá bằng Tiếng Việt không cho ra kết quả tốt, hãy nhập câu hỏi rồi bấm “🔤 Từ khoá Pāḷi” để lấy từ khoá tìm kiếm tốt hơn.",
+        "keywords.usageNote": "Nếu quý vị tìm kiếm với từ khoá bằng Tiếng Việt không cho ra kết quả tốt, hãy nhập câu hỏi rồi bấm “Từ khoá Pāḷi” để lấy từ khoá tìm kiếm tốt hơn.",
         "keywords.loading": "⏳ Đang lấy từ khoá...",
         "keywords.title": "Từ khoá Pāḷi gợi ý",
         "keywords.hint": "Sao chép một từ khoá rồi dán vào ô tìm kiếm, hoặc bấm “Tìm ngay”.",
@@ -260,9 +260,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.loadMore": "Show 5 more results",
         "search.loadingMore": "Loading and translating more...",
         "search.loadMoreFailed": "Could not load more results.",
-        "keywords.button": "🔤 Get Pāḷi keywords (advanced search)",
+        "keywords.button": "Get Pāḷi keywords (advanced search)",
         "keywords.buttonHint": "Hard question, nothing found?",
-        "keywords.usageNote": "If searching with keywords in your own language does not give good results, type your question and press “🔤 Pāḷi keywords” to get better search keywords.",
+        "keywords.usageNote": "If searching with keywords in your own language does not give good results, type your question and press “Pāḷi keywords” to get better search keywords.",
         "keywords.loading": "⏳ Getting keywords...",
         "keywords.title": "Suggested Pāḷi keywords",
         "keywords.hint": "Copy a keyword into the search box, or press “Search it”.",
@@ -451,9 +451,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.loadMore": "နောက်ထပ် ၅ ခု ပြရန်",
         "search.loadingMore": "ထပ်မံ ရယူ၍ ဘာသာပြန်နေသည်...",
         "search.loadMoreFailed": "နောက်ထပ်ရလဒ်များ မရယူနိုင်ပါ။",
-        "keywords.button": "🔤 ပါဠိ သော့ချက်စာလုံး ရယူရန် (အဆင့်မြင့် ရှာဖွေမှု)",
+        "keywords.button": "ပါဠိ သော့ချက်စာလုံး ရယူရန် (အဆင့်မြင့် ရှာဖွေမှု)",
         "keywords.buttonHint": "မေးခွန်းခက်၍ ရှာမတွေ့ဘူးလား။",
-        "keywords.usageNote": "မိမိဘာသာစကားဖြင့် သော့ချက်စာလုံးရိုက်၍ ရှာသော်လည်း ကောင်းသောရလဒ် မရပါက၊ မေးခွန်းကို ရိုက်ထည့်ပြီး “🔤 ပါဠိ သော့ချက်စာလုံးများ” ကို နှိပ်၍ ပိုကောင်းသော ရှာဖွေရေးသော့ချက်စာလုံးများ ရယူပါ။",
+        "keywords.usageNote": "မိမိဘာသာစကားဖြင့် သော့ချက်စာလုံးရိုက်၍ ရှာသော်လည်း ကောင်းသောရလဒ် မရပါက၊ မေးခွန်းကို ရိုက်ထည့်ပြီး “ပါဠိ သော့ချက်စာလုံးများ” ကို နှိပ်၍ ပိုကောင်းသော ရှာဖွေရေးသော့ချက်စာလုံးများ ရယူပါ။",
         "keywords.loading": "⏳ သော့ချက်စာလုံး ရယူနေသည်...",
         "keywords.title": "အကြံပြု ပါဠိ သော့ချက်စာလုံးများ",
         "keywords.hint": "သော့ချက်စာလုံးတစ်ခုကို ကူးယူ၍ ရှာဖွေမှုအကွက်တွင် ထည့်ပါ၊ သို့မဟုတ် “ချက်ချင်းရှာရန်” ကို နှိပ်ပါ။",
