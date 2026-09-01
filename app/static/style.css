@@ -212,6 +212,25 @@ body.modalOpen {
   background: #f5ede3;
 }
 
+/* Nút "Chuyển đổi câu hỏi thành từ khoá Pāḷi" đứng cạnh nút Tìm kiếm chính, nhưng dùng
+   `.button.secondary` (nền kem nhạt, viền 1px) thì nhìn phẳng như một ô văn bản chứ
+   không giống một nút bấm - khách phản ánh đúng chỗ này. Không đổi hẳn sang `.button`
+   (nền đỏ đặc) vì nó vẫn là lối tìm PHỤ, không được lấn vai trò của nút Tìm kiếm chính.
+   Viền dày hơn và tô màu accent thay vì màu viền trung tính `--line` là đủ để mắt nhận
+   ra đây là một nút bấm thật, không cần đổi tới nền đặc. */
+#paliKeywordBtn {
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+#paliKeywordBtn:hover:not(:disabled) {
+  background: #ffe9e5;
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+}
+
 .button:disabled {
   opacity: 0.7;
   cursor: wait;
