@@ -1156,21 +1156,8 @@ def translate_result_api(payload: dict, request: Request):
             return {"ok": True, "translation": human, "warning": None, "source": source}
         return {"ok": False, "translation": unavailable_translation(language), "warning": None, "source": source}
 
-    # Chặn cả API, không chỉ ẩn nút trên giao diện - gọi thẳng endpoint này vẫn phải bị
-    # từ chối khi `DISABLE_AI_TRANSLATION` bật và người gọi không phải admin.
-    if not ai_translation_enabled(request):
-        return {
-            "ok": False,
-            "translation": {
-                "vi": None,
-                "text": None,
-                "fromCache": False,
-                "error": t(language, "translation.aiDisabled"),
-            },
-            "warning": None,
-            "source": source,
-        }
-
+    # `DISABLE_AI_TRANSLATION` chỉ tắt bản dịch AI CẢ BÀI (trang đọc), không tắt endpoint
+    # này - đây là bản dịch AI của riêng đoạn trích ngắn, vẫn chạy cho mọi người.
     try:
         if use_passage_cache and passage_id:
             translation = translate_passage(passage_id, language)
@@ -1583,10 +1570,6 @@ def _section_payload(
     ai_enabled: bool = True,
 ) -> dict:
     selected = normalize_source(source)
-    if not ai_enabled and selected == AI_SOURCE:
-        # `DISABLE_AI_TRANSLATION` bật và người xem không phải admin: tab AI không được
-        # phép là lựa chọn mặc định nữa, rơi về dịch giả đứng đầu danh sách.
-        selected = SOURCE_ORDER[0]
     section = fetch_one(
         """
         select s.id, s.document_id, s.title, s.source_path, s.start_sort_order,
@@ -1644,24 +1627,21 @@ def _section_payload(
     # Indacanda bien mat o moi bo kinh chua nap - giong het loi ben trang ket qua.
     with_data = {str(item["source"]) for item in official_list}
     is_abhidhamma = "abhidhammapitaka" in normalize_pali(" ".join(map(str, source_path)))
-    # Tab AI đứng đầu, LUÔN available: AI dịch được mọi đoạn nên không có trạng thái
-    # "chưa có dữ liệu" như các dịch giả. Thiếu tab này thì trang chỉ vào được AI ở lần
-    # tải đầu (mặc định `source=ai`); bấm sang bất kỳ dịch giả nào là hết đường quay lại,
-    # vì JS chỉ điều hướng qua nút có `data-section-tab`.
-    # `DISABLE_AI_TRANSLATION` bật và không phải admin thì bỏ hẳn tab này - khách yêu cầu
-    # "tắt và ẩn luôn", không phải hiện một tab xám không bấm được.
-    available = (
-        [
-            {
-                "source": AI_SOURCE,
-                "label": source_label(AI_SOURCE, language),
-                "available": True,
-                "unavailableReason": "",
-            }
-        ]
-        if ai_enabled
-        else []
-    )
+    # Tab AI đứng đầu, LUÔN available VÀ LUÔN HIỆN cho mọi người - kể cả khi
+    # `DISABLE_AI_TRANSLATION` bật. Khách chốt: nút/tab vẫn bấm được như cũ, chỉ riêng
+    # NỘI DUNG dịch (gọi Gemini thật) mới bị chặn cho user thường - xem nhánh
+    # `include_translation`/`elif` phía trên và guard trong `section_translate_chunk_api`.
+    # Thiếu tab này thì trang chỉ vào được AI ở lần tải đầu (mặc định `source=ai`); bấm
+    # sang bất kỳ dịch giả nào là hết đường quay lại, vì JS chỉ điều hướng qua nút có
+    # `data-section-tab`.
+    available = [
+        {
+            "source": AI_SOURCE,
+            "label": source_label(AI_SOURCE, language),
+            "available": True,
+            "unavailableReason": "",
+        }
+    ]
     for source_id in SOURCE_ORDER:
         if source_id == AI_SOURCE:
             continue
@@ -1679,8 +1659,8 @@ def _section_payload(
                 "unavailableReason": unavailable_reason,
             }
         )
-    if selected not in {item["source"] for item in available}:
-        selected = AI_SOURCE if ai_enabled else SOURCE_ORDER[0]
+    if selected != AI_SOURCE and selected not in {item["source"] for item in available}:
+        selected = AI_SOURCE
     chosen = next((item for item in official_list if item["source"] == selected), None)
 
     return {

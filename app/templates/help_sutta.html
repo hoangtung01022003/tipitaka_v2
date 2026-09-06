@@ -67,7 +67,9 @@
             </div>
           </article>
 
-          {% if ai_enabled %}
+          {# Nút dịch AI LUÔN hiện cho mọi người - `DISABLE_AI_TRANSLATION` chỉ chặn nội
+             dung dịch thật ở `/api/help-sutta/{id}/translate-chunk` (user thường bấm vẫn
+             ra thông báo tạm khoá, admin vẫn dịch được), không ẩn nút này. #}
           <article class="sectionPassage readerBlock">
             <div class="readerHeader">
               <div>
@@ -82,7 +84,6 @@
             <div class="manualTranslationProgress" data-translation-progress role="status" aria-live="polite"></div>
             <p class="notice aiWarning">{{ warning }}</p>
           </article>
-          {% endif %}
         </div>
       </section>
     </main>

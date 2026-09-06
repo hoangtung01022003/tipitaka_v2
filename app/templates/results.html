@@ -55,45 +55,45 @@
         </div>
       </div>
 
-      {# Đoạn Pali dạng JSON dùng chung cho cả khối dịch AI (dưới đây) lẫn tóm tắt AI
-         (`excerptSummary` phía trên) - phải nằm NGOÀI cờ `ai_enabled`, tắt bản dịch không
-         được kéo theo mất luôn dữ liệu nguồn cho tóm tắt. #}
       <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
 
-      {% if ai_enabled %}
-        {# Khách chốt thứ tự: khối AI của ĐÚNG đoạn Pali trên đứng trước, rồi mới tới các
-           bản dịch chính thức của cả bài kinh. AI tải bất đồng bộ nên chỗ này hiện spinner
-           một nhịp trước khi có chữ. #}
-        <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
-        <div
-          class="translationMount"
-          data-translation-card
-          data-passage-id="{{ item.id }}"
-          data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
-          data-loaded="false"
-        >
-          <div class="translationLoading" role="status" aria-live="polite">
-            <span class="miniSpinner" aria-hidden="true"></span>
-            <span>{{ t('results.translationLoading') }}</span>
-          </div>
+      {# Khách chốt thứ tự: khối AI của ĐÚNG đoạn Pali trên đứng trước, rồi mới tới các
+         bản dịch chính thức của cả bài kinh. AI tải bất đồng bộ nên chỗ này hiện spinner
+         một nhịp trước khi có chữ. Khối này LUÔN hiện + LUÔN chạy thật cho mọi người,
+         không bị `DISABLE_AI_TRANSLATION` đụng tới - cờ đó chỉ chặn NỘI DUNG dịch AI CẢ
+         BÀI ở trang đọc (nút/tab vẫn hiện, chỉ phần tải chữ thật mới bị chặn cho user
+         thường - xem `_section_payload`/`section_translate_chunk_api` trong main.py). #}
+      <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
+      <div
+        class="translationMount"
+        data-translation-card
+        data-passage-id="{{ item.id }}"
+        data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
+        data-loaded="false"
+      >
+        <div class="translationLoading" role="status" aria-live="polite">
+          <span class="miniSpinner" aria-hidden="true"></span>
+          <span>{{ t('results.translationLoading') }}</span>
         </div>
+      </div>
 
-        {# Nút mở cả bài bằng AI. Vòng lặp dựng nút bên dưới chỉ chạy các DỊCH GIẢ - `main.py`
-           bỏ qua `AI_SOURCE` - nên nếu không đặt riêng ở đây thì trang đọc vẫn có tab AI mà
-           từ trang kết quả không có lối nào vào. Luôn bật, vì AI dịch được mọi đoạn nên
-           không có trạng thái "chưa có dữ liệu" như các dịch giả. #}
-        {% if item.canOpenSection and item.readerSectionId %}
-          <div class="sectionActions sourceAction">
-            <button
-              class="button secondary"
-              type="button"
-              data-section-id="{{ item.readerSectionId }}"
-              data-section-source="ai"
-            >
-              {{ t('results.openSectionAi') }}
-            </button>
-          </div>
-        {% endif %}
+      {# Nút mở cả bài bằng AI - LUÔN hiện cho mọi người, kể cả khi `DISABLE_AI_TRANSLATION`
+         bật. Bấm vào vẫn mở được trang đọc và tab AI vẫn còn đó; chỉ NỘI DUNG dịch thật
+         mới bị chặn cho user thường ở tầng API (xem `_section_payload`/
+         `section_translate_chunk_api` trong `main.py`). Vòng lặp dựng nút bên dưới chỉ
+         chạy các DỊCH GIẢ - `main.py` bỏ qua `AI_SOURCE` - nên nếu không đặt riêng ở đây
+         thì trang đọc vẫn có tab AI mà từ trang kết quả không có lối nào vào. #}
+      {% if item.canOpenSection and item.readerSectionId %}
+        <div class="sectionActions sourceAction">
+          <button
+            class="button secondary"
+            type="button"
+            data-section-id="{{ item.readerSectionId }}"
+            data-section-source="ai"
+          >
+            {{ t('results.openSectionAi') }}
+          </button>
+        </div>
       {% endif %}
 
       {# Mỗi nút đọc toàn bài nằm ngay dưới bản dịch tương ứng, không gom thành một cụm
@@ -154,9 +154,7 @@
     </div>
   {% endif %}
 
-  {% if ai_enabled %}
-    <p class="notice aiWarning">{{ result.warning }}</p>
-  {% endif %}
+  <p class="notice aiWarning">{{ result.warning }}</p>
   {% if result.pagination.hasMore %}
     <form class="loadMoreForm" onsubmit="event.preventDefault(); this.dataset.submitting='true'; window.loadMoreResults && window.loadMoreResults(this);">
       {# Khi đã rơi vào fallback thì phân trang phải đi tiếp theo từ khóa rút gọn,
