@@ -55,6 +55,11 @@ def settings() -> dict[str, object]:
         "search_min_score": float_env("PY_SEARCH_MIN_SCORE", 0.0),
         "search_enable_vector": bool_env("PY_SEARCH_ENABLE_VECTOR", True),
         "search_ai_mode": os.getenv("PY_SEARCH_AI_MODE", "full").strip().lower(),
+        # Tắt/ẩn RIÊNG bản dịch Pali->Việt bằng AI cho khách + user thường (đăng nhập hay
+        # không đều vậy); admin (session `admin_logged_in`) không bị ảnh hưởng. Không đụng
+        # tới AI tóm tắt, AI mở rộng từ khoá/rerank, hay dịch nghĩa từ điển - xem
+        # `ai_translation_enabled()` trong `main.py`.
+        "disable_ai_translation": bool_env("DISABLE_AI_TRANSLATION", False),
         "search_rerank_limit": int(os.getenv("PY_SEARCH_RERANK_LIMIT", "100")),
         "gemini_request_timeout_ms": int_env("GEMINI_REQUEST_TIMEOUT_MS", 12000),
         "ga_measurement_id": os.getenv("GA_MEASUREMENT_ID", "").strip(),

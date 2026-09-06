@@ -760,6 +760,23 @@ def _template_context(request: Request, language: str, **extra: object) -> dict:
     return context
 
 
+def ai_translation_enabled(request: Request) -> bool:
+    """Cờ tắt/ẩn RIÊNG bản dịch Pali->Việt bằng AI, theo `DISABLE_AI_TRANSLATION`.
+
+    Không đụng tới AI tóm tắt (`summarize_*`), AI mở rộng từ khoá/rerank tìm kiếm, hay
+    dịch nghĩa từ điển - những thứ đó gọi thẳng hàm của chúng, không qua đây. Chỉ những
+    chỗ gọi `translate_passage`/`translate_text_cached` để dịch nguyên văn Pali mới cần
+    gọi hàm này trước.
+
+    Admin (session `admin_logged_in`, đặt ở `/admin/login`) luôn thấy bản dịch AI như cũ,
+    kể cả khi cờ này bật - tài khoản người dùng thường (`session["user_id"]`, đăng nhập
+    qua `/login`) KHÔNG được tính là admin và vẫn bị tắt như khách vãng lai.
+    """
+    if not settings().get("disable_ai_translation"):
+        return True
+    return bool(request.session.get("admin_logged_in"))
+
+
 def _admin_filter_labels() -> tuple[dict[str, str], dict[str, str]]:
     """Nhãn bộ lọc cho trang admin, luôn dùng tiếng Việt."""
     return (
@@ -871,7 +888,11 @@ def login_submit(
 
 @app.get("/logout")
 def logout(request: Request):
-    request.session.pop("user_id", None)
+    # Xoá SẠCH session, không chỉ `user_id`. Trước đây chỉ pop `user_id`: một trình duyệt
+    # từng đăng nhập `/admin` rồi bấm nút đăng xuất thường ở đây vẫn giữ nguyên
+    # `admin_logged_in=True` trong cookie - nhìn giao diện tưởng đã đăng xuất nhưng vẫn
+    # vào được `/admin/history` và vẫn được coi là admin ở `ai_translation_enabled()`.
+    request.session.clear()
     return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
 
 
@@ -994,6 +1015,7 @@ def search_page(
 ):
     language = request_language(request, lang)
     current_user = auth.get_current_user(request)
+    ai_enabled = ai_translation_enabled(request)
     result = search_passages(
         query,
         resolve_corpus_types(corpus_type),
@@ -1096,6 +1118,7 @@ def search_page(
             pitaka_type=pitaka_type,
             append_mode=page > 1,
             current_user=auth.get_current_user(request),
+            ai_enabled=ai_enabled,
         ),
     )
 
@@ -1132,6 +1155,21 @@ def translate_result_api(payload: dict, request: Request):
         if human:
             return {"ok": True, "translation": human, "warning": None, "source": source}
         return {"ok": False, "translation": unavailable_translation(language), "warning": None, "source": source}
+
+    # Chặn cả API, không chỉ ẩn nút trên giao diện - gọi thẳng endpoint này vẫn phải bị
+    # từ chối khi `DISABLE_AI_TRANSLATION` bật và người gọi không phải admin.
+    if not ai_translation_enabled(request):
+        return {
+            "ok": False,
+            "translation": {
+                "vi": None,
+                "text": None,
+                "fromCache": False,
+                "error": t(language, "translation.aiDisabled"),
+            },
+            "warning": None,
+            "source": source,
+        }
 
     try:
         if use_passage_cache and passage_id:
@@ -1542,8 +1580,13 @@ def _section_payload(
     include_translation: bool = True,
     language: str = DEFAULT_LANGUAGE,
     source: str = AI_SOURCE,
+    ai_enabled: bool = True,
 ) -> dict:
     selected = normalize_source(source)
+    if not ai_enabled and selected == AI_SOURCE:
+        # `DISABLE_AI_TRANSLATION` bật và người xem không phải admin: tab AI không được
+        # phép là lựa chọn mặc định nữa, rơi về dịch giả đứng đầu danh sách.
+        selected = SOURCE_ORDER[0]
     section = fetch_one(
         """
         select s.id, s.document_id, s.title, s.source_path, s.start_sort_order,
@@ -1580,8 +1623,12 @@ def _section_payload(
     )
     paragraphs = _section_paragraphs(rows, language)
     pali_text = "\n\n".join(block["text"] for block in paragraphs)
-    if include_translation:
+    if include_translation and ai_enabled:
         translation, attempted_translation = _translate_section_text(pali_text, language)
+    elif include_translation:
+        # Cờ tắt bản dịch AI đang bật và người xem không phải admin - không gọi Gemini.
+        translation = {"vi": None, "text": None, "fromCache": False, "error": t(language, "translation.aiDisabled")}
+        attempted_translation = False
     else:
         translation, attempted_translation = {"vi": None, "text": None, "fromCache": False, "pending": True}, False
     source_path = section.get("source_path") or []
@@ -1601,14 +1648,20 @@ def _section_payload(
     # "chưa có dữ liệu" như các dịch giả. Thiếu tab này thì trang chỉ vào được AI ở lần
     # tải đầu (mặc định `source=ai`); bấm sang bất kỳ dịch giả nào là hết đường quay lại,
     # vì JS chỉ điều hướng qua nút có `data-section-tab`.
-    available = [
-        {
-            "source": AI_SOURCE,
-            "label": source_label(AI_SOURCE, language),
-            "available": True,
-            "unavailableReason": "",
-        }
-    ]
+    # `DISABLE_AI_TRANSLATION` bật và không phải admin thì bỏ hẳn tab này - khách yêu cầu
+    # "tắt và ẩn luôn", không phải hiện một tab xám không bấm được.
+    available = (
+        [
+            {
+                "source": AI_SOURCE,
+                "label": source_label(AI_SOURCE, language),
+                "available": True,
+                "unavailableReason": "",
+            }
+        ]
+        if ai_enabled
+        else []
+    )
     for source_id in SOURCE_ORDER:
         if source_id == AI_SOURCE:
             continue
@@ -1626,8 +1679,8 @@ def _section_payload(
                 "unavailableReason": unavailable_reason,
             }
         )
-    if selected != AI_SOURCE and selected not in {item["source"] for item in available}:
-        selected = AI_SOURCE
+    if selected not in {item["source"] for item in available}:
+        selected = AI_SOURCE if ai_enabled else SOURCE_ORDER[0]
     chosen = next((item for item in official_list if item["source"] == selected), None)
 
     return {
@@ -1705,7 +1758,12 @@ def section_outline_labels_api(
 
 @app.get("/api/sections/{section_id}")
 def section_api(section_id: str, request: Request, lang: str | None = Query(None)):
-    return _section_payload(section_id, include_translation=False, language=request_language(request, lang))
+    return _section_payload(
+        section_id,
+        include_translation=False,
+        language=request_language(request, lang),
+        ai_enabled=ai_translation_enabled(request),
+    )
 
 
 @app.get("/api/sections/{section_id}/summary")
@@ -1723,7 +1781,12 @@ def section_summary_api(section_id: str, request: Request, lang: str | None = Qu
 @app.get("/api/sections/{section_id}/translate")
 def section_translate_api(section_id: str, request: Request, lang: str | None = Query(None)):
     language = request_language(request, lang)
-    section = _section_payload(section_id, include_translation=True, language=language)
+    section = _section_payload(
+        section_id,
+        include_translation=True,
+        language=language,
+        ai_enabled=ai_translation_enabled(request),
+    )
     return {
         "ok": bool(section.get("translation", {}).get("vi")),
         "sectionId": section["sectionId"],
@@ -1741,8 +1804,28 @@ def section_translate_chunk_api(
     source: str | None = Query(None),
 ):
     language = request_language(request, lang)
-    section = _section_payload(section_id, include_translation=False, language=language)
+    ai_enabled = ai_translation_enabled(request)
+    section = _section_payload(
+        section_id, include_translation=False, language=language, ai_enabled=ai_enabled
+    )
     translation_source = normalize_source(source)
+    if translation_source == AI_SOURCE and not ai_enabled:
+        # Chặn cả API: gọi thẳng endpoint này với source=ai vẫn phải bị từ chối khi cờ
+        # `DISABLE_AI_TRANSLATION` bật và người gọi không phải admin.
+        return {
+            "ok": False,
+            "sectionId": section["sectionId"],
+            "chunkIndex": chunk,
+            "totalChunks": 0,
+            "hasMore": False,
+            "translation": {
+                "vi": None,
+                "text": None,
+                "fromCache": False,
+                "error": t(language, "translation.aiDisabled"),
+            },
+            "warning": None,
+        }
     chunks = _chunk_section_text(
         str(section.get("paliText") or ""),
         max_chars=SECTION_TRANSLATION_STREAM_CHUNK_CHARS,
@@ -1804,7 +1887,13 @@ def section_page(
     source: str | None = Query(None),
 ):
     language = request_language(request, lang)
-    section = _section_payload(section_id, include_translation=False, language=language, source=source or AI_SOURCE)
+    section = _section_payload(
+        section_id,
+        include_translation=False,
+        language=language,
+        source=source or AI_SOURCE,
+        ai_enabled=ai_translation_enabled(request),
+    )
     return templates.TemplateResponse(
         "section.html",
         _template_context(request, language, section=section),
@@ -2020,6 +2109,7 @@ def help_sutta_page(request: Request, item_id: str, lang: str | None = Query(Non
             strings=ui_strings(language),
             warning=t(language, "translation.aiWarning"),
             ga_measurement_id=settings().get("ga_measurement_id", ""),
+            ai_enabled=ai_translation_enabled(request),
         ),
     )
 
@@ -2043,6 +2133,23 @@ def help_sutta_translate_chunk_api(
     if not sutta:
         raise HTTPException(status_code=404, detail="Manual sutta not found.")
     language = request_language(request, lang)
+    if not ai_translation_enabled(request):
+        # Chặn cả API: trang này chỉ có một kiểu dịch (AI), nên cờ tắt là chặn thẳng
+        # endpoint chứ không có nhánh dịch giả nào khác để rơi về.
+        return {
+            "ok": False,
+            "itemId": sutta["id"],
+            "chunkIndex": chunk,
+            "totalChunks": 0,
+            "hasMore": False,
+            "translation": {
+                "vi": None,
+                "text": None,
+                "fromCache": False,
+                "error": t(language, "translation.aiDisabled"),
+            },
+            "warning": None,
+        }
     chunks = _chunk_section_text(
         sutta["pali_text"], max_chars=SECTION_TRANSLATION_STREAM_CHUNK_CHARS
     )
@@ -2112,8 +2219,10 @@ def admin_login_page(request: Request):
 
 @app.get("/admin/logout")
 def admin_logout(request: Request):
-    request.session.pop("admin_logged_in", None)
-    request.session.pop("user_id", None)
+    # Đồng nhất với `/logout`: xoá sạch cả session bằng `.clear()` thay vì pop từng key,
+    # để sau này thêm key session mới cũng không lặp lại kiểu lỗi "đăng xuất nửa vời"
+    # từng xảy ra ở `/logout`.
+    request.session.clear()
     return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
 

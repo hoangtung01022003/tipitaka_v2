@@ -67,6 +67,7 @@
             </div>
           </article>
 
+          {% if ai_enabled %}
           <article class="sectionPassage readerBlock">
             <div class="readerHeader">
               <div>
@@ -81,6 +82,7 @@
             <div class="manualTranslationProgress" data-translation-progress role="status" aria-live="polite"></div>
             <p class="notice aiWarning">{{ warning }}</p>
           </article>
+          {% endif %}
         </div>
       </section>
     </main>

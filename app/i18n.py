@@ -130,6 +130,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "reader.jumpedToMatch": "Đã nhảy tới đoạn khớp với tìm kiếm của bạn.",
         "translation.failed": "Chưa dịch được đoạn này. Vui lòng thử lại sau.",
         "translation.aiWarning": "Đây là bản dịch của AI, chưa được kiểm chứng, dùng làm định hướng tra cứu.",
+        "translation.aiDisabled": "Bản dịch AI hiện đang tạm khoá.",
         "translation.sourceLabel": "Bản dịch",
         "translation.noOfficial": "Hiện không có bản dịch chính thức nào",
         # Chèn vào ĐÚNG chỗ bản dịch cấp đoạn bị hụt so với bản Pali. Con số phần trăm ở
@@ -333,6 +334,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "reader.jumpedToMatch": "Jumped to the passage that matched your search.",
         "translation.failed": "Could not translate this passage. Please try again later.",
         "translation.aiWarning": "This is an AI translation and has not been verified.",
+        "translation.aiDisabled": "AI translation is temporarily disabled.",
         "translation.sourceLabel": "Translation",
         "translation.noOfficial": "No official translation is available",
         "translation.gapPassages": "[… {count} passage(s) not yet matched to a translation …]",
@@ -524,6 +526,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "reader.jumpedToMatch": "သင်ရှာသော အပိုဒ်ဆီ ခုန်ပြီးပါပြီ။",
         "translation.failed": "ဤအပိုဒ်ကို ဘာသာမပြန်နိုင်ပါ။ နောက်မှ ထပ်စမ်းပါ။",
         "translation.aiWarning": "ဤသည်မှာ AI ဘာသာပြန်ဖြစ်ပြီး အတည်ပြုထားခြင်း မရှိသေးပါ။",
+        "translation.aiDisabled": "AI ဘာသာပြန် ယာယီ ပိတ်ထားသည်။",
         "translation.sourceLabel": "ဘာသာပြန်",
         "translation.noOfficial": "တရားဝင်ဘာသာပြန် မရှိသေးပါ",
         "translation.gapPassages": "[… ဘာသာပြန်နှင့် တွဲမမိသေးသော အပိုဒ် {count} ခု …]",
