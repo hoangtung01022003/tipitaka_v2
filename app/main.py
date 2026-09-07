@@ -1156,8 +1156,21 @@ def translate_result_api(payload: dict, request: Request):
             return {"ok": True, "translation": human, "warning": None, "source": source}
         return {"ok": False, "translation": unavailable_translation(language), "warning": None, "source": source}
 
-    # `DISABLE_AI_TRANSLATION` chỉ tắt bản dịch AI CẢ BÀI (trang đọc), không tắt endpoint
-    # này - đây là bản dịch AI của riêng đoạn trích ngắn, vẫn chạy cho mọi người.
+    # Chặn cả API, không chỉ ẩn khối trên giao diện - gọi thẳng endpoint này vẫn phải bị
+    # từ chối khi `DISABLE_AI_TRANSLATION` bật và người gọi không phải admin.
+    if not ai_translation_enabled(request):
+        return {
+            "ok": False,
+            "translation": {
+                "vi": None,
+                "text": None,
+                "fromCache": False,
+                "error": t(language, "translation.aiDisabled"),
+            },
+            "warning": None,
+            "source": source,
+        }
+
     try:
         if use_passage_cache and passage_id:
             translation = translate_passage(passage_id, language)

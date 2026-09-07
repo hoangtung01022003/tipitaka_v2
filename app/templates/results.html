@@ -57,25 +57,27 @@
 
       <script type="application/json" id="pali-text-{{ item.id }}">{{ item.paliText | tojson }}</script>
 
-      {# Khách chốt thứ tự: khối AI của ĐÚNG đoạn Pali trên đứng trước, rồi mới tới các
-         bản dịch chính thức của cả bài kinh. AI tải bất đồng bộ nên chỗ này hiện spinner
-         một nhịp trước khi có chữ. Khối này LUÔN hiện + LUÔN chạy thật cho mọi người,
-         không bị `DISABLE_AI_TRANSLATION` đụng tới - cờ đó chỉ chặn NỘI DUNG dịch AI CẢ
-         BÀI ở trang đọc (nút/tab vẫn hiện, chỉ phần tải chữ thật mới bị chặn cho user
-         thường - xem `_section_payload`/`section_translate_chunk_api` trong main.py). #}
-      <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
-      <div
-        class="translationMount"
-        data-translation-card
-        data-passage-id="{{ item.id }}"
-        data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
-        data-loaded="false"
-      >
-        <div class="translationLoading" role="status" aria-live="polite">
-          <span class="miniSpinner" aria-hidden="true"></span>
-          <span>{{ t('results.translationLoading') }}</span>
+      {% if ai_enabled %}
+        {# Khách chốt thứ tự: khối AI của ĐÚNG đoạn Pali trên đứng trước, rồi mới tới các
+           bản dịch chính thức của cả bài kinh. AI tải bất đồng bộ nên chỗ này hiện spinner
+           một nhịp trước khi có chữ. Khối này ẩn hẳn cho user thường/khách khi
+           `DISABLE_AI_TRANSLATION` bật - chỉ admin mới thấy và mới gọi
+           `/api/translate-result`. Khác với nút "Xem toàn bộ bài kinh" bên dưới: nút đó
+           vẫn hiện cho mọi người, chỉ nội dung dịch thật ở trang đọc mới bị chặn. #}
+        <div class="resultTitle">{{ t('translation.aiTitle') }}</div>
+        <div
+          class="translationMount"
+          data-translation-card
+          data-passage-id="{{ item.id }}"
+          data-use-passage-cache="{% if item.contextExpanded %}false{% else %}true{% endif %}"
+          data-loaded="false"
+        >
+          <div class="translationLoading" role="status" aria-live="polite">
+            <span class="miniSpinner" aria-hidden="true"></span>
+            <span>{{ t('results.translationLoading') }}</span>
+          </div>
         </div>
-      </div>
+      {% endif %}
 
       {# Nút mở cả bài bằng AI - LUÔN hiện cho mọi người, kể cả khi `DISABLE_AI_TRANSLATION`
          bật. Bấm vào vẫn mở được trang đọc và tab AI vẫn còn đó; chỉ NỘI DUNG dịch thật
@@ -154,7 +156,9 @@
     </div>
   {% endif %}
 
-  <p class="notice aiWarning">{{ result.warning }}</p>
+  {% if ai_enabled %}
+    <p class="notice aiWarning">{{ result.warning }}</p>
+  {% endif %}
   {% if result.pagination.hasMore %}
     <form class="loadMoreForm" onsubmit="event.preventDefault(); this.dataset.submitting='true'; window.loadMoreResults && window.loadMoreResults(this);">
       {# Khi đã rơi vào fallback thì phân trang phải đi tiếp theo từ khóa rút gọn,
