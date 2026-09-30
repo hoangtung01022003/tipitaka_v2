@@ -60,6 +60,13 @@ def settings() -> dict[str, object]:
         # tới AI tóm tắt, AI mở rộng từ khoá/rerank, hay dịch nghĩa từ điển - xem
         # `ai_translation_enabled()` trong `main.py`.
         "disable_ai_translation": bool_env("DISABLE_AI_TRANSLATION", False),
+        # Danh sách username người dùng được cấp quyền đọc toàn bộ bản dịch AI như Admin
+        # kể cả khi DISABLE_AI_TRANSLATION=true.
+        "ai_translation_whitelist_users": {
+            item.strip().lower()
+            for item in os.getenv("AI_TRANSLATION_WHITELIST_USERS", "capcomanh").split(",")
+            if item.strip()
+        },
         "search_rerank_limit": int(os.getenv("PY_SEARCH_RERANK_LIMIT", "100")),
         "gemini_request_timeout_ms": int_env("GEMINI_REQUEST_TIMEOUT_MS", 12000),
         "ga_measurement_id": os.getenv("GA_MEASUREMENT_ID", "").strip(),

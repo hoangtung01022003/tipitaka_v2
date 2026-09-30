@@ -82,11 +82,35 @@ def get_or_create_admin_user() -> dict:
     return row
 
 
+def ensure_user(username: str, password: str) -> dict:
+    """Đảm bảo tài khoản tồn tại với mật khẩu được chỉ định. Nếu chưa có thì tạo mới,
+    nếu đã có nhưng mật khẩu khác thì cập nhật lại mật khẩu mới."""
+    username = username.strip().lower()
+    user = get_user_by_username(username)
+    if not user:
+        return create_user(username, password)
+    if not verify_password(password, user["password_hash"]):
+        updated = fetch_one(
+            "update users set password_hash = %s where id = %s returning *",
+            [hash_password(password), user["id"]],
+        )
+        return updated or user
+    return user
+
+
 def get_current_user(request: Request) -> dict | None:
+    if hasattr(request.state, "current_user"):
+        return request.state.current_user
     user_id = request.session.get("user_id")
     if not user_id:
-        return None
-    return get_user_by_id(user_id)
+        user = None
+    else:
+        user = get_user_by_id(user_id)
+    try:
+        request.state.current_user = user
+    except Exception:
+        pass
+    return user
 
 
 def require_user_page(request: Request) -> dict:
