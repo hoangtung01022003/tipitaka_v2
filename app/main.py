@@ -787,6 +787,8 @@ def ai_translation_enabled(request: Request) -> bool:
         return True
     user = auth.get_current_user(request)
     if user:
+        if user.get("ai_translation_access"):
+            return True
         whitelist = settings().get("ai_translation_whitelist_users") or set()
         if str(user.get("username", "")).strip().lower() in whitelist:
             return True
@@ -2861,8 +2863,23 @@ def admin_users_page(request: Request, _: str = Depends(get_current_admin)):
     `011`."""
     return templates.TemplateResponse(
         "admin_users.html",
-        {"request": request, "users": auth.list_users_with_counts()},
+        {
+            "request": request,
+            "users": auth.list_users_with_counts(),
+            "env_whitelist": settings().get("ai_translation_whitelist_users") or set(),
+        },
     )
+
+
+@app.post("/admin/users/{user_id}/ai-translation-access")
+def admin_set_user_ai_access(
+    user_id: str,
+    enabled: str = Form("0"),
+    _: str = Depends(get_current_admin),
+):
+    if not auth.set_ai_translation_access(user_id, enabled == "1"):
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng này.")
+    return RedirectResponse(url="/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/admin/users/{user_id}", response_class=HTMLResponse)

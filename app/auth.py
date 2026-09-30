@@ -142,10 +142,18 @@ def list_users_with_counts() -> list[dict]:
 
     return fetch_all(
         """
-        select u.id, u.username, u.created_at, count(s.id) as saved_count
+        select u.id, u.username, u.created_at, u.ai_translation_access,
+               count(s.id) as saved_count
         from users u
         left join saved_items s on s.user_id = u.id
         group by u.id
         order by u.created_at desc
         """
+    )
+
+
+def set_ai_translation_access(user_id: str, enabled: bool) -> dict | None:
+    return fetch_one(
+        "update users set ai_translation_access = %s where id = %s returning id, username, ai_translation_access",
+        [enabled, user_id],
     )

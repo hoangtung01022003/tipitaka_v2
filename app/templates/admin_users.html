@@ -32,6 +32,9 @@
       .savedCountBadge { display: inline-block; background: #eff6ff; color: #1d4ed8; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; }
       .viewLink { color: #2563eb; font-weight: 600; text-decoration: none; }
       .viewLink:hover { text-decoration: underline; }
+      .aiAccessOn { display: inline-block; background: #dcfce7; color: #166534; padding: 0.2rem 0.55rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; margin-right: 0.4rem; }
+      .aiAccessBtn { border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; padding: 0.3rem 0.7rem; font-weight: 600; cursor: pointer; }
+      .aiAccessBtn:hover { background: #f3f4f6; }
       .emptyState { padding: 2rem; text-align: center; color: #6b7280; }
 
       /* `admin-mobile.css` biến mỗi hàng bảng `table.adminTable` thành 1 thẻ trên mobile,
@@ -43,7 +46,8 @@
         #usersTable td:nth-child(1)::before { content: "Tên đăng nhập"; }
         #usersTable td:nth-child(2)::before { content: "Ngày đăng ký"; }
         #usersTable td:nth-child(3)::before { content: "Số bài đã lưu"; }
-        #usersTable td:nth-child(4)::before { content: none; }
+        #usersTable td:nth-child(4)::before { content: "Đọc bản dịch AI"; }
+        #usersTable td:nth-child(5)::before { content: none; }
         #usersTable td:last-child a { display: block; width: 100%; min-height: 42px; line-height: 42px; text-align: center; }
       }
     </style>
@@ -78,6 +82,7 @@
                 <th>Tên đăng nhập</th>
                 <th>Ngày đăng ký</th>
                 <th>Số bài đã lưu</th>
+                <th>Đọc bản dịch AI</th>
                 <th></th>
               </tr>
             </thead>
@@ -87,6 +92,19 @@
                   <td>{{ u.username }}</td>
                   <td>{{ u.created_at.strftime('%H:%M %d/%m/%Y') if u.created_at else '' }}</td>
                   <td><span class="savedCountBadge">{{ u.saved_count }}</span></td>
+                  <td>
+                    <form method="post" action="/admin/users/{{ u.id }}/ai-translation-access" style="margin:0">
+                      {% if u.ai_translation_access %}
+                        <input type="hidden" name="enabled" value="0" />
+                        <span class="aiAccessOn">Đang bật</span>
+                        <button type="submit" class="aiAccessBtn">Thu hồi</button>
+                      {% else %}
+                        <input type="hidden" name="enabled" value="1" />
+                        {% if u.username|lower in env_whitelist %}<span class="aiAccessOn" title="Cấp qua AI_TRANSLATION_WHITELIST_USERS trong .env">Đang bật (.env)</span>{% endif %}
+                        <button type="submit" class="aiAccessBtn">Cấp quyền</button>
+                      {% endif %}
+                    </form>
+                  </td>
                   <td><a class="viewLink" href="/admin/users/{{ u.id }}">Xem chi tiết →</a></td>
                 </tr>
               {% endfor %}
