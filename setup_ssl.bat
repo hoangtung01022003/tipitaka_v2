@@ -43,7 +43,7 @@ echo.
 echo [3/4] Đang lấy/gia hạn chứng chỉ SSL (suttasearch.net & www.suttasearch.net)...
 cd %WACS_DIR%
 :: Sử dụng webroot filesystem qua Nginx để không bị xung đột cổng 80 và hỗ trợ tự động gia hạn vĩnh viễn
-wacs.exe --source manual --host suttasearch.net,www.suttasearch.net --validation filesystem --webrootpath "%~dp0%NGINX_DIR%\html" --store pemfiles --pemfilespath "%CERTS_DIR%" --installation none --accepttos --emailaddress admin@suttasearch.net
+wacs.exe --source manual --host suttasearch.net,www.suttasearch.net --validation filesystem --webrootpath "%~dp0%NGINX_DIR%\html" --store pemfiles --pemfilespath "%CERTS_DIR%" --installation script --script "%~dp0reload_nginx.bat" --accepttos --emailaddress admin@suttasearch.net
 cd ..
 
 echo.
